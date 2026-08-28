@@ -1,0 +1,31 @@
+import Foundation
+
+// Swift 6 模板；复制后修改 example.* 元数据、Input/Output 与 execute。
+// 保留 Codable + Sendable 强类型边界；禁止改成 [String: Any]。
+struct MinimalEchoTool: BoneAgentTool {
+    struct Input: Codable, Sendable {
+        let text: String
+    }
+
+    struct Output: Codable, Sendable {
+        let text: String
+    }
+
+    typealias Context = BoneAgentEmptyContext
+
+    static let definition = BoneAgentToolDefinition(
+        id: "example.echo",
+        version: "1",
+        title: "Echo",
+        summary: "返回输入文本"
+    )
+
+    func execute(input: Input, context: Context) async throws -> Output {
+        Output(text: input.text)
+    }
+}
+
+// 只在 Registry 组装边界做类型擦除：
+// let registry = try BoneAgentToolRegistry(
+//     tools: [BoneAnyAgentTool(MinimalEchoTool())]
+// )

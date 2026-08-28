@@ -1,0 +1,41 @@
+import Foundation
+
+// Swift 6 模板：项目 Service 独立于 Agent，可被 UI、Tool、测试直接复用。
+protocol ProjectLookupService: Sendable {
+    func title(for itemID: String) async throws -> String
+}
+
+// Service 通过强类型 Context 注入；禁止使用 [String: Any] 或全局单例。
+struct ProjectToolContext: BoneAgentToolContext {
+    let service: any ProjectLookupService
+}
+
+struct LookupProjectItemTool: BoneAgentTool {
+    struct Input: Codable, Sendable {
+        let itemID: String
+    }
+
+    struct Output: Codable, Sendable {
+        let title: String
+    }
+
+    typealias Context = ProjectToolContext
+
+    static let definition = BoneAgentToolDefinition(
+        id: "project.lookup-item",
+        version: "1",
+        title: "Lookup project item",
+        summary: "通过项目 Service 查询条目标题"
+    )
+
+    func execute(input: Input, context: Context) async throws -> Output {
+        let title = try await context.service.title(for: input.itemID)
+        return Output(title: title)
+    }
+}
+
+// 组装点：
+// let context = ProjectToolContext(service: ExistingProjectService())
+// let registry = try BoneAgentToolRegistry(
+//     tools: [BoneAnyAgentTool(LookupProjectItemTool())]
+// )

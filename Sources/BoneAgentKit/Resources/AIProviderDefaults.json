@@ -1,0 +1,1075 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": 6,
+  "verifiedAt": "2026-08-28",
+  "providers": [
+    {
+      "ident": "Anthropic",
+      "title": "Anthropic",
+      "icon": "icon_ai_anthropic",
+      "adapter": "anthropic",
+      "authenticationMode": "anthropicDual",
+      "defaultBaseURL": "https://api.anthropic.com",
+      "inviteURL": "https://console.anthropic.com/",
+      "documentationURL": "https://docs.anthropic.com/",
+      "modelCatalogMode": "local",
+      "sortOrder": 10,
+      "modelDiscovery": {
+        "endpoint": "https://api.anthropic.com/v1/models",
+        "adapter": "anthropic",
+        "authenticationMode": "anthropicDual"
+      },
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "claude-sonnet-4-5-20250929",
+          "displayName": "Claude Sonnet 4.5",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 200000,
+            "maximumInputTokens": 200000,
+            "maximumOutputTokens": 64000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://platform.claude.com/docs/en/models/overview"
+          }
+        },
+        {
+          "id": "claude-haiku-4-5-20251001",
+          "displayName": "Claude Haiku 4.5",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 200000,
+            "maximumInputTokens": 200000,
+            "maximumOutputTokens": 64000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://platform.claude.com/docs/en/models/overview"
+          }
+        }
+      ]
+    },
+    {
+      "ident": "AnthropicCompatible",
+      "title": "Anthropic 兼容格式",
+      "icon": "icon_ai_anthropic",
+      "adapter": "anthropic",
+      "authenticationMode": "anthropicDual",
+      "documentationURL": "https://docs.anthropic.com/",
+      "modelCatalogMode": "manual",
+      "sortOrder": 20,
+      "apiPaths": {
+        "chat": ""
+      },
+      "models": []
+    },
+    {
+      "ident": "OpenAI",
+      "title": "OpenAI",
+      "icon": "icon_ai_openAI",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://api.openai.com/v1",
+      "inviteURL": "https://platform.openai.com/",
+      "documentationURL": "https://platform.openai.com/docs/",
+      "modelCatalogMode": "local",
+      "sortOrder": 30,
+      "modelDiscovery": {
+        "endpoint": "https://api.openai.com/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/chat/completions",
+        "image": "/images/generations"
+      },
+      "models": [
+        {
+          "id": "gpt-4.1-mini",
+          "displayName": "GPT-4.1 Mini",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1047576,
+            "maximumOutputTokens": 32768,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+          }
+        },
+        {
+          "id": "gpt-image-1",
+          "displayName": "GPT Image 1",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "DeepSeek",
+      "title": "DeepSeek",
+      "icon": "icon_ai_deepseek",
+      "adapter": "anthropic",
+      "authenticationMode": "anthropicDual",
+      "defaultBaseURL": "https://api.deepseek.com/anthropic",
+      "inviteURL": "https://platform.deepseek.com/",
+      "documentationURL": "https://api-docs.deepseek.com/",
+      "modelCatalogMode": "local",
+      "sortOrder": 40,
+      "modelDiscovery": {
+        "endpoint": "https://api.deepseek.com/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumOutputTokens": 384000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://api-docs.deepseek.com/quick_start/pricing/"
+          }
+        },
+        {
+          "id": "deepseek-v4-flash",
+          "displayName": "DeepSeek V4 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumOutputTokens": 384000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://api-docs.deepseek.com/quick_start/pricing/"
+          }
+        }
+      ]
+    },
+    {
+      "ident": "Google",
+      "title": "Google",
+      "icon": "icon_ai_google",
+      "adapter": "google",
+      "authenticationMode": "googleAPIKey",
+      "defaultBaseURL": "https://generativelanguage.googleapis.com",
+      "inviteURL": "https://aistudio.google.com/",
+      "documentationURL": "https://ai.google.dev/gemini-api/docs/",
+      "modelCatalogMode": "local",
+      "sortOrder": 50,
+      "modelDiscovery": {
+        "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+        "adapter": "google",
+        "authenticationMode": "googleAPIKey"
+      },
+      "apiPaths": {
+        "models": "/v1beta/models",
+        "chat": "/v1beta/models/{model}:generateContent",
+        "geminiImage": "/v1beta/models/{model}:generateContent",
+        "imagenImage": "/v1beta/models/{model}:predict"
+      },
+      "models": [
+        {
+          "id": "gemini-2.5-flash",
+          "displayName": "Gemini 2.5 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "geminiGenerateContent",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1048576,
+            "maximumInputTokens": 1048576,
+            "maximumOutputTokens": 65536,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash"
+          }
+        },
+        {
+          "id": "gemini-2.5-flash-image",
+          "displayName": "Gemini 2.5 Flash Image",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "geminiGenerateContent",
+          "deprecated": false
+        },
+        {
+          "id": "imagen-4.0-generate-001",
+          "displayName": "Imagen 4",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "imagenPredict",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "KimiAnthropic",
+      "title": "Kimi API (Anthropic 协议)",
+      "icon": "icon_ai_moonshot",
+      "adapter": "anthropic",
+      "authenticationMode": "anthropicDual",
+      "defaultBaseURL": "https://api.moonshot.cn/anthropic",
+      "inviteURL": "https://platform.moonshot.cn/",
+      "documentationURL": "https://platform.moonshot.cn/docs/",
+      "modelCatalogMode": "local",
+      "sortOrder": 60,
+      "modelDiscovery": {
+        "endpoint": "https://api.moonshot.cn/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "kimi-k2.6",
+          "displayName": "Kimi K2.6",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 256000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://platform.kimi.com/docs/models"
+          }
+        }
+      ]
+    },
+    {
+      "ident": "KimiCodingPlan",
+      "inherits": "KimiAnthropic",
+      "title": "Kimi Coding Plan",
+      "authenticationMode": "bearerWithUserAgent",
+      "defaultBaseURL": "https://api.kimi.com/coding/v1",
+      "sortOrder": 70,
+      "modelDiscovery": {
+        "endpoint": "https://api.kimi.com/coding/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/messages"
+      },
+      "models": [
+        {
+          "id": "kimi-for-coding",
+          "displayName": "Kimi for Coding",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "Zhipu",
+      "title": "智谱 AI",
+      "icon": "icon_ai_zhipu",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://open.bigmodel.cn/api/paas/v4",
+      "inviteURL": "https://open.bigmodel.cn/",
+      "documentationURL": "https://docs.bigmodel.cn/",
+      "modelCatalogMode": "local",
+      "sortOrder": 80,
+      "modelDiscovery": {
+        "endpoint": "https://open.bigmodel.cn/api/paas/v4/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/chat/completions",
+        "image": "/images/generations"
+      },
+      "models": [
+        {
+          "id": "glm-5.2",
+          "displayName": "GLM-5.2",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumOutputTokens": 128000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2"
+          }
+        },
+        {
+          "id": "glm-5.1",
+          "displayName": "GLM-5.1",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 200000,
+            "maximumOutputTokens": 128000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://docs.bigmodel.cn/cn/guide/models/text/glm-5.1"
+          }
+        },
+        {
+          "id": "cogview-4-250304",
+          "displayName": "CogView 4",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "ZhipuCodingPlan",
+      "inherits": "Zhipu",
+      "title": "智谱 Coding Plan",
+      "adapter": "anthropic",
+      "authenticationMode": "bearerWithUserAgent",
+      "defaultBaseURL": "https://open.bigmodel.cn/api/anthropic",
+      "sortOrder": 90,
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "glm-5.2",
+          "displayName": "GLM-5.2",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "glm-5.1",
+          "displayName": "GLM-5.1",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "VolcengineCodingPlan",
+      "title": "火山方舟 Coding Plan",
+      "icon": "icon_ai_doubao",
+      "adapter": "anthropic",
+      "authenticationMode": "anthropicDual",
+      "defaultBaseURL": "https://ark.cn-beijing.volces.com/api/plan",
+      "inviteURL": "https://console.volcengine.com/ark/",
+      "documentationURL": "https://www.volcengine.com/docs/82379/",
+      "modelCatalogMode": "local",
+      "sortOrder": 100,
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "doubao-seed-2.0-code",
+          "displayName": "Doubao Seed 2.0 Code",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "doubao-seed-2.0-pro",
+          "displayName": "Doubao Seed 2.0 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "doubao-seed-2.0-lite",
+          "displayName": "Doubao Seed 2.0 Lite",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "glm-5.2",
+          "displayName": "GLM-5.2",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "kimi-k2.7-code",
+          "displayName": "Kimi K2.7 Code",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "minimax-m3",
+          "displayName": "MiniMax M3",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "deepseek-v4-flash",
+          "displayName": "DeepSeek V4 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "MiniMax",
+      "title": "MiniMax (API&编程包)",
+      "icon": "icon_ai_minimax",
+      "adapter": "anthropic",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://api.minimaxi.com/anthropic",
+      "inviteURL": "https://platform.minimaxi.com/",
+      "documentationURL": "https://platform.minimaxi.com/document/",
+      "modelCatalogMode": "local",
+      "sortOrder": 110,
+      "modelDiscovery": {
+        "endpoint": "https://api.minimaxi.com/v1/models",
+        "adapter": "miniMax",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/v1/messages",
+        "models": "https://api.minimaxi.com/v1/models",
+        "image": "https://api.minimaxi.com/v1/image_generation"
+      },
+      "models": [
+        {
+          "id": "MiniMax-M3",
+          "displayName": "MiniMax-M3",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "MiniMax-M2.7",
+          "displayName": "MiniMax-M2.7",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "image-01",
+          "displayName": "Image 01",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "minimaxImageGeneration",
+          "deprecated": false
+        },
+        {
+          "id": "image-01-live",
+          "displayName": "Image 01 Live",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "minimaxImageGeneration",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "Doubao",
+      "title": "豆包",
+      "icon": "icon_ai_doubao",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://ark.cn-beijing.volces.com/api/v3",
+      "inviteURL": "https://console.volcengine.com/ark/",
+      "documentationURL": "https://www.volcengine.com/docs/82379/",
+      "modelCatalogMode": "local",
+      "sortOrder": 120,
+      "modelDiscovery": {
+        "endpoint": "https://ark.cn-beijing.volces.com/api/v3/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/chat/completions"
+      },
+      "models": [
+        {
+          "id": "doubao-seed-2.0-pro",
+          "displayName": "Doubao Seed 2.0 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        },
+        {
+          "id": "doubao-seed-2.0-lite",
+          "displayName": "Doubao Seed 2.0 Lite",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "VolcengineSeedream",
+      "title": "即梦 (火山引擎)",
+      "icon": "icon_ai_doubao",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://ark.cn-beijing.volces.com/api/v3",
+      "inviteURL": "https://console.volcengine.com/ark/",
+      "documentationURL": "https://www.volcengine.com/docs/85621/",
+      "modelCatalogMode": "local",
+      "sortOrder": 125,
+      "modelDiscovery": {
+        "endpoint": "https://ark.cn-beijing.volces.com/api/v3/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "image": "/images/generations"
+      },
+      "models": [
+        {
+          "id": "doubao-seedream-4-0-250828",
+          "displayName": "即梦 4.0",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "openAI",
+          "supportedImageSizes": [
+            {
+              "width": 1024,
+              "height": 1024
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 720,
+              "height": 1280
+            },
+            {
+              "width": 1536,
+              "height": 1024
+            },
+            {
+              "width": 1024,
+              "height": 1536
+            }
+          ],
+          "deprecated": false
+        },
+        {
+          "id": "seedream-3.0",
+          "displayName": "即梦 3.0",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "openAI",
+          "supportedImageSizes": [
+            {
+              "width": 1024,
+              "height": 1024
+            },
+            {
+              "width": 1280,
+              "height": 720
+            },
+            {
+              "width": 720,
+              "height": 1280
+            }
+          ],
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "Qwen",
+      "title": "通义千问",
+      "icon": "icon_ai_qwen",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "inviteURL": "https://bailian.console.aliyun.com/",
+      "documentationURL": "https://help.aliyun.com/zh/model-studio/",
+      "modelCatalogMode": "local",
+      "sortOrder": 130,
+      "modelDiscovery": {
+        "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/chat/completions"
+      },
+      "models": [
+        {
+          "id": "qwen3-max",
+          "displayName": "Qwen3 Max",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 262144,
+            "maximumInputTokens": 258048,
+            "maximumOutputTokens": 65536,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://help.aliyun.com/zh/model-studio/model-qwen3-max"
+          }
+        },
+        {
+          "id": "qwen3.5-plus",
+          "displayName": "Qwen3.5 Plus",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumInputTokens": 991808,
+            "maximumOutputTokens": 65536,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://help.aliyun.com/zh/model-studio/qwen3-5-plus"
+          }
+        },
+        {
+          "id": "qwen3-coder-plus",
+          "displayName": "Qwen3 Coder Plus",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumInputTokens": 997952,
+            "maximumOutputTokens": 65536,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://help.aliyun.com/zh/model-studio/qwen3-coder-plus"
+          }
+        }
+      ]
+    },
+    {
+      "ident": "QwenAnthropic",
+      "inherits": "Qwen",
+      "title": "通义千问 (Anthropic 协议)",
+      "adapter": "anthropic",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://dashscope.aliyuncs.com/apps/anthropic",
+      "sortOrder": 140,
+      "modelDiscovery": {
+        "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/v1/messages"
+      },
+      "models": [
+        {
+          "id": "qwen3.7-max",
+          "displayName": "Qwen3.7 Max",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        },
+        {
+          "id": "qwen3.7-plus",
+          "displayName": "Qwen3.7 Plus",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "MiMo",
+      "title": "小米 MiMo (API)",
+      "icon": "icon_ai_mimo",
+      "adapter": "anthropic",
+      "authenticationMode": "apiKey",
+      "defaultBaseURL": "https://api.xiaomimimo.com/anthropic",
+      "inviteURL": "https://platform.xiaomimimo.com/",
+      "documentationURL": "https://platform.xiaomimimo.com/",
+      "modelCatalogMode": "local",
+      "sortOrder": 150,
+      "modelDiscovery": {
+        "endpoint": "https://api.xiaomimimo.com/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/anthropic/v1/messages"
+      },
+      "models": [
+        {
+          "id": "mimo-v2.5-pro",
+          "displayName": "MiMo V2.5 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://mimo.mi.com/docs/en-US/updates/model"
+          }
+        },
+        {
+          "id": "mimo-v2-pro",
+          "displayName": "MiMo V2 Pro",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://mimo.mi.com/docs/en-US/updates/model"
+          }
+        },
+        {
+          "id": "mimo-v2.5",
+          "displayName": "MiMo V2.5",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://mimo.mi.com/docs/en-US/updates/model"
+          }
+        },
+        {
+          "id": "mimo-v2-omni",
+          "displayName": "MiMo V2 Omni",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 256000,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://mimo.mi.com/docs/en-US/updates/model"
+          }
+        },
+        {
+          "id": "mimo-v2-flash",
+          "displayName": "MiMo V2 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "anthropicMessages",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "MiMoTokenPlan",
+      "inherits": "MiMo",
+      "title": "小米 MiMo Token Plan",
+      "defaultBaseURL": "https://token-plan-cn.xiaomimimo.com/anthropic",
+      "sortOrder": 160
+    },
+    {
+      "ident": "SiliconFlow",
+      "title": "硅基流动",
+      "icon": "icon_ai_siliconFlow",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://api.siliconflow.cn",
+      "inviteURL": "https://cloud.siliconflow.cn/",
+      "documentationURL": "https://docs.siliconflow.cn/",
+      "modelCatalogMode": "local",
+      "sortOrder": 170,
+      "modelDiscovery": {
+        "endpoint": "https://api.siliconflow.cn/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/v1/chat/completions",
+        "image": "/v1/images/generations"
+      },
+      "models": [
+        {
+          "id": "Qwen/Qwen3-8B",
+          "displayName": "Qwen3 8B",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        },
+        {
+          "id": "black-forest-labs/FLUX.1-schnell",
+          "displayName": "FLUX.1 Schnell",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "openAI",
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "Agnes",
+      "title": "Agnes AI",
+      "icon": "icon_ai_agnes",
+      "adapter": "openAI",
+      "authenticationMode": "bearer",
+      "defaultBaseURL": "https://apihub.agnes-ai.cn/v1",
+      "inviteURL": "https://platform.agnes-ai.cn",
+      "documentationURL": "https://agnes-ai.cn/zh-Hans/docs/overview",
+      "modelCatalogMode": "local",
+      "sortOrder": 175,
+      "modelDiscovery": {
+        "endpoint": "https://apihub.agnes-ai.cn/v1/models",
+        "adapter": "openAI",
+        "authenticationMode": "bearer"
+      },
+      "apiPaths": {
+        "chat": "/chat/completions",
+        "image": "/images/generations"
+      },
+      "models": [
+        {
+          "id": "agnes-2.0-flash",
+          "displayName": "Agnes 2.0 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "parameters": {
+            "temperature": 0.2,
+            "max_tokens": 4096
+          },
+          "deprecated": false
+        },
+        {
+          "id": "agnes-2.5-flash",
+          "displayName": "Agnes 2.5 Flash",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "parameters": {
+            "temperature": 0.2,
+            "max_tokens": 4096
+          },
+          "deprecated": false
+        },
+        {
+          "id": "agnes-2.5-pro-alpha",
+          "displayName": "Agnes 2.5 Pro Alpha",
+          "capabilities": [
+            "chat"
+          ],
+          "protocolVariant": "openAI",
+          "parameters": {
+            "temperature": 0.2,
+            "max_tokens": 4096
+          },
+          "deprecated": false,
+          "tokenLimits": {
+            "contextWindowTokens": 1000000,
+            "maximumOutputTokens": 65536,
+            "source": "official",
+            "verifiedAt": "2026-08-28",
+            "documentationURL": "https://wiki.agnes-ai.com/zh-Hans/docs/agnes-25-pro-alpha"
+          }
+        },
+        {
+          "id": "agnes-image-2.1-flash",
+          "displayName": "Agnes Image 2.1 Flash",
+          "capabilities": [
+            "image"
+          ],
+          "protocolVariant": "agnesImageGeneration",
+          "supportedImageSizes": [
+            {
+              "width": 1024,
+              "height": 1024,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "1:1"
+            },
+            {
+              "width": 864,
+              "height": 1152,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "3:4"
+            },
+            {
+              "width": 1152,
+              "height": 864,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "4:3"
+            },
+            {
+              "width": 1312,
+              "height": 736,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "16:9"
+            },
+            {
+              "width": 736,
+              "height": 1312,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "9:16"
+            },
+            {
+              "width": 832,
+              "height": 1248,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "2:3"
+            },
+            {
+              "width": 1248,
+              "height": 832,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "3:2"
+            },
+            {
+              "width": 1568,
+              "height": 672,
+              "requestSizeValue": "1K",
+              "requestRatioValue": "21:9"
+            }
+          ],
+          "supportedImageCounts": [
+            1
+          ],
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "ident": "NewApi",
+      "title": "NewAPI",
+      "icon": "icon_ai_newapi",
+      "adapter": "newAPI",
+      "authenticationMode": "bearer",
+      "inviteURL": "https://github.com/QuantumNous/new-api",
+      "documentationURL": "https://github.com/QuantumNous/new-api",
+      "modelCatalogMode": "remote",
+      "sortOrder": 180,
+      "apiPaths": {
+        "chat": "/v1/chat/completions",
+        "models": "/v1/models",
+        "image": "/v1/images/generations"
+      },
+      "models": []
+    },
+    {
+      "ident": "OpenAICompatible",
+      "title": "OpenAI 兼容格式",
+      "icon": "icon_ai_openAI",
+      "adapter": "customOpenAI",
+      "authenticationMode": "bearer",
+      "documentationURL": "https://platform.openai.com/docs/api-reference/",
+      "modelCatalogMode": "manual",
+      "sortOrder": 190,
+      "apiPaths": {
+        "chat": ""
+      },
+      "models": []
+    }
+  ]
+}
