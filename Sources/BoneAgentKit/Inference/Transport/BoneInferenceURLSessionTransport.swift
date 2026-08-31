@@ -21,14 +21,17 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
     private let loader: Loader
     private let sleeper: Sleeper
     private let streamLoader: StreamLoader
+    private let urlSessionConfiguration: URLSessionConfiguration?
+    private let streamLoaderIsURLSession: Bool
 
     public init(
         configuration: URLSessionConfiguration = .ephemeral,
         maximumResponseByteCount: Int = Self.defaultMaximumResponseByteCount
     ) {
-        self.init(
-            maximumResponseByteCount: maximumResponseByteCount,
-            loader: { request in
+        self.maximumResponseByteCount = max(0, maximumResponseByteCount)
+        self.urlSessionConfiguration = configuration
+        self.streamLoaderIsURLSession = true
+        self.loader = { request in
                 let bridge = BoneInferenceHTTPSessionBridge(
                     configuration: configuration,
                     request: request,
@@ -39,9 +42,9 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
                 } onCancel: {
                     bridge.cancel()
                 }
-            },
-            sleeper: { duration in try await Self.sleep(seconds: duration) },
-            streamLoader: { request, options in
+            }
+        self.sleeper = { duration in try await Self.sleep(seconds: duration) }
+        self.streamLoader = { request, options in
                 let bridge = BoneInferenceEventStreamSessionBridge(
                     configuration: configuration,
                     request: request,
@@ -53,7 +56,6 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
                     bridge.cancel()
                 }
             }
-        )
     }
 
     public init(
@@ -68,6 +70,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
         self.loader = loader
         self.sleeper = sleeper
         self.streamLoader = streamLoader
+        urlSessionConfiguration = nil
+        streamLoaderIsURLSession = false
     }
 
     public init(
@@ -79,6 +83,25 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
             loader: { _ in throw BoneInferenceTransportError.invalidConfiguration },
             streamLoader: streamLoader
         )
+    }
+
+    private func compatibilityEventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) -> BoneInferenceRawEventStream {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let response = try await sendEventStream(request, options: options)
+                    guard (200...299).contains(response.statusCode) else {
+                        throw BoneInferenceTransportError.httpStatus(response.statusCode)
+                    }
+                    for event in response.events { continuation.yield(event) }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
     }
 
     public static func sleep(seconds: TimeInterval) async throws {
@@ -148,6 +171,22 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
             }
             attempt += 1
         }
+    }
+
+    public func eventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) -> BoneInferenceRawEventStream {
+        // 只有默认 URLSession loader 能保证到达即交付；注入 loader 使用协议默认兼容实现。
+        guard streamLoaderIsURLSession else {
+            return compatibilityEventStream(request, options: options)
+        }
+        let bridge = BoneInferenceEventStreamSessionBridge(
+            configuration: urlSessionConfiguration!,
+            request: request,
+            options: options
+        )
+        return bridge.eventStream()
     }
 
     public func sendEventStream(

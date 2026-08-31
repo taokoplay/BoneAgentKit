@@ -46,6 +46,9 @@ enum BoneAnthropicToolStreamAggregator {
                           let name = raw["name"] as? String,
                           stableIDs[name] != nil {
                     blocks[index] = .tool(id: id, name: name, arguments: "", stopped: false)
+                } else if blockType == "thinking" || blockType == "redacted_thinking" {
+                    // 推理内容不是业务输出，不保存、不续传、不计入 Assistant Turn。
+                    blocks[index] = .reasoning(stopped: false)
                 } else {
                     throw BoneInferenceTransportError.invalidResponse
                 }
@@ -66,6 +69,10 @@ enum BoneAnthropicToolStreamAggregator {
                         throw BoneInferenceTransportError.invalidResponse
                     }
                     blocks[index] = .tool(id: id, name: name, arguments: arguments + fragment, stopped: false)
+                case (.reasoning(false), "thinking_delta"),
+                     (.reasoning(false), "signature_delta"):
+                    // reasoning/signature 可能含敏感模型内部状态，仅验证顺序后丢弃。
+                    break
                 default:
                     throw BoneInferenceTransportError.invalidResponse
                 }
@@ -76,6 +83,7 @@ enum BoneAnthropicToolStreamAggregator {
                 switch block {
                 case let .text(value, false): blocks[index] = .text(value: value, stopped: true)
                 case let .tool(id, name, arguments, false): blocks[index] = .tool(id: id, name: name, arguments: arguments, stopped: true)
+                case .reasoning(false): blocks[index] = .reasoning(stopped: true)
                 default: throw BoneInferenceTransportError.invalidResponse
                 }
             case "message_delta":
@@ -97,20 +105,28 @@ enum BoneAnthropicToolStreamAggregator {
             }
         }
 
-        guard stopped, let stopReason, !blocks.isEmpty,
+        guard stopped, let stopReason else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+        if stopReason == "max_tokens" || stopReason == "max_output_tokens" {
+            throw BoneInferenceTransportError.outputTruncated
+        }
+        guard !blocks.isEmpty,
               blocks.keys.sorted() == Array(0..<blocks.count),
               blocks.values.allSatisfy(\.isStopped) else {
             throw BoneInferenceTransportError.invalidResponse
         }
-        let hasTools = blocks.values.contains { $0.isTool }
+        let deliverableBlocks = blocks.filter { !$0.value.isReasoning }
+        guard !deliverableBlocks.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
+        let hasTools = deliverableBlocks.values.contains { $0.isTool }
         guard (hasTools && stopReason == "tool_use") || (!hasTools && stopReason == "end_turn") else {
             throw BoneInferenceTransportError.invalidResponse
         }
 
         var content: [BoneInferenceAssistantContent] = []
         var callIDs = Set<String>()
-        for index in blocks.keys.sorted() {
-            switch blocks[index]! {
+        for index in deliverableBlocks.keys.sorted() {
+            switch deliverableBlocks[index]! {
             case let .text(value, true):
                 guard !value.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
                 content.append(.text(value))
@@ -159,14 +175,20 @@ private extension BoneAnthropicToolStreamAggregator {
     enum Block {
         case text(value: String, stopped: Bool)
         case tool(id: String, name: String, arguments: String, stopped: Bool)
+        case reasoning(stopped: Bool)
 
         var isStopped: Bool {
             switch self {
-            case let .text(_, stopped), let .tool(_, _, _, stopped): return stopped
+            case let .text(_, stopped), let .tool(_, _, _, stopped), let .reasoning(stopped):
+                return stopped
             }
         }
         var isTool: Bool {
             if case .tool = self { return true }
+            return false
+        }
+        var isReasoning: Bool {
+            if case .reasoning = self { return true }
             return false
         }
     }

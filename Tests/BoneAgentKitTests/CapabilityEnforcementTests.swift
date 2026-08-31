@@ -1,0 +1,299 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import XCTest
+@testable import BoneAgentKit
+
+final class CapabilityEnforcementTests: XCTestCase {
+    func testRequirementsInferTextAndToolCallingFromRequest() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            availableTools: [Self.toolDefinition]
+        )
+
+        let requirements = try BoneInferenceRequirements(request: request)
+
+        XCTAssertEqual(requirements.requiredCapabilities, [.text, .toolCalling])
+    }
+
+    func testValidatorRejectsMissingToolCallingBeforeExecution() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            availableTools: [Self.toolDefinition]
+        )
+
+        XCTAssertThrowsError(
+            try BoneInferenceCapabilityValidator.validate(
+                request: request,
+                capabilities: [.text],
+                invocation: .nonStreaming
+            )
+        ) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedCapability(.toolCalling))
+            XCTAssertFalse(String(describing: error).contains("private-prompt"))
+        }
+    }
+
+    func testValidatorRejectsStreamingWithoutStreamingCapability() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "hello")]
+        )
+
+        XCTAssertThrowsError(
+            try BoneInferenceCapabilityValidator.validate(
+                request: request,
+                capabilities: [.text],
+                invocation: .streaming
+            )
+        ) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedCapability(.streaming))
+        }
+    }
+
+    func testProviderBoundaryRejectsMissingToolCapabilityBeforeTransport() async throws {
+        let transport = CapabilityCapturingTransport()
+        let engine = CapabilityGuardedEngine(capabilities: [.text], transport: transport)
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            availableTools: [Self.toolDefinition]
+        )
+
+        do {
+            _ = try await engine.infer(request: request)
+            XCTFail("Provider 边界缺少 Tool Calling 能力时必须失败")
+        } catch let error as BoneInferenceError {
+            XCTAssertEqual(error, .unsupportedCapability(.toolCalling))
+        }
+        let sends = await transport.sendCount()
+        XCTAssertEqual(sends, 0)
+    }
+
+    func testProviderBoundaryRejectsStreamingBeforeTransport() async throws {
+        let transport = CapabilityCapturingTransport()
+        let engine = CapabilityGuardedEngine(capabilities: [.text], transport: transport)
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")]
+        )
+
+        do {
+            _ = try await engine.streamInference(request: request, options: .init())
+            XCTFail("缺少 Streaming 能力时必须失败")
+        } catch let error as BoneInferenceError {
+            XCTAssertEqual(error, .unsupportedCapability(.streaming))
+        }
+        let sends = await transport.sendCount()
+        XCTAssertEqual(sends, 0)
+    }
+
+    func testRequireNativeStructuredOutputRejectsMissingCapability() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            responseFormat: .jsonObject(fallback: .requireNative)
+        )
+
+        XCTAssertThrowsError(try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: [.text, .toolCalling],
+            invocation: .nonStreaming
+        )) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedStructuredOutput)
+        }
+    }
+
+    func testStructuredOutputAllowsExplicitToolFallback() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            responseFormat: .jsonObject(fallback: .nativeOrToolCall)
+        )
+
+        XCTAssertNoThrow(try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: [.text, .toolCalling],
+            invocation: .nonStreaming
+        ))
+    }
+
+    func testAgentRejectsMissingTextCapabilityBeforeRunEventOrProviderCall() async throws {
+        let engine = RecordingEngine(capabilities: [])
+        let recorder = EventRecorder()
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: try BoneAgentToolRegistry(tools: []),
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 2),
+            eventSink: BoneAgentEventSink { event in await recorder.record(event) }
+        )
+
+        do {
+            _ = try await agent.run(
+                modelID: "model",
+                messages: [.init(role: .user, content: "private-prompt")]
+            )
+            XCTFail("缺少文本能力时必须在 Run 开始前失败")
+        } catch let error as BoneAgentError {
+            XCTAssertEqual(error, .unsupportedCapability(.text))
+        }
+
+        let requestCount = await engine.requestCount()
+        let eventCount = await recorder.count()
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertEqual(eventCount, 0)
+    }
+
+    func testAgentRejectsMissingToolCapabilityBeforeRunEventOrProviderCall() async throws {
+        let engine = RecordingEngine(capabilities: [.text])
+        let recorder = EventRecorder()
+        let registry = try BoneAgentToolRegistry(tools: [BoneAnyAgentTool(EchoTool())])
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: registry,
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 2),
+            eventSink: BoneAgentEventSink { event in await recorder.record(event) }
+        )
+
+        do {
+            _ = try await agent.run(
+                modelID: "model",
+                messages: [.init(role: .user, content: "private-prompt")]
+            )
+            XCTFail("缺少 Tool Calling 能力时必须在 Run 开始前失败")
+        } catch let error as BoneAgentError {
+            XCTAssertEqual(error, .unsupportedCapability(.toolCalling))
+        }
+
+        let requestCount = await engine.requestCount()
+        let eventCount = await recorder.count()
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertEqual(eventCount, 0)
+    }
+
+    private static let toolDefinition = BoneAgentToolDefinition(
+        id: "test.echo",
+        version: "1",
+        title: "Echo",
+        summary: "Echo",
+        wireName: "echo",
+        schemaVersion: 1,
+        inputSchema: .object(
+            properties: ["value": .string(enumValues: [], minimumLength: nil, maximumLength: nil)],
+            required: ["value"],
+            additionalProperties: false
+        )
+    )
+}
+
+private actor CapabilityCapturingTransport: BoneInferenceHTTPTransport {
+    private var sends = 0
+
+    func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
+        sends += 1
+        return .init(statusCode: 200, data: Data(), headers: [:])
+    }
+
+    func sendEventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) async throws -> BoneInferenceEventStreamResponse {
+        sends += 1
+        return .init(statusCode: 200, events: [], headers: [:])
+    }
+
+    func sendRetryableForModels(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
+        try await send(request)
+    }
+
+    func sendCount() -> Int { sends }
+}
+
+private struct CapabilityGuardedEngine: BoneInferenceEngine, BoneInferenceStreaming {
+    let nonImageCapabilities: Set<BoneInferenceCapability>
+    let imageGenerator: (any BoneInferenceImageGenerating)? = nil
+    let transport: CapabilityCapturingTransport
+
+    init(capabilities: Set<BoneInferenceCapability>, transport: CapabilityCapturingTransport) {
+        nonImageCapabilities = capabilities
+        self.transport = transport
+    }
+
+    func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
+        try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: capabilities,
+            invocation: .nonStreaming
+        )
+        _ = try await transport.send(URLRequest(url: URL(string: "https://synthetic.invalid")!))
+        return .finish(.init(text: "unexpected"))
+    }
+
+    func streamInference(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions
+    ) async throws -> BoneInferenceResponse {
+        try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: capabilities,
+            invocation: .streaming
+        )
+        _ = try await transport.sendEventStream(
+            URLRequest(url: URL(string: "https://synthetic.invalid")!),
+            options: options
+        )
+        return .finish(.init(text: "unexpected"))
+    }
+}
+
+private actor RecordingEngine: BoneInferenceEngine {
+    nonisolated let nonImageCapabilities: Set<BoneInferenceCapability>
+    nonisolated let imageGenerator: (any BoneInferenceImageGenerating)? = nil
+    private var requests = 0
+
+    init(capabilities: Set<BoneInferenceCapability>) {
+        nonImageCapabilities = capabilities
+    }
+
+    func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
+        requests += 1
+        return .finish(.init(text: "unexpected"))
+    }
+
+    func requestCount() -> Int { requests }
+}
+
+private actor EventRecorder {
+    private var events: [BoneAgentEvent] = []
+    func record(_ event: BoneAgentEvent) { events.append(event) }
+    func count() -> Int { events.count }
+}
+
+private struct EchoTool: BoneAgentTool {
+    struct Input: Codable, Sendable { let value: String }
+    struct Output: Codable, Sendable { let value: String }
+    typealias Context = BoneAgentEmptyContext
+
+    static let definition = BoneAgentToolDefinition(
+        id: "test.echo",
+        version: "1",
+        title: "Echo",
+        summary: "Echo",
+        wireName: "echo",
+        schemaVersion: 1,
+        inputSchema: .object(
+            properties: ["value": .string(enumValues: [], minimumLength: nil, maximumLength: nil)],
+            required: ["value"],
+            additionalProperties: false
+        )
+    )
+
+    func execute(input: Input, context: Context) async throws -> Output {
+        Output(value: input.value)
+    }
+}

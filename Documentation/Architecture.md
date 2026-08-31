@@ -1,5 +1,38 @@
 # BoneAgentKit 架构
 
+## Agent Harness 架构定位
+
+BoneAgentKit 是采用 **Agent Harness 架构**的生产级 Swift Agent Runtime SDK。这里的 Agent Harness 指围绕基础模型建立的受控执行环境，而不是某个名为 `Harness` 的类或目录。它将一次 Agent Run 所需的模型适配、上下文规划、Agent Loop、Tool 调度、策略与授权、状态提交、副作用对账和失败恢复组织成同一套控制面。
+
+```text
+User Intent
+→ Agent Runtime / Agent Loop
+→ Context Window Planning
+→ Model Inference
+→ Tool Scheduling / Authorization
+→ Tool Execution / Effect Receipt
+→ Persistence / Recovery
+→ Next Agent Step or Final Result
+```
+
+| Agent Harness 职责 | BoneAgentKit 实现 |
+| --- | --- |
+| Model / Provider abstraction | `Inference/Core`、`Inference/Providers` |
+| Transport 与端点安全 | `Inference/Transport` |
+| Model Catalog 与能力发现 | `Inference/Catalog`、`Inference/Discovery` |
+| Context Window 管理 | `Inference/Context` |
+| Agent Loop 与运行配置 | `Agent/Core` |
+| Tool Registry 与强类型 Context | `Agent/Tools` |
+| Tool Schema、策略与调度 | `Agent/Schema`、`Agent/Policies`、`Agent/Scheduling` |
+| Run 事件 | `Agent/Events` |
+| 授权和稳定 Tool Call 身份 | `Workflow/Authorization` |
+| Tool 执行和副作用控制 | `Workflow/Execution`、`Workflow/Effects` |
+| Checkpoint、持久化和恢复 | `Workflow/Persistence`、`Workflow/Recovery` |
+| 可恢复步骤 | `Workflow/Steps` |
+| Synthetic Test Harness | 独立 Product `BoneAgentTesting` |
+
+因此，BoneAgentKit **保留 Agent Harness 的架构能力，但不再用 Harness 作为生产 SDK 的品牌或领域目录**。`BoneAgentKit` 表示生产运行时；`BoneAgentTesting` 表示测试支持；只有 `BoneCrashTestHarness` 这类真实测试支架继续使用 Harness 术语。旧 `BoneHarnessAgentKit` 仅作为 deprecated Swift typealias 提供源码迁移窗口，不代表当前架构分层。
+
 ## 分层与命名
 
 BoneAgentKit 当前以仓库内独立 Swift Package 交付，依赖方向为 `ParsingBook → BoneAgentKit`，Kit 不反向引用 App 模型、数据库或 UI。
@@ -46,16 +79,20 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 ## Capability 与实现事实
 
-`text`、`structuredOutput`、`toolCalling`、`streaming` 当前都是 MVP 契约中的 Provider **声明性 metadata**。`BoneAgent` Runtime 目前不据此门禁：它直接调用 `infer`，再按实际返回的 `.finish`、`.structured` 或 `.toolCall` 分支运行；调用方不能把 metadata 误解为运行时强制校验。
+`text`、`structuredOutput`、`toolCalling`、`streaming` 已从声明性 metadata 升级为 **Engine / Provider 级联网前运行时契约**。`BoneInferenceRequirements` 从 `BoneInferenceRequest` 自动推导需求，`BoneInferenceCapabilityValidator` 在 Provider Transport 前校验；`BoneAgent` 还会在发布 `runStarted` 前预检 Text 与 Tool Calling。明确不支持的请求不会发送 Prompt、执行 Tool 或产生 Provider 调用。
 
-图片生成例外：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
+结构化输出采用显式协商：`requireNative` 必须具备原生 `.structuredOutput`；`nativeOrToolCall` 在原生能力不可用但 `.toolCalling` 可用时允许内部强制 Tool fallback。两种能力都不可用时联网前失败。Streaming 调用额外强制 `.streaming`，不静默退化为非流式。
+
+图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
+
+第一阶段不按 Model ID 猜测能力：Catalog 或 Host 尚未提供可核验的模型级 Tool/Structured/Streaming 能力时保持 unknown。当前门禁只拒绝 Engine / Provider 已明确不支持的请求；后续再引入带来源的模型级能力交集。
 
 | 能力 | Capability 状态 | 当前执行事实 |
 | --- | --- | --- |
-| 文本推理 | MVP 声明性 metadata | Runtime 可消费 `.finish`，但目前不检查 `.text` 声明 |
-| 结构化输出 | MVP 声明性 metadata | Runtime 可消费 `.structured`，但目前不检查 `.structuredOutput` 声明 |
-| Tool Calling | Provider 声明性 metadata | Runtime 可消费完整 Assistant Turn 和 0...N Tool Calls；Provider 模型是否真实支持仍由目录与真机 Smoke 验收 |
-| Streaming | Provider 可选完整结果能力 | `BoneInferenceStreaming` 复用通用 Request/Response，只在协议完整终态后交付；Agent Runtime 仍没有 token 增量 API，也不按 capability metadata 门禁 |
+| 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
+| 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
+| Tool Calling | Engine 级强制 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；具体 Model 是否支持仍由目录与真机 Smoke 验收 |
+| Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |
 | 图片编辑 | 后续 | 当前没有 Capability、请求 DTO 或 Runtime API，不得假设已实现 |
 

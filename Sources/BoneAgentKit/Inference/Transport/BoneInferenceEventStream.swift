@@ -118,6 +118,7 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     private var events: [BoneInferenceEventStreamEvent] = []
     private var response: HTTPURLResponse?
     private var continuation: CheckedContinuation<BoneInferenceEventStreamResponse, Error>?
+    private var eventContinuation: BoneInferenceRawEventStream.Continuation?
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var watchdog: DispatchWorkItem?
@@ -159,6 +160,31 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         }
     }
 
+    func eventStream() -> BoneInferenceRawEventStream {
+        AsyncThrowingStream { continuation in
+            lock.lock()
+            guard !completed, eventContinuation == nil, self.continuation == nil else {
+                lock.unlock()
+                continuation.finish(throwing: BoneInferenceTransportError.cancelled)
+                return
+            }
+            eventContinuation = continuation
+            let streamConfiguration = configuration.copy() as! URLSessionConfiguration
+            streamConfiguration.timeoutIntervalForRequest = .greatestFiniteMagnitude
+            streamConfiguration.timeoutIntervalForResource = .greatestFiniteMagnitude
+            let session = URLSession(configuration: streamConfiguration, delegate: self, delegateQueue: nil)
+            var streamRequest = request
+            streamRequest.timeoutInterval = .greatestFiniteMagnitude
+            let task = session.dataTask(with: streamRequest)
+            self.session = session
+            self.task = task
+            scheduleWatchdogLocked(error: .firstEventTimedOut, duration: options.firstEventTimeout)
+            lock.unlock()
+            continuation.onTermination = { @Sendable [weak self] _ in self?.cancel() }
+            task.resume()
+        }
+    }
+
     func cancel() {
         lock.lock()
         explicitlyCancelled = true
@@ -196,6 +222,7 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             let framed = try framer.append(data)
             if !framed.isEmpty {
                 events.append(contentsOf: framed)
+                for event in framed { eventContinuation?.yield(event) }
                 scheduleWatchdogLocked(error: .idleTimedOut, duration: options.idleTimeout)
             } else if !events.isEmpty, !data.isEmpty {
                 scheduleWatchdogLocked(error: .idleTimedOut, duration: options.idleTimeout)
@@ -230,7 +257,9 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
                 return
             }
             if (200 ... 299).contains(response.statusCode) {
-                events.append(contentsOf: try framer.finish())
+                let finalEvents = try framer.finish()
+                events.append(contentsOf: finalEvents)
+                for event in finalEvents { eventContinuation?.yield(event) }
             }
             let result = BoneInferenceEventStreamResponse(
                 statusCode: response.statusCode,
@@ -261,12 +290,18 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         watchdog?.cancel()
         let continuation = self.continuation
         self.continuation = nil
+        let eventContinuation = self.eventContinuation
+        self.eventContinuation = nil
         let task = self.task
         let session = self.session
         lock.unlock()
         if cancelTask { task?.cancel() }
         session?.finishTasksAndInvalidate()
         continuation?.resume(with: result)
+        switch result {
+        case .success: eventContinuation?.finish()
+        case let .failure(error): eventContinuation?.finish(throwing: error)
+        }
     }
 
     private static func headers(from response: HTTPURLResponse) -> [String: String] {

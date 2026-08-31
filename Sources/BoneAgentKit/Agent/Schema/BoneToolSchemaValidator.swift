@@ -1,6 +1,27 @@
 import Foundation
 
 /// Tool Schema 定义和模型参数的本地验证器。
+public enum BoneToolSchemaMismatchRule: String, Equatable, Sendable {
+    case missingRequired
+    case typeMismatch
+    case unexpectedProperty
+    case stringLength
+    case stringEnum
+    case arrayCount
+    case numberRange
+    case unionMismatch
+}
+
+public struct BoneToolSchemaMismatch: Equatable, Sendable {
+    public let path: String
+    public let rule: BoneToolSchemaMismatchRule
+
+    public init(path: String, rule: BoneToolSchemaMismatchRule) {
+        self.path = path
+        self.rule = rule
+    }
+}
+
 public enum BoneToolSchemaValidator {
     public static let maximumEncodedSchemaByteCount = 64 * 1_024
     public static let maximumArgumentsByteCount = 1_048_576
@@ -15,6 +36,17 @@ public enum BoneToolSchemaValidator {
         guard data.count <= maximumEncodedSchemaByteCount else {
             throw BoneToolSchemaError.schemaTooLarge
         }
+    }
+
+    /// 返回首个不携带模型字段值的 Schema 失败路径；未知属性统一记为 `.*`。
+    public static func firstMismatch(
+        arguments: Data,
+        against schema: BoneToolSchema
+    ) -> BoneToolSchemaMismatch? {
+        guard let value = try? JSONSerialization.jsonObject(with: arguments, options: [.fragmentsAllowed]) else {
+            return .init(path: "$", rule: .typeMismatch)
+        }
+        return mismatch(value, schema: schema, path: "$")
     }
 
     /// 先验证 JSON 边界，再按 Schema 验证参数。
@@ -87,6 +119,74 @@ private extension BoneToolSchemaValidator {
                 }
                 try validateDefinition(variant, depth: depth + 1)
             }
+        }
+    }
+
+    static func mismatch(
+        _ value: Any,
+        schema: BoneToolSchema,
+        path: String
+    ) -> BoneToolSchemaMismatch? {
+        switch schema {
+        case let .object(properties, required, additionalProperties):
+            guard let object = value as? [String: Any] else {
+                return .init(path: path, rule: .typeMismatch)
+            }
+            for key in required.sorted() where object[key] == nil {
+                return .init(path: path + "." + key, rule: .missingRequired)
+            }
+            if !additionalProperties,
+               object.keys.contains(where: { properties[$0] == nil }) {
+                return .init(path: path + ".*", rule: .unexpectedProperty)
+            }
+            for key in properties.keys.sorted() {
+                if let child = object[key],
+                   let result = mismatch(child, schema: properties[key]!, path: path + "." + key) {
+                    return result
+                }
+            }
+            return nil
+        case let .array(items, minimumItems, maximumItems):
+            guard let values = value as? [Any] else {
+                return .init(path: path, rule: .typeMismatch)
+            }
+            guard contains(values.count, minimum: minimumItems, maximum: maximumItems) else {
+                return .init(path: path, rule: .arrayCount)
+            }
+            for child in values {
+                if let result = mismatch(child, schema: items, path: path + "[*]") { return result }
+            }
+            return nil
+        case let .string(enumValues, minimumLength, maximumLength):
+            guard let string = value as? String else { return .init(path: path, rule: .typeMismatch) }
+            guard contains(string.count, minimum: minimumLength, maximum: maximumLength) else {
+                return .init(path: path, rule: .stringLength)
+            }
+            guard enumValues.isEmpty || enumValues.contains(string) else {
+                return .init(path: path, rule: .stringEnum)
+            }
+            return nil
+        case let .integer(minimum, maximum):
+            guard let number = value as? NSNumber,
+                  !isBoolean(number), CFNumberIsFloatType(number) == false else {
+                return .init(path: path, rule: .typeMismatch)
+            }
+            return contains(number.intValue, minimum: minimum, maximum: maximum)
+                ? nil : .init(path: path, rule: .numberRange)
+        case let .number(minimum, maximum):
+            guard let number = value as? NSNumber, !isBoolean(number) else {
+                return .init(path: path, rule: .typeMismatch)
+            }
+            return contains(number.doubleValue, minimum: minimum, maximum: maximum)
+                ? nil : .init(path: path, rule: .numberRange)
+        case .boolean:
+            guard let number = value as? NSNumber, isBoolean(number) else {
+                return .init(path: path, rule: .typeMismatch)
+            }
+            return nil
+        case let .taggedUnion(_, variants):
+            return variants.filter({ matches(value, schema: $0) }).count == 1
+                ? nil : .init(path: path, rule: .unionMismatch)
         }
     }
 

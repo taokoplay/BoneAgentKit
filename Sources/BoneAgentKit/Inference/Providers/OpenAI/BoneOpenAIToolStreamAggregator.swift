@@ -2,6 +2,70 @@ import Foundation
 
 /// OpenAI Tool SSE 的严格状态机；只在语义终态与 `[DONE]` 均完整时交付。
 enum BoneOpenAIToolStreamAggregator {
+    /// 对严格聚合失败做只基于协议形态的重放分类；不保留任何正文、Tool 名称或参数。
+    static func failureStage(
+        events: [BoneInferenceEventStreamEvent],
+        definitions: [BoneAgentToolDefinition]
+    ) -> BoneInferenceOpenAIFailureStage {
+        let knownNames = Set(definitions.compactMap(\.wireName))
+        var finishReason: String?
+        var done = false
+        var calls: [Int: (hasID: Bool, nameKnown: Bool, arguments: String)] = [:]
+
+        for event in events {
+            if event.data == "[DONE]" {
+                guard !done, finishReason != nil else { return .streamCompletion }
+                done = true
+                continue
+            }
+            guard !done else { return .streamCompletion }
+            guard event.event != "error" else { return .eventError }
+            guard let object = try? JSONSerialization.jsonObject(with: Data(event.data.utf8)),
+                  let json = object as? [String: Any] else { return .eventJSON }
+            guard json["error"] == nil else { return .eventError }
+            if let rawUsage = json["usage"] {
+                guard let usage = rawUsage as? [String: Any],
+                      usage["prompt_tokens"] is Int,
+                      usage["completion_tokens"] is Int else { return .usageShape }
+            }
+            guard let choices = json["choices"] as? [[String: Any]], choices.count <= 1 else {
+                return .choicesShape
+            }
+            guard let choice = choices.first else { continue }
+            guard (choice["index"] as? Int ?? 0) == 0 else { return .choiceIndex }
+            if let reason = choice["finish_reason"] as? String {
+                guard finishReason == nil else { return .finishReason }
+                finishReason = reason
+            }
+            guard let delta = choice["delta"] as? [String: Any] else { return .deltaShape }
+            for fragment in delta["tool_calls"] as? [[String: Any]] ?? [] {
+                guard let index = fragment["index"] as? Int, index >= 0 else { return .toolFragment }
+                var call = calls[index] ?? (false, false, "")
+                if fragment["id"] is String { call.hasID = true }
+                if let type = fragment["type"] as? String, type != "function" { return .toolFragment }
+                if let function = fragment["function"] as? [String: Any] {
+                    if let name = function["name"] as? String { call.nameKnown = knownNames.contains(name) }
+                    if let arguments = function["arguments"] as? String { call.arguments += arguments }
+                }
+                calls[index] = call
+            }
+        }
+        guard done, let finishReason else { return .streamCompletion }
+        if !calls.isEmpty {
+            guard finishReason == "tool_calls" || finishReason == "function_call" else { return .finishReason }
+            let indices = calls.keys.sorted()
+            guard indices == Array(0..<indices.count) else { return .toolFragment }
+            for index in indices {
+                guard let call = calls[index], call.hasID, call.nameKnown else { return .toolIdentity }
+                guard (try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8))) is [String: Any] else {
+                    return .toolArgumentsJSON
+                }
+            }
+            return .assistantTurn
+        }
+        return finishReason == "stop" ? .assistantTurn : .finishReason
+    }
+
     static func aggregate(
         events: [BoneInferenceEventStreamEvent],
         definitions: [BoneAgentToolDefinition]
@@ -73,6 +137,9 @@ enum BoneOpenAIToolStreamAggregator {
         }
 
         guard done, let finishReason else { throw BoneInferenceTransportError.invalidResponse }
+        if finishReason == "length" {
+            throw BoneInferenceTransportError.outputTruncated
+        }
         if !calls.isEmpty {
             guard finishReason == "tool_calls" || finishReason == "function_call" else {
                 throw BoneInferenceTransportError.invalidResponse

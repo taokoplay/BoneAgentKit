@@ -2,6 +2,47 @@ import Foundation
 
 /// Anthropic Messages Tool wire 的内部映射。
 enum BoneAnthropicToolWire {
+    /// 非流式 Tool 响应的安全形态分类；不保留文本、Tool ID、名称或 input。
+    static func failureStage(
+        _ json: [String: Any],
+        definitions: [BoneAgentToolDefinition]
+    ) -> BoneInferenceAnthropicFailureStage {
+        guard json["error"] == nil else { return .providerError }
+        guard let blocks = json["content"] as? [[String: Any]], !blocks.isEmpty else {
+            return .contentShape
+        }
+        let knownNames = Set(definitions.compactMap(\.wireName))
+        var callIDs = Set<String>()
+        var hasCalls = false
+        for block in blocks {
+            switch block["type"] as? String {
+            case "text":
+                guard let text = block["text"] as? String, !text.isEmpty else { return .blockShape }
+            case "tool_use":
+                hasCalls = true
+                guard let id = block["id"] as? String,
+                      callIDs.insert(id).inserted,
+                      let name = block["name"] as? String,
+                      knownNames.contains(name) else { return .toolIdentity }
+                guard let input = block["input"] as? [String: Any],
+                      JSONSerialization.isValidJSONObject(input) else { return .toolInputShape }
+            case "thinking", "redacted_thinking":
+                // 推理 block 不参与业务响应；形态合法即可安全丢弃全部内容与 signature。
+                continue
+            default:
+                return .blockShape
+            }
+        }
+        guard let stopReason = json["stop_reason"] as? String else { return .stopReason }
+        if hasCalls, stopReason != "tool_use" { return .stopReason }
+        if let usage = json["usage"] {
+            guard let raw = usage as? [String: Any],
+                  raw["input_tokens"] is Int,
+                  raw["output_tokens"] is Int else { return .usageShape }
+        }
+        return .assistantTurn
+    }
+
     static func definitions(_ values: [BoneAgentToolDefinition]) throws -> [[String: Any]] {
         try validated(values).map { definition in
             [
@@ -107,6 +148,9 @@ enum BoneAnthropicToolWire {
                 }
                 let data = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
                 content.append(.toolCall(.init(id: id, toolID: stableID, arguments: data)))
+            case "thinking", "redacted_thinking":
+                // 与流式聚合器一致：不保存、不续传，也不将推理或 signature 混入 Assistant Turn。
+                continue
             default:
                 throw BoneInferenceTransportError.invalidResponse
             }
@@ -115,6 +159,7 @@ enum BoneAnthropicToolWire {
         do { turn = try .init(content: content) }
         catch { throw BoneInferenceTransportError.invalidResponse }
         let reason = finishReason(json["stop_reason"] as? String, hasCalls: !turn.toolCalls.isEmpty)
+        if reason == .length { throw BoneInferenceTransportError.outputTruncated }
         let usage = try usage(json["usage"] as? [String: Any])
         return .init(
             assistantTurn: turn,
@@ -183,7 +228,7 @@ private extension BoneAnthropicToolWire {
         if hasCalls { return value == "tool_use" ? .toolCalls : .other(providerCode: value) }
         switch value {
         case "end_turn", "stop_sequence": return .stop
-        case "max_tokens": return .length
+        case "max_tokens", "max_output_tokens": return .length
         case "refusal": return .refusal
         case nil: return .other(providerCode: nil)
         default: return .other(providerCode: value)

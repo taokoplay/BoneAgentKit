@@ -16,6 +16,21 @@ public protocol BoneInferenceStreaming: Sendable {
     ) async throws -> BoneInferenceResponse
 }
 
+/// 显式返回可读推理元数据的入口；结果只驻留内存，不自动记录或持久化。
+public protocol BoneInferenceDetailedResultProviding: Sendable {
+    func inferDetailed(
+        request: BoneInferenceRequest
+    ) async throws -> BoneInferenceDetailedResult
+}
+
+/// 使用流式传输、在完整终态后一次性交付详细结果的入口。
+public protocol BoneInferenceDetailedStreaming: Sendable {
+    func streamInferenceDetailed(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions
+    ) async throws -> BoneInferenceDetailedResult
+}
+
 public protocol BoneInferenceEngine: Sendable {
     /// 不含 imageGeneration 的文本侧能力声明。
     var nonImageCapabilities: Set<BoneInferenceCapability> { get }

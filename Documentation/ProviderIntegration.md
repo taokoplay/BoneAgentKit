@@ -16,6 +16,11 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
     let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
+        try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: capabilities,
+            invocation: .nonStreaming
+        )
         var urlRequest = try BoneInferenceProviderRequestBuilder.makeJSONRequest(
             configuration: configuration,
             operation: "chat",
@@ -42,12 +47,31 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
 
 这是结构示例，不代表某个真实 Provider 协议。正式实现必须依据供应商官方公开 API：
 
+- 在构造 URLRequest 和调用 Transport 前使用 `BoneInferenceCapabilityValidator`，确保请求所需 Text、Tool Calling、Structured Output 或 Streaming 能力已满足；
+- 结构化输出 fallback 必须由 `BoneInferenceResponseFormat` 显式允许，不能由 Provider 静默降级；
+- Model 级能力无法核验时保持 unknown，不按模型名或兼容协议名称猜测；
 - 通过 `BoneInferenceProviderConfiguration` 注入凭据、Base URL、协议和端点；
 - 通过 `BoneInferenceProviderRequestBuilder` 执行最终 URL 与 Header 门禁；
 - POST 不自动重试，模型发现 GET 只能使用有限重试入口；
 - 通过 `BoneInferenceProviderResponseValidator` 映射稳定状态与结构化 safety；
 - 不把 Prompt、响应正文、凭据、完整 URL、Cookie 或 Authorization 写入错误、日志、事件和 Harness 报告；
 - Streaming 必须在协议完整终态后返回统一 Response，不发布半截 token。
+
+## 可读推理披露
+
+`BoneInferenceRequest.reasoningDisclosure` 默认为 `.hidden`。业务只有通过
+`BoneInferenceDetailedResultProviding` 或 `BoneInferenceDetailedStreaming` 才能取得内存中的
+`BoneInferenceDetailedResult.reasoning`：
+
+- `.hidden` 不交付任何可读推理；
+- `.summary` 只交付 Provider 明确标记的摘要；
+- `.providerReadable` 可交付已核验字段中的可读 thinking/reasoning 原文，只有摘要时允许降级为摘要。
+
+推理文本不得进入 `BoneInferenceAssistantTurn`、Tool 参数、普通 Codable 检查点或 SDK 日志。
+`signature`、`thoughtSignature`、`redacted_thinking`、encrypted/opaque continuation 永不作为推理文本披露；
+它们如为续传必需，只能留在有界的 `BoneInferenceProviderContinuation`。可选推理超过 256 KiB 时丢弃推理，
+不得破坏已经验证的正式响应。当前详细 Streaming 仍在完整终态后一次性交付；真正逐事件
+`AsyncThrowingStream` 属于第二阶段 API。
 
 如果新 Provider 需要图片能力，实现独立 `BoneInferenceImageGenerating`，并让 Engine 的 `imageGenerator` 非空；不要把 `.imageGeneration` 直接放入 `nonImageCapabilities`。图片 URL/Base64/Data 仍由 App Host 物化，Kit 不负责数据库、缓存或 UI。
 

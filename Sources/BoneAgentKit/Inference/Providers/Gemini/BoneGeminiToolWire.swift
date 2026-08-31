@@ -118,13 +118,20 @@ enum BoneGeminiToolWire {
         if ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].contains(finish) {
             throw BoneInferenceTransportError.safetyBlocked
         }
-        if finish == "MAX_TOKENS" || finish == "MALFORMED_FUNCTION_CALL" {
+        if finish == "MAX_TOKENS" {
+            throw BoneInferenceTransportError.outputTruncated
+        }
+        if finish == "MALFORMED_FUNCTION_CALL" {
             throw BoneInferenceTransportError.invalidResponse
         }
         var blocks: [BoneInferenceAssistantContent] = []
         var localIndex = 0
         for part in parts {
-            if let text = part["text"] as? String, !text.isEmpty { blocks.append(.text(text)) }
+            if part["thought"] as? Bool != true,
+               let text = part["text"] as? String,
+               !text.isEmpty {
+                blocks.append(.text(text))
+            }
             if let function = part["functionCall"] as? [String: Any] {
                 guard let name = function["name"] as? String,
                       let stableID = stableIDs[name],
@@ -193,10 +200,12 @@ private extension BoneGeminiToolWire {
         definitions: [BoneAgentToolDefinition]
     ) throws {
         let names = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
-        guard parts.count == turn.content.count else {
+        // thought/thoughtSignature 必须保留在 opaque continuation 中，但不属于正式 Assistant Turn。
+        let deliverableParts = parts.filter { $0["thought"] as? Bool != true }
+        guard deliverableParts.count == turn.content.count else {
             throw BoneInferenceError.invalidProviderContinuation
         }
-        for (part, block) in zip(parts, turn.content) {
+        for (part, block) in zip(deliverableParts, turn.content) {
             switch block {
             case let .text(expectedText):
                 guard part["text"] as? String == expectedText,

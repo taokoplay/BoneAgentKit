@@ -37,7 +37,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
         do { impact = try definition.requiredImpact() }
         catch { throw BoneWorkflowToolExecutionError.pipelineUnavailable }
 
-        if impact.isOrdinaryReadOnly {
+        if impact.isLocalReadOnly {
             return try await operation()
         }
         guard impact.requiresHostAuthorization,

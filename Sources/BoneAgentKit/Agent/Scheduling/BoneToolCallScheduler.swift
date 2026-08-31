@@ -1,5 +1,10 @@
 import Foundation
 
+/// 标记必须中断整批 Tool 调度的内部控制面失败；对外仍由 Agent 映射为稳定错误。
+enum BoneToolBatchAbortError: Error, Sendable {
+    case controlPlaneFailure
+}
+
 /// 按 Provider ordinal 确定性调度同轮 Tool Calls。
 public struct BoneToolCallScheduler: Sendable {
     public typealias Operation = @Sendable (BoneInferenceToolCall) async throws -> BoneToolResultContent
@@ -108,8 +113,8 @@ private extension BoneToolCallScheduler {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                if failureStrategy == .failFast { throw error }
-                results.append(try makeResult(call: call, content: .text("tool_execution_failed"), isError: true))
+                guard let content = collectedFailureContent(for: error) else { throw error }
+                results.append(try makeResult(call: call, content: content, isError: true))
             }
         }
         return results
@@ -130,10 +135,12 @@ private extension BoneToolCallScheduler {
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        if strategy == .failFast { throw error }
+                        guard let content = collectedFailureContent(for: error, strategy: strategy) else {
+                            throw error
+                        }
                         return try makeResult(
                             call: call,
-                            content: .text("tool_execution_failed"),
+                            content: content,
                             isError: true
                         )
                     }
@@ -166,5 +173,34 @@ private extension BoneToolCallScheduler {
             isError: isError,
             ordinal: call.ordinal
         )
+    }
+
+    /// 将 collectAll 可恢复失败映射为固定安全内容；控制面和系统性错误继续传播。
+    /// - Parameters:
+    ///   - error: Tool 调用抛出的错误。
+    ///   - strategy: 当前失败策略；省略时使用调度器配置。
+    /// - Returns: 可收集时返回固定安全内容，否则返回 nil。
+    func collectedFailureContent(
+        for error: Error,
+        strategy: BoneToolFailureStrategy? = nil
+    ) -> BoneToolResultContent? {
+        guard (strategy ?? failureStrategy) == .collectAll else { return nil }
+        if let agentError = error as? BoneAgentError {
+            switch agentError {
+            case .toolArgumentsInvalid:
+                return .text("tool_arguments_invalid")
+            case .toolExecutionFailed:
+                return .text("tool_execution_failed")
+            default:
+                return nil
+            }
+        }
+        if error is BoneToolBatchAbortError || error is BoneRunBudgetError ||
+            error is BoneToolPolicyError || error is BoneToolSchedulerError ||
+            error is BoneInferenceError {
+            return nil
+        }
+        // 调度器公开 Operation 的未知错误按普通 Tool 执行失败处理，兼容既有 collectAll 契约。
+        return .text("tool_execution_failed")
     }
 }

@@ -4,8 +4,32 @@ public enum BoneAgentInferenceCheckpointKind: String, Codable, Equatable, Sendab
     case finish, structured, toolCall, assistantTurn
 }
 
+/// 推理失败的安全分类；只保留固定类别和 HTTP 状态码，不携带错误文本或网络地址。
+public enum BoneAgentInferenceFailureDiagnostic: Equatable, Sendable {
+    case invalidCredential
+    case invalidConfiguration
+    case httpStatus(Int)
+    case rateLimited
+    case quotaExceeded
+    case unsupportedModel
+    case safetyBlocked
+    case outputTruncated
+    case firstEventTimedOut
+    case idleTimedOut
+    case network
+    case invalidResponse
+    case unknown
+}
+
 public enum BoneAgentProgress: Equatable, Sendable {
     case inferenceResponsePrepared(step: Int, kind: BoneAgentInferenceCheckpointKind)
+    case inferenceFailed(BoneAgentInferenceFailureDiagnostic)
+    /// Provider 协议失败的白名单形态；不携带正文、推理、Tool 参数或原始事件。
+    case inferenceProtocolShapeFailed(BoneInferenceProtocolShapeDiagnostic)
+    /// Tool 已通过定义、影响与 Schema 校验，即将申请执行预算；仅携带稳定 Tool ID。
+    case toolExecutionPrepared(toolID: String)
+    /// 仅携带 Schema 声明路径与固定规则，不携带 Tool 参数或未知模型键。
+    case toolArgumentsRejected(toolID: String, mismatch: BoneToolSchemaMismatch)
     case toolResultPrepared(step: Int, ordinal: Int)
 }
 
@@ -156,6 +180,9 @@ public actor BoneAgentWorkflowStepController {
         let next: BoneAgentWorkflowStepCheckpoint
         let event: BoneAgentWorkflowStepEventKind
         switch progress {
+        case .inferenceFailed, .inferenceProtocolShapeFailed, .toolExecutionPrepared, .toolArgumentsRejected:
+            // 推理/预执行诊断不是可恢复业务检查点，不写持久状态。
+            return
         case let .inferenceResponsePrepared(step, _):
             guard step > 0, step >= checkpoint.inferenceResponseCount else {
                 throw BoneAgentWorkflowStepError.invalidState

@@ -55,6 +55,8 @@ public struct BoneInferenceEventStreamResponse: Sendable {
     }
 }
 
+public typealias BoneInferenceRawEventStream = AsyncThrowingStream<BoneInferenceEventStreamEvent, Error>
+
 public protocol BoneInferenceHTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse
     func sendRetryableForModels(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse
@@ -62,4 +64,38 @@ public protocol BoneInferenceHTTPTransport: Sendable {
         _ request: URLRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceEventStreamResponse
+    /// 原始 SSE 到达即交付；取消消费者必须传播到网络任务。
+    func eventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) -> BoneInferenceRawEventStream
+}
+
+public extension BoneInferenceHTTPTransport {
+    /// 测试替身与旧 Transport 的兼容实现；真实 URLSession Transport 覆盖为逐事件交付。
+    func eventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) -> BoneInferenceRawEventStream {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let response = try await sendEventStream(request, options: options)
+                    guard (200...299).contains(response.statusCode) else {
+                        throw BoneInferenceTransportError.httpStatus(response.statusCode)
+                    }
+                    for event in response.events {
+                        try Task.checkCancellation()
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: BoneInferenceTransportError.cancelled)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
 }

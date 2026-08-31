@@ -1,15 +1,33 @@
 # BoneAgentKit
 
-BoneAgentKit 是仓库内、可供多个 Swift 项目复用的 Agent 编排 Package。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Product：
+BoneAgentKit 是仓库内、可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
+
+`Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Product：
 
 - `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence 与副作用恢复契约；
 - `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report。
 
 生产 Product 不依赖 `BoneAgentTesting`。ParsingBook 的正文、角色 Parser、Evidence Grounder、数据库坐标、GRDB、手工字段保护和业务 Task DB 保留在 App Host。
 
+## 框架定位
+
+```text
+User Intent
+→ Agent Runtime / Agent Loop
+→ Context Window Planning
+→ Model Inference
+→ Tool Scheduling / Authorization
+→ Tool Execution / Effect Receipt
+→ Persistence / Recovery
+→ Next Agent Step or Final Result
+```
+
+这条受控执行链构成 BoneAgentKit 的 Agent Harness。它不是聊天 UI、业务数据库或 Prompt 内容仓库；ParsingBook 等 App Host 负责业务 Intent、数据源、用户设置、UI 和数据库映射，Kit 负责供应商无关的模型执行与 Agent 控制面。完整组件映射见[架构与模块边界](Documentation/Architecture.md#agent-harness-架构定位)。
+
 ## 能力概览
 
 - OpenAI、Anthropic、Gemini 非流式 Tool Calling 与严格 Streaming 聚合；
+- 从请求字段自动推导 Text、Tool Calling、Streaming 与结构化输出需求，并在联网前强制校验 Engine 能力；
 - ordered Assistant Turn、0...N Tool Calls、Provider-scoped continuation；
 - 默认串行、显式只读 parallel-safe 的确定性多 Tool 调度；
 - 强类型 Tool Schema、六维影响、预算与 fail-closed Authorization Grant；
@@ -40,6 +58,7 @@ BoneAgentKit 是仓库内、可供多个 Swift 项目复用的 Agent 编排 Pack
 - 自动 Contract、Synthetic Fixture 和 Simulator build 不能替代真机真实 Provider 验收。
 - OpenAI、Anthropic、Gemini 的真实 Tool Calling Smoke 仍需 App 沙箱凭据、支持 Tool Calling 的模型以及用户明确确认联网和费用。
 - Provider continuation、Prompt、正文、Tool 参数/结果和原始响应不得进入普通日志、事件或 Safe Report。
+- 第一阶段 Capability 门禁强制 Engine / Provider 已知能力；Catalog 中未核验的 Model 级能力保持 unknown，不按模型名猜测。
 
 ## 快速验证
 

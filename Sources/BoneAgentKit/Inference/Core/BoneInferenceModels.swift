@@ -123,8 +123,14 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         Self(role: .tool, toolResults: batch)
     }
 
-    public static func toolResult(callID: String, toolID: String, result: Data) -> Self {
-        let value = try! BoneInferenceToolResult(
+    /// 构造兼容旧单 Tool 历史的结果消息，并显式传播关联或内容校验错误。
+    /// - Parameters:
+    ///   - callID: Provider 返回的 Tool 调用标识。
+    ///   - toolID: 与调用关联的稳定 Tool 标识。
+    ///   - result: 必须为合法 JSON 且不超过单结果容量上限的结果数据。
+    /// - Returns: 通过边界校验的 Tool 结果消息。
+    public static func toolResult(callID: String, toolID: String, result: Data) throws -> Self {
+        let value = try BoneInferenceToolResult(
             callID: callID,
             toolID: toolID,
             content: .json(result),
@@ -164,26 +170,33 @@ public struct BoneInferenceGenerationOptions: Codable, Equatable, Sendable {
 
 public struct BoneInferenceRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case modelID, messages, availableTools, generationOptions, providerContinuation
+        case modelID, messages, availableTools, generationOptions, responseFormat
+        case providerContinuation, reasoningDisclosure
     }
     public let modelID: String
     public let messages: [BoneInferenceMessage]
     public let availableTools: [BoneAgentToolDefinition]
     public let generationOptions: BoneInferenceGenerationOptions
+    public let responseFormat: BoneInferenceResponseFormat
     public let providerContinuation: BoneInferenceProviderContinuation?
+    public let reasoningDisclosure: BoneInferenceReasoningDisclosure
 
     public init(
         modelID: String,
         messages: [BoneInferenceMessage],
         availableTools: [BoneAgentToolDefinition] = [],
         generationOptions: BoneInferenceGenerationOptions = .init(),
-        providerContinuation: BoneInferenceProviderContinuation? = nil
+        responseFormat: BoneInferenceResponseFormat = .text,
+        providerContinuation: BoneInferenceProviderContinuation? = nil,
+        reasoningDisclosure: BoneInferenceReasoningDisclosure = .hidden
     ) {
         self.modelID = modelID
         self.messages = messages
         self.availableTools = availableTools
         self.generationOptions = generationOptions
+        self.responseFormat = responseFormat
         self.providerContinuation = providerContinuation
+        self.reasoningDisclosure = reasoningDisclosure
     }
 
     public init(from decoder: any Decoder) throws {
@@ -198,10 +211,18 @@ public struct BoneInferenceRequest: Codable, Equatable, Sendable {
             BoneInferenceGenerationOptions.self,
             forKey: .generationOptions
         ) ?? .init()
+        responseFormat = try container.decodeIfPresent(
+            BoneInferenceResponseFormat.self,
+            forKey: .responseFormat
+        ) ?? .text
         providerContinuation = try container.decodeIfPresent(
             BoneInferenceProviderContinuation.self,
             forKey: .providerContinuation
         )
+        reasoningDisclosure = try container.decodeIfPresent(
+            BoneInferenceReasoningDisclosure.self,
+            forKey: .reasoningDisclosure
+        ) ?? .hidden
     }
 }
 

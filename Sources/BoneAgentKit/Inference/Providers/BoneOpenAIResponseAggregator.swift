@@ -4,9 +4,13 @@ import Foundation
 public enum BoneOpenAIResponseAggregator {
     public static func nonStreamingText(from json: [String: Any]) throws -> String {
         guard let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any]
+              let choice = choices.first,
+              let message = choice["message"] as? [String: Any]
         else {
             throw BoneInferenceTransportError.invalidResponse
+        }
+        if choice["finish_reason"] as? String == "length" {
+            throw BoneInferenceTransportError.outputTruncated
         }
         if let content = message["content"] as? String, !content.isEmpty {
             return content
@@ -44,6 +48,9 @@ public enum BoneOpenAIResponseAggregator {
             }
             let choices = json["choices"] as? [[String: Any]] ?? []
             for choice in choices {
+                if choice["finish_reason"] as? String == "length" {
+                    throw BoneInferenceTransportError.outputTruncated
+                }
                 let delta = choice["delta"] as? [String: Any]
                 if let content = delta?["content"] as? String {
                     text += content

@@ -34,12 +34,17 @@ enum BoneGeminiToolStreamAggregator {
                         parts.append(part)
                         continue
                     }
+                    let isThought = part["thought"] as? Bool == true
                     if let last = parts.last,
-                       last.count == 1,
-                       let existing = last["text"] as? String {
-                        parts[parts.count - 1] = ["text": existing + fragment]
+                       last["thought"] as? Bool == (isThought ? true : nil),
+                       let existing = last["text"] as? String,
+                       last["thoughtSignature"] == nil,
+                       part["thoughtSignature"] == nil {
+                        var merged = last
+                        merged["text"] = existing + fragment
+                        parts[parts.count - 1] = merged
                     } else {
-                        parts.append(["text": fragment])
+                        parts.append(part)
                     }
                 }
             }

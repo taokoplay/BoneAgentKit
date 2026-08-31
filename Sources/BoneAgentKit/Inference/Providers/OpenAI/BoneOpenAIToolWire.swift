@@ -2,6 +2,45 @@ import Foundation
 
 /// OpenAI Chat Completions Tool wire 的内部 clean-room 映射。
 enum BoneOpenAIToolWire {
+    /// 非流式 Tool 响应的安全形态分类；只检查结构，不保留模型生成值。
+    static func failureStage(
+        _ json: [String: Any],
+        definitions: [BoneAgentToolDefinition]
+    ) -> BoneInferenceOpenAIFailureStage {
+        guard json["error"] == nil else { return .eventError }
+        guard let choices = json["choices"] as? [[String: Any]], choices.count == 1,
+              let choice = choices.first else { return .choicesShape }
+        if let index = choice["index"] as? Int, index != 0 { return .choiceIndex }
+        guard let message = choice["message"] as? [String: Any] else { return .deltaShape }
+        let knownNames = Set(definitions.compactMap(\.wireName))
+        if let calls = message["tool_calls"] as? [[String: Any]] {
+            var ids = Set<String>()
+            for call in calls {
+                guard call["type"] as? String == "function",
+                      let id = call["id"] as? String,
+                      ids.insert(id).inserted,
+                      let function = call["function"] as? [String: Any],
+                      let name = function["name"] as? String,
+                      knownNames.contains(name),
+                      let arguments = function["arguments"] as? String else {
+                    return .toolIdentity
+                }
+                guard (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) is [String: Any] else {
+                    return .toolArgumentsJSON
+                }
+            }
+        }
+        guard let reason = choice["finish_reason"] as? String else { return .finishReason }
+        if message["tool_calls"] != nil,
+           reason != "tool_calls", reason != "function_call" { return .finishReason }
+        if let usage = json["usage"] {
+            guard let raw = usage as? [String: Any],
+                  raw["prompt_tokens"] is Int,
+                  raw["completion_tokens"] is Int else { return .usageShape }
+        }
+        return .assistantTurn
+    }
+
     static func definitions(_ values: [BoneAgentToolDefinition]) throws -> [[String: Any]] {
         try validatedDefinitions(values).map { definition in
             [
@@ -123,6 +162,7 @@ enum BoneOpenAIToolWire {
         do { turn = try .init(content: content) }
         catch { throw BoneInferenceTransportError.invalidResponse }
         let reason = finishReason(choice["finish_reason"] as? String, hasCalls: !turn.toolCalls.isEmpty)
+        if reason == .length { throw BoneInferenceTransportError.outputTruncated }
         let usage = try usage(json["usage"] as? [String: Any])
         let refusal = refusal(message["refusal"])
         return .init(

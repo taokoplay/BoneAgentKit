@@ -1,6 +1,6 @@
 # 5 分钟快速开始
 
-本页只介绍 **Model / Inference、Tool、Agent** 三件事。示例使用当前 `maximumSteps` 和 `BoneAgentKit` Facade API；把 `ExistingModelAdapter` 换成项目已有模型 SDK 的适配器即可。
+本页只介绍 **Model / Inference、Tool、Agent** 三件事。示例使用当前 `maximumSteps` 和 `BoneAgentKit` Facade API；把 `ExistingModelAdapter` 换成项目已有模型 SDK 的适配器即可。BoneAgentKit 采用 Agent Harness 架构，但生产 API 按 `Agent + Inference + Workflow` 领域组织；完整定位和职责映射见[架构说明](Architecture.md#agent-harness-架构定位)。
 
 ## Model
 
@@ -10,7 +10,7 @@ Model 通过 `BoneInferenceEngine` 接入。已有 SDK 只需包装为这个协�
 import Foundation
 
 struct ExistingModelAdapter: BoneInferenceEngine {
-    let nonImageCapabilities: Set<BoneInferenceCapability> = [.text]
+    let nonImageCapabilities: Set<BoneInferenceCapability> = [.text, .toolCalling]
     let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
@@ -76,7 +76,7 @@ enum QuickStartError: Error {
 2. **接入已有模型 SDK**：见 [Provider 接入与扩展](ProviderIntegration.md#接入已有模型-sdk)
 3. **创建第一个 Tool**：复制 [MinimalTool 模板](Templates/MinimalTool.swift.txt)
 4. **注入项目 Service**：复制 [ProjectTool 模板](Templates/ProjectTool.swift.txt)
-5. **测试 Tool 与 Agent**：见 [TestingAndHarness](Testing.md)
-6. **观察运行事件**：见 [TestingAndHarness](Testing.md#观察运行事件)
-7. **排查失败**：见 [TestingAndHarness](Testing.md#排查失败)
-8. **迁移 Package**：见 [MigrationToSwiftPackage](PackageIntegration.md)
+5. **测试 Tool 与 Agent**：见 [Testing](Testing.md)
+6. **观察运行事件**：见 [Testing](Testing.md#观察运行事件)
+7. **排查失败**：见 [Testing](Testing.md#排查失败)
+8. **接入 Package**：见 [Package 接入](PackageIntegration.md)

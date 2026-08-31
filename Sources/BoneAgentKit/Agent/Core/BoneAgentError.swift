@@ -5,9 +5,12 @@ public enum BoneAgentError: Error, Codable, Equatable, Sendable {
     case invalidMaximumSteps
     case stepLimitReached
     case runAlreadyInProgress
+    case unsupportedCapability(BoneInferenceCapability)
     case toolNotFound
     case toolPayloadTooLarge
     case inferenceFailed
+    /// Tool 参数是合法 JSON，但不满足已声明 Schema；不携带参数值或未知键。
+    case toolArgumentsInvalid
     case toolExecutionFailed
     case budgetExceeded
 }

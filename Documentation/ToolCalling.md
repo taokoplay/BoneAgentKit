@@ -6,6 +6,18 @@
 
 Tool arguments 必须是 JSON object。单个 arguments 上限 1 MiB，同轮总 arguments 上限 4 MiB，最多 32 个 Tool Calls。重复 call ID、空 Turn、数组或标量参数、无关联 Tool Result 都稳定拒绝。
 
+兼容旧单 Tool 历史时，`BoneInferenceMessage.toolResult` 会重新校验 call ID、Tool ID、JSON 内容和 1 MiB 上限，因此该工厂是 throwing API：
+
+```swift
+let message = try BoneInferenceMessage.toolResult(
+    callID: callID,
+    toolID: toolID,
+    result: resultData
+)
+```
+
+旧调用方升级时必须显式处理 `BoneInferenceError.invalidToolResult` 与 `.toolResultTooLarge`。这是有意的源码破坏性收紧：无法通过校验的数据不得伪装成 Tool 成功历史，也不得以 `try!` 终止宿主 App。
+
 ## Provider wire
 
 - OpenAI：完整 Assistant `tool_calls` 历史，随后按 call ID 回传多条 `role=tool`；

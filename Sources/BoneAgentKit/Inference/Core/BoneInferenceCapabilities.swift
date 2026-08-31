@@ -13,6 +13,8 @@ public enum BoneInferenceCapability: String, Codable, CaseIterable, Hashable, Se
 public enum BoneInferenceError: Error, Equatable, Sendable {
     case unsupportedCapability(BoneInferenceCapability)
     case invalidGenerationOptions
+    case invalidStructuredOutputContract
+    case unsupportedStructuredOutput
     case invalidMessage
     case invalidImageCount
     case invalidImageSize
@@ -22,6 +24,7 @@ public enum BoneInferenceError: Error, Equatable, Sendable {
     case tooManyImagePayloads
     case imageResponseTooLarge
     case invalidResponse
+    case invalidReasoning
     case tooManyToolCalls
     case toolArgumentsTooLarge
     case invalidUsage

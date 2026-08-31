@@ -84,7 +84,12 @@ public struct BoneToolImpact: Codable, Equatable, Sendable {
     )
 
     public var isOrdinaryReadOnly: Bool {
-        dataAccess <= .public &&
+        dataAccess <= .public && isLocalReadOnly
+    }
+
+    /// 不产生外传、状态、费用、用户可见或权限影响的本地读取。
+    /// userPrivate/credential 仍必须先通过 Host policy 授权，但不需要副作用事务管线。
+    public var isLocalReadOnly: Bool {
         externalTransmission == .none &&
         stateChange == .none &&
         economic == .none &&

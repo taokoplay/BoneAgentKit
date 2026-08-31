@@ -26,26 +26,60 @@ public actor BoneAgent {
         self.configuration = configuration
         self.eventSink = eventSink
         self.progressSink = progressSink
-        toolScheduler = try! BoneToolCallScheduler(
-            mode: configuration.toolSchedulingMode,
-            failureStrategy: configuration.toolFailureStrategy
-        )
+        toolScheduler = configuration.toolScheduler
     }
 
-    public func run(modelID: String, messages initialMessages: [BoneInferenceMessage]) async throws -> BoneAgentRunResult {
+    public func run(modelID: String, messages: [BoneInferenceMessage]) async throws -> BoneAgentRunResult {
+        try await run(request: BoneInferenceRequest(modelID: modelID, messages: messages))
+    }
+
+    /// 使用调用方的文本生成参数运行传统自治 Agent；保持现有模型终态输出契约。
+    public func run(request initialRequest: BoneInferenceRequest) async throws -> BoneAgentRunResult {
+        let result = try await runUntilBoundary(request: initialRequest, boundary: .untilModelFinish)
+        guard case .modelFinished(let output) = result.completion else {
+            throw BoneAgentError.inferenceFailed
+        }
+        return BoneAgentRunResult(output: output, steps: result.steps)
+    }
+
+    /// 运行至调用方指定的通用边界；Tool 集合和 continuation 始终由 Runtime 管理。
+    public func runUntilBoundary(
+        request initialRequest: BoneInferenceRequest,
+        boundary: BoneAgentRunBoundary
+    ) async throws -> BoneAgentBoundaryResult {
         guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
+        guard initialRequest.responseFormat == .text else { throw BoneAgentError.inferenceFailed }
+        let preparedInitialRequest = BoneInferenceRequest(
+            modelID: initialRequest.modelID,
+            messages: initialRequest.messages,
+            availableTools: toolRegistry.definitions,
+            generationOptions: initialRequest.generationOptions,
+            responseFormat: .text,
+            reasoningDisclosure: initialRequest.reasoningDisclosure
+        )
+        do {
+            try BoneInferenceCapabilityValidator.validate(
+                request: preparedInitialRequest,
+                capabilities: inferenceEngine.capabilities,
+                invocation: .nonStreaming
+            )
+        } catch let BoneInferenceError.unsupportedCapability(capability) {
+            throw BoneAgentError.unsupportedCapability(capability)
+        } catch {
+            throw BoneAgentError.inferenceFailed
+        }
         isRunning = true
         defer { isRunning = false }
 
         await eventSink.receive(.runStarted)
         do {
             let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0) }
-            var messages = initialMessages
+            var messages = preparedInitialRequest.messages
             var providerContinuation: BoneInferenceProviderContinuation?
             for step in 1...configuration.maximumSteps {
                 try Task.checkCancellation()
                 let response = try await infer(
-                    modelID: modelID,
+                    template: preparedInitialRequest,
                     messages: messages,
                     providerContinuation: providerContinuation,
                     budgetMeter: budgetMeter
@@ -59,9 +93,9 @@ public actor BoneAgent {
 
                 switch response {
                 case .finish(let finish):
-                    return await succeed(output: .text(finish.text), steps: step)
+                    return await succeedBoundary(completion: .modelFinished(.text(finish.text)), steps: step)
                 case .structured(let structured):
-                    return await succeed(output: .structured(structured.data), steps: step)
+                    return await succeedBoundary(completion: .modelFinished(.structured(structured.data)), steps: step)
                 case .toolCall(let call):
                     try await executeLegacySingle(call, messages: &messages, budgetMeter: budgetMeter)
                 case let .assistantTurn(turn, finishReason, _, refusal, continuation):
@@ -71,18 +105,21 @@ public actor BoneAgent {
                     case .stop:
                         guard calls.isEmpty else { throw BoneAgentError.inferenceFailed }
                         if let text = turn.text, turn.structuredOutputs.isEmpty {
-                            return await succeed(output: .text(text), steps: step)
+                            return await succeedBoundary(completion: .modelFinished(.text(text)), steps: step)
                         }
                         if turn.text == nil,
                            turn.structuredOutputs.count == 1,
                            let structured = turn.structuredOutputs.first {
-                            return await succeed(output: .structured(structured), steps: step)
+                            return await succeedBoundary(completion: .modelFinished(.structured(structured)), steps: step)
                         }
                         throw BoneAgentError.inferenceFailed
                     case .toolCalls:
                         guard !calls.isEmpty else { throw BoneAgentError.inferenceFailed }
                         providerContinuation = continuation
                         try await executeTurn(turn, messages: &messages, budgetMeter: budgetMeter)
+                        if boundary == .afterFirstToolTurn {
+                            return await succeedBoundary(completion: .toolTurnCompleted, steps: step)
+                        }
                     case .length, .contentFilter, .safety, .refusal, .other:
                         throw BoneAgentError.inferenceFailed
                     }
@@ -105,17 +142,20 @@ public actor BoneAgent {
     }
 
     private func infer(
-        modelID: String,
+        template: BoneInferenceRequest,
         messages: [BoneInferenceMessage],
         providerContinuation: BoneInferenceProviderContinuation?,
         budgetMeter: BoneRunBudgetMeter?
     ) async throws -> BoneInferenceResponse {
         do {
             let request = BoneInferenceRequest(
-                modelID: modelID,
+                modelID: template.modelID,
                 messages: messages,
                 availableTools: toolRegistry.definitions,
-                providerContinuation: providerContinuation
+                generationOptions: template.generationOptions,
+                responseFormat: .text,
+                providerContinuation: providerContinuation,
+                reasoningDisclosure: template.reasoningDisclosure
             )
             let inputBytes = try JSONEncoder().encode(request).count
             let estimatedCostMicrounits: Int64
@@ -143,8 +183,38 @@ public actor BoneAgent {
         } catch let error as BoneRunBudgetError {
             throw error
         } catch {
+            if let shapeError = error as? BoneInferenceProtocolShapeError {
+                try await progressSink.receive(.inferenceProtocolShapeFailed(shapeError.diagnostic))
+            }
+            try await progressSink.receive(.inferenceFailed(Self.inferenceFailureDiagnostic(for: error)))
             throw BoneAgentError.inferenceFailed
         }
+    }
+
+    private static func inferenceFailureDiagnostic(
+        for error: Error
+    ) -> BoneAgentInferenceFailureDiagnostic {
+        if let error = error as? BoneInferenceTransportError {
+            switch error {
+            case .invalidCredential: return .invalidCredential
+            case .invalidConfiguration, .invalidEndpoint, .insecureEndpoint, .reservedHeader:
+                return .invalidConfiguration
+            case .httpStatus(let status): return .httpStatus(status)
+            case .rateLimited: return .rateLimited
+            case .quotaExceeded: return .quotaExceeded
+            case .unsupportedModel: return .unsupportedModel
+            case .safetyBlocked: return .safetyBlocked
+            case .outputTruncated: return .outputTruncated
+            case .firstEventTimedOut: return .firstEventTimedOut
+            case .idleTimedOut: return .idleTimedOut
+            case .network: return .network
+            case .responseTooLarge, .invalidResponse: return .invalidResponse
+            case .cancelled: return .unknown
+            }
+        }
+        if error is BoneInferenceProtocolShapeError { return .invalidResponse }
+        if error is BoneInferenceError { return .invalidResponse }
+        return .unknown
     }
 
     private func executeLegacySingle(
@@ -159,7 +229,11 @@ public actor BoneAgent {
         guard let definition = toolRegistry.tool(id: call.toolID)?.definition else {
             throw BoneAgentError.toolNotFound
         }
-        try validate(call: call, definition: definition)
+        if let mismatch = try validate(call: call, definition: definition) {
+            try await progressSink.receive(.toolArgumentsRejected(toolID: call.toolID, mismatch: mismatch))
+            throw BoneAgentError.toolArgumentsInvalid
+        }
+        try await progressSink.receive(.toolExecutionPrepared(toolID: call.toolID))
         try await budgetMeter?.reserveTool(argumentsBytes: call.arguments.count)
         try await budgetMeter?.reserveConcurrentTool()
         await eventSink.receive(.toolCallStarted)
@@ -177,7 +251,7 @@ public actor BoneAgent {
         try await budgetMeter?.commitTool(resultBytes: output.count)
         try await progressSink.receive(.toolResultPrepared(step: messages.count + 1, ordinal: 0))
         await eventSink.receive(.toolCallFinished)
-        messages.append(.toolResult(callID: call.id, toolID: call.toolID, result: output))
+        messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
     }
 
     private func executeTurn(
@@ -192,7 +266,7 @@ public actor BoneAgent {
             results = try await toolScheduler.execute(
                 calls: turn.toolCalls,
                 definitions: toolRegistry.definitions
-            ) { [toolRegistry, toolContext, eventSink, configuration] call in
+            ) { [toolRegistry, toolContext, eventSink, progressSink, configuration] call in
                 guard call.arguments.count <= BoneInferenceToolCall.maximumArgumentsByteCount else {
                     throw BoneAgentError.toolPayloadTooLarge
                 }
@@ -200,11 +274,15 @@ public actor BoneAgent {
                 guard let definition = toolRegistry.tool(id: call.toolID)?.definition else {
                     throw BoneAgentError.toolNotFound
                 }
-                try Self.validate(
+                if let mismatch = try Self.validate(
                     call: call,
                     definition: definition,
                     impactPolicy: impactPolicy
-                )
+                ) {
+                    try await progressSink.receive(.toolArgumentsRejected(toolID: call.toolID, mismatch: mismatch))
+                    throw BoneAgentError.toolArgumentsInvalid
+                }
+                try await progressSink.receive(.toolExecutionPrepared(toolID: call.toolID))
                 try await budgetMeter?.reserveTool(argumentsBytes: call.arguments.count)
                 try await budgetMeter?.reserveConcurrentTool()
                 await eventSink.receive(.toolCallStarted)
@@ -229,13 +307,16 @@ public actor BoneAgent {
                     await budgetMeter?.releaseConcurrentTool()
                     switch error {
                     case .cancelledBeforeExecution: throw CancellationError()
-                    default: throw BoneAgentError.toolExecutionFailed
+                    case .toolExecutionFailed: throw BoneAgentError.toolExecutionFailed
+                    case .invalidContext, .pipelineUnavailable, .authorizationRejected, .effectStoreRejected:
+                        throw BoneToolBatchAbortError.controlPlaneFailure
                     }
                 } catch let error as BoneAgentToolError {
                     await budgetMeter?.releaseConcurrentTool()
                     switch error.safeReason {
                     case .toolNotFound: throw BoneAgentError.toolNotFound
-                    case .invalidArguments, .invalidContext: throw BoneAgentError.toolExecutionFailed
+                    case .invalidArguments: throw BoneAgentError.toolExecutionFailed
+                    case .invalidContext: throw BoneToolBatchAbortError.controlPlaneFailure
                     }
                 } catch {
                     await budgetMeter?.releaseConcurrentTool()
@@ -262,6 +343,8 @@ public actor BoneAgent {
             throw error
         } catch let error as BoneRunBudgetError {
             throw error
+        } catch is BoneToolBatchAbortError {
+            throw BoneAgentError.toolExecutionFailed
         } catch let error as BoneToolSchedulerError {
             switch error {
             case .missingToolDefinition: throw BoneAgentError.toolNotFound
@@ -281,19 +364,23 @@ public actor BoneAgent {
     private func validate(
         call: BoneInferenceToolCall,
         definition: BoneAgentToolDefinition
-    ) throws {
-        try Self.validate(
-            call: call,
-            definition: definition,
-            impactPolicy: configuration.toolImpactPolicy
-        )
+    ) throws -> BoneToolSchemaMismatch? {
+        do {
+            return try Self.validate(
+                call: call,
+                definition: definition,
+                impactPolicy: configuration.toolImpactPolicy
+            )
+        } catch is BoneToolBatchAbortError {
+            throw BoneAgentError.toolExecutionFailed
+        }
     }
 
     private static func validate(
         call: BoneInferenceToolCall,
         definition: BoneAgentToolDefinition,
         impactPolicy: BoneToolImpactPolicy?
-    ) throws {
+    ) throws -> BoneToolSchemaMismatch? {
         do {
             let impact = try definition.requiredImpact()
             if let impactPolicy {
@@ -304,9 +391,14 @@ public actor BoneAgent {
             guard let schema = definition.inputSchema else {
                 throw BoneToolSchemaError.missingInputSchema
             }
-            try BoneToolSchemaValidator.validate(arguments: call.arguments, against: schema)
+            try BoneToolSchemaValidator.validateDefinition(schema)
+            return BoneToolSchemaValidator.firstMismatch(arguments: call.arguments, against: schema)
+        } catch is BoneToolPolicyError {
+            throw BoneToolBatchAbortError.controlPlaneFailure
+        } catch is BoneToolSchemaError {
+            throw BoneToolBatchAbortError.controlPlaneFailure
         } catch {
-            throw BoneAgentError.toolExecutionFailed
+            throw BoneToolBatchAbortError.controlPlaneFailure
         }
     }
 
@@ -345,9 +437,12 @@ public actor BoneAgent {
     }
 
     /// runFinished delivery 的开始是成功 Run 的线性化点；此后不再读取取消状态。
-    private func succeed(output: BoneAgentRunOutput, steps: Int) async -> BoneAgentRunResult {
+    private func succeedBoundary(
+        completion: BoneAgentBoundaryCompletion,
+        steps: Int
+    ) async -> BoneAgentBoundaryResult {
         await eventSink.receive(.runFinished(.succeeded))
-        return BoneAgentRunResult(output: output, steps: steps)
+        return BoneAgentBoundaryResult(completion: completion, steps: steps)
     }
 }
 

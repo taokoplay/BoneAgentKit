@@ -21,7 +21,9 @@ public enum BoneGeminiResponseAggregator {
             throw BoneInferenceTransportError.invalidResponse
         }
         let text = parts.compactMap { part -> String? in
-            guard let value = part["text"] as? String, !value.isEmpty else { return nil }
+            guard part["thought"] as? Bool != true,
+                  let value = part["text"] as? String,
+                  !value.isEmpty else { return nil }
             return value
         }.joined()
         guard !text.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
