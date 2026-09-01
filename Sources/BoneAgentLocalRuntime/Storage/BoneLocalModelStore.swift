@@ -125,7 +125,7 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         defer { try? handle.close() }
         var hasher = SHA256()
         while true {
-            let data = try handle.read(upToCount: 1_048_576) ?? Data()
+            let data = handle.readData(ofLength: 1_048_576)
             if data.isEmpty { break }
             hasher.update(data: data)
         }
