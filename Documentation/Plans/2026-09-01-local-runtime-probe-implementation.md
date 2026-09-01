@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Probe report and adapter contracts
+## Task 1: Probe report and adapter contracts
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Probe/BoneLocalRuntimeProbeModels.swift`
@@ -22,7 +22,7 @@
 3. 最小实现 Sendable/Equatable 公共契约和 fail-closed 聚合。
 4. 重跑定向测试，确认 GREEN。
 
-### Task 2: Static artifact inspector
+## Task 2: Static artifact inspector
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Probe/BoneLocalModelArtifactInspector.swift`
@@ -34,7 +34,7 @@
 3. 实现 bounded four-byte read 和 Store 状态映射；不解析完整 GGUF。
 4. 重跑确认 GREEN。
 
-### Task 3: Two-stage probe coordinator
+## Task 3: Two-stage probe coordinator
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Probe/BoneLocalRuntimeProbeCoordinator.swift`
@@ -47,7 +47,7 @@
 4. 重跑确认 GREEN。
 5. 增加 temporary unavailable/incompatible/unknown failure 映射测试并确认 RED→GREEN。
 
-### Task 4: Documentation
+## Task 4: Documentation
 
 **Files:**
 - Modify: `Documentation/LocalModels.md`
@@ -60,7 +60,7 @@
 2. 更新公开类型索引和示例。
 3. 运行 `git diff --check`。
 
-### Task 5: Verification and local commits
+## Task 5: Verification and local commits
 
 **Steps:**
 1. 运行 LocalRuntime 定向测试。

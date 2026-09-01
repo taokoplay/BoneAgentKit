@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Product and Runtime contracts
+## Task 1: Product and Runtime contracts
 
 **Files:**
 - Modify: `Package.swift`
@@ -24,7 +24,7 @@
 3. 新增 Product/Target/Test Target 与最小 Runtime seam。
 4. 重跑确认 GREEN。
 
-### Task 2: Probe Adapter
+## Task 2: Probe Adapter
 
 **Files:**
 - Create: `Sources/BoneAgentLlama/Probe/BoneLlamaRuntimeProbeAdapter.swift`
@@ -35,7 +35,7 @@
 2. 实现隔离 Runtime factory、descriptor 和 Probe 映射。
 3. 重跑确认 GREEN。
 
-### Task 3: Prompt encoder
+## Task 3: Prompt encoder
 
 **Files:**
 - Create: `Sources/BoneAgentLlama/Prompt/BoneLlamaPromptEncoding.swift`
@@ -47,7 +47,7 @@
 2. 实现无业务人格的通用 ChatML encoder。
 3. 重跑确认 GREEN。
 
-### Task 4: Text-only BoneInferenceEngine
+## Task 4: Text-only BoneInferenceEngine
 
 **Files:**
 - Create: `Sources/BoneAgentLlama/Inference/BoneLlamaInferenceEngine.swift`
@@ -59,7 +59,7 @@
 3. 重跑确认 GREEN。
 4. strict concurrency 定向验证。
 
-### Task 5: Documentation and verification
+## Task 5: Documentation and verification
 
 **Files:**
 - Modify: `README.md`

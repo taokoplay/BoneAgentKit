@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: 建立文档结构门禁
+## Task 1: 建立文档结构门禁
 
 **Files:**
 - Modify: `Scripts/check-public-documentation.sh`
@@ -21,7 +21,7 @@
 3. 运行脚本观察旧 README 因结构契约失败。
 4. 提交门禁与后续 README 实现放在同一文档功能提交，避免主分支中间态不可用。
 
-### Task 2: 重构 README 首屏和主路径
+## Task 2: 重构 README 首屏和主路径
 
 **Files:**
 - Modify: `README.md`
@@ -33,7 +33,7 @@
 4. 精简执行链、能力、Host 边界、限制和许可。
 5. 运行文档门禁，确认 README 契约通过。
 
-### Task 3: 建立完整文档地图
+## Task 3: 建立完整文档地图
 
 **Files:**
 - Create: `Documentation/INDEX.md`
@@ -47,7 +47,7 @@
 3. 在 GettingStarted 与 LocalModels 增加简洁导语和前后导航。
 4. 运行链接和标题门禁。
 
-### Task 4: 完整验证和发布准备
+## Task 4: 完整验证和发布准备
 
 **Files:**
 - Modify: `CHANGELOG.md`

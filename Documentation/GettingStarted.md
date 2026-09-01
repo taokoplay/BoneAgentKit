@@ -1,6 +1,10 @@
 # 5 分钟快速开始
 
-本页只介绍 **Model / Inference、Tool、Agent** 三件事。示例使用当前 `maximumSteps` 和 `BoneAgentKit` Facade API；把 `ExistingModelAdapter` 换成项目已有模型 SDK 的适配器即可。BoneAgentKit 采用 Agent Harness 架构，但生产 API 按 `Agent + Inference + Workflow` 领域组织；完整定位和职责映射见[架构说明](Architecture.md#agent-harness-架构定位)。
+> **目标：** 定义一个 Inference Engine、一个强类型 Tool，并完成一次 Agent Run。
+
+本页只介绍 **Model / Inference、Tool、Agent** 三件事。把 `ExistingModelAdapter` 换成已有模型 SDK 的适配器即可。BoneAgentKit 采用 Agent Harness 架构，生产 API 按 `Agent + Inference + Workflow` 领域组织。
+
+[返回文档地图](INDEX.md) · [查看架构说明](Architecture.md#agent-harness-架构定位)
 
 ## Model
 
@@ -80,3 +84,7 @@ enum QuickStartError: Error {
 6. **观察运行事件**：见 [Testing](Testing.md#观察运行事件)
 7. **排查失败**：见 [Testing](Testing.md#排查失败)
 8. **接入 Package**：见 [Package 接入](PackageIntegration.md)
+
+---
+
+[返回文档地图](INDEX.md) · [下一篇：Provider 与 Tool 扩展](ProviderIntegration.md)

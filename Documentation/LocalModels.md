@@ -1,6 +1,10 @@
-# 本地模型基础 Module
+# 本地模型基础设施
+
+> **范围：** 通用模型资产生命周期、设备规划、Runtime Probe，以及不绑定二进制的 llama Adapter 契约。
 
 `BoneAgentLocalRuntime` 是不绑定具体推理后端的本地模型基础 Product。它依赖 `BoneAgentKit` 的模型上下文限制契约，但不链接 llama.cpp、Foundation Models、MLX 或 Core ML。
+
+[返回文档地图](INDEX.md) · [查看架构说明](Architecture.md)
 
 ## 当前职责
 
@@ -85,3 +89,7 @@ for await state in await engine.modelStateUpdates() {
 具体 Runtime 可选择实现 `BoneLlamaRuntimeStateObserving`，直接暴露同样的快照与状态流；不实现该可选协议的旧 Runtime 仍可由 Engine 投影状态。当前同步原生生成仍受 actor 串行限制，状态 API 不应被解释为已提供低延迟跨任务取消。
 
 Background URLSession、全局下载队列、业务错误文案、真实 llama.cpp Binary bridge 和 Foundation Models Adapter 尚不属于本批实现。
+
+---
+
+[返回文档地图](INDEX.md) · [查看安全与隐私](SecurityAndPrivacy.md)

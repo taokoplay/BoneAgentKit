@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: State value contracts
+## Task 1: State value contracts
 
 **Files:**
 - Create: `Sources/BoneAgentLlama/Runtime/BoneLlamaRuntimeState.swift`
@@ -24,7 +24,7 @@
 4. 重跑定向测试确认 GREEN。
 5. 运行 strict concurrency 定向测试。
 
-### Task 2: Engine state multicast
+## Task 2: Engine state multicast
 
 **Files:**
 - Modify: `Sources/BoneAgentLlama/Inference/BoneLlamaInferenceEngine.swift`
@@ -37,7 +37,7 @@
 4. 在 Engine 暴露 snapshot/stream API，不改变 `BoneInferenceEngine` 协议。
 5. 定向和 strict 测试 GREEN。
 
-### Task 3: llama.cpp Runtime state
+## Task 3: llama.cpp Runtime state
 
 **Files:**
 - Modify: `BoneAgentLlamaCpp/Sources/BoneAgentLlamaCpp/BoneLlamaCppRuntime.swift`
@@ -51,7 +51,7 @@
 4. 确保失败状态只含类型化错误，不含路径或原始日志。
 5. 真实 GGUF 和 strict tests GREEN。
 
-### Task 4: Documentation and API baseline
+## Task 4: Documentation and API baseline
 
 **Files:**
 - Modify: `README.md`
@@ -65,7 +65,7 @@
 2. 更新公开 API baseline 和 CHANGELOG。
 3. 运行 diff/privacy scan。
 
-### Task 5: Physical iPhone state notification
+## Task 5: Physical iPhone state notification
 
 **Files:**
 - Modify temporary host: `temporary-device-test-host/Sources/DeviceTestApp.swift`
@@ -77,7 +77,7 @@
 4. 验证包含 load/generate/unload 的开始与完成序列、0 failures 和无崩溃日志。
 5. 临时 Host 不进入 Git。
 
-### Task 6: Full verification and local commits
+## Task 6: Full verification and local commits
 
 **Steps:**
 1. BoneAgentKit 定向、完整和 Swift 6 strict tests。

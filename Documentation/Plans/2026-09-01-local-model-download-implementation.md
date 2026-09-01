@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Download contracts and security policy
+## Task 1: Download contracts and security policy
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Download/BoneLocalModelDownloadModels.swift`
@@ -24,7 +24,7 @@
 4. 重跑定向测试，确认 GREEN。
 5. `git diff --check`，暂不提交，等待 Coordinator 接口稳定。
 
-### Task 2: Actor coordinator and injected transport
+## Task 2: Actor coordinator and injected transport
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Download/BoneLocalModelDownloadCoordinator.swift`
@@ -38,7 +38,7 @@
 5. 增加暂停/恢复/取消失败测试并确认 RED。
 6. 最小实现 opaque resume data、staging 清理和取消语义，确认 GREEN。
 
-### Task 3: Default URLSession transport
+## Task 3: Default URLSession transport
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Download/BoneURLSessionLocalModelDownloadTransport.swift`
@@ -51,7 +51,7 @@
 4. 重跑定向测试，确认 GREEN。
 5. 运行 strict concurrency 定向测试。
 
-### Task 4: Documentation and API contract
+## Task 4: Documentation and API contract
 
 **Files:**
 - Modify: `Documentation/LocalModels.md`
@@ -64,7 +64,7 @@
 2. 明确非目标：Background Session、业务文案、蜂窝授权、Runtime Adapter。
 3. 运行 `git diff --check`。
 
-### Task 5: Verification and local commits
+## Task 5: Verification and local commits
 
 **Steps:**
 1. 运行所有 `BoneAgentLocalRuntimeTests`。

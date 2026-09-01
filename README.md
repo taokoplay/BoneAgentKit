@@ -1,111 +1,162 @@
+<div align="center">
+
 # BoneAgentKit
 
-BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。当前以私有 Swift Package 形式维护；最低工具链为 Swift 5.9，最低平台为 iOS 13 和 macOS 13，稳定版本遵循 SemVer。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
+**面向 Swift 应用的可控 Agent Runtime。**
 
-`Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Library Product：
+统一模型推理、Tool Calling、Workflow、授权、持久化与失败恢复。
 
-- `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence、副作用恢复契约与内置 Provider 渠道图片；
-- `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report；
-- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安全下载与断点恢复、安装校验、环境快照、确定性运行规划及两阶段 Runtime Probe，不绑定 llama.cpp 或 Foundation Models；
-- `BoneAgentLlama`：不绑定具体 llama.cpp 二进制的 Runtime/Probe/Prompt/`BoneInferenceEngine` Adapter，只承诺真实具备的文本能力，并提供安全的模型状态快照与 AsyncStream 实时通知。
+[![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-F05138?logo=swift&logoColor=white)](https://www.swift.org)
+[![iOS 13+](https://img.shields.io/badge/iOS-13%2B-111111?logo=apple)](https://developer.apple.com/ios/)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-111111?logo=apple)](https://developer.apple.com/macos/)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-663399)](LICENSE)
 
-渠道 PNG 由内部资源 Target 管理，调用方不需要了解或导入该实现模块。
+</div>
 
-## 许可证
+BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行环境。它不绑定聊天 UI、业务数据库或 Prompt 内容仓库；App Host 保留业务领域、用户体验和持久化实现。
 
-从 `0.2.0-alpha.2` 起，BoneAgentKit 源码和文档采用 [GNU AGPL v3.0 only](LICENSE)（`AGPL-3.0-only`）。`Sources/BoneAgentProviderAssets/Resources/ProviderIcons/` 下的 Provider PNG 及其中涉及的第三方商标不在 AGPL 授权范围内，具体边界见 [NOTICE.md](NOTICE.md)。`0.2.0-alpha.1` 及更早 tag 保持签发时的 proprietary 许可。
+## Products
 
-生产 Product 不依赖 `BoneAgentTesting`。业务数据、领域规则、持久化实现和产品级任务管理均由 App Host 负责。
+| Product | 用途 | 二进制依赖 |
+| --- | --- | --- |
+| `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
+| `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario 和 Crash Harness | 无，仅测试使用 |
+| `BoneAgentLocalRuntime` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
+| `BoneAgentLlama` | llama Runtime seam、Prompt、Probe 与 text-only Inference Engine | 无，不包含 llama.cpp |
 
-## 框架定位
+Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为独立 Product 暴露。
 
-```text
-User Intent
-→ Agent Runtime / Agent Loop
-→ Context Window Planning
-→ Model Inference
-→ Tool Scheduling / Authorization
-→ Tool Execution / Effect Receipt
-→ Persistence / Recovery
-→ Next Agent Step or Final Result
-```
+## 安装
 
-这条受控执行链构成 BoneAgentKit 的 Agent Harness。它不是聊天 UI、业务数据库或 Prompt 内容仓库；App Host 负责业务 Intent、数据源、用户设置、UI 和持久化映射，Kit 负责供应商无关的模型执行与 Agent 控制面。完整组件映射见[架构与模块边界](Documentation/Architecture.md#agent-harness-架构定位)。
-
-所有远程 Provider 共用 `BoneInferenceHTTPTransport` 作为联网 seam；具体 URLSession adapter 只负责发送已构造的请求并返回受限响应，不读取 App 全局状态，也不记录 Prompt、正文、Tool 参数/结果或凭据。迁移后的生产执行链不依赖 `AIProviderKit`，旧模块只作为迁移背景出现在边界文档中。
-
-## 能力概览
-
-- OpenAI、Anthropic、Gemini 非流式 Tool Calling 与严格 Streaming 聚合；
-- 从请求字段自动推导 Text、Tool Calling、Streaming 与结构化输出需求，并在联网前强制校验 Engine 能力；
-- ordered Assistant Turn、0...N Tool Calls、Provider-scoped continuation；
-- 默认串行、显式只读 parallel-safe 的确定性多 Tool 调度；
-- 强类型 Tool Schema、六维影响、预算与 fail-closed Authorization Grant；
-- 冻结 Workflow Plan、Run/Step/Attempt 状态机、组合 Persistence、CAS 与 lease generation fencing；
-- Effect Intent / Effect Receipt、reconcile-first 与 `outcomeUnknown` 恢复决策；
-- 可恢复 Agent Workflow Step 和提交后事件；
-- 独立 `MinimalWorkflowHost` 跨项目编译运行示例；
-- App Host 不透明引用、业务 Adapter、灰度路由、状态投影和安全 Smoke 边界。
-
-## 文档导航
-
-1. [本地模型基础 Module](Documentation/LocalModels.md)
-2. [快速开始](Documentation/GettingStarted.md)
-3. [架构与模块边界](Documentation/Architecture.md)
-4. [Tool Calling](Documentation/ToolCalling.md)
-4. [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
-5. [Testing](Documentation/Testing.md)
-6. [安全与隐私](Documentation/SecurityAndPrivacy.md)
-7. [Package 接入](Documentation/PackageIntegration.md)
-8. [Character Host 接入](Documentation/CharacterHostIntegration.md)
-9. [Provider 接入与扩展](Documentation/ProviderIntegration.md)
-10. [来源与许可](Documentation/LicensingAndProvenance.md)
-
-## 明确限制
-
-- 不支持任意 DAG；当前是确定性 Workflow + 局部 Agent Step。
-- 不保证 exactly-once；不可查询的外部副作用可能进入 `outcomeUnknown / recoveryRequired`。
-- App 被系统终止后不会自动后台永久运行；下次启动通过新 lease 恢复。
-- 自动 Contract、Synthetic Fixture 和 Simulator build 不能替代真机真实 Provider 验收。
-- OpenAI、Anthropic、Gemini 的真实 Tool Calling Smoke 仍需 App 沙箱凭据、支持 Tool Calling 的模型以及用户明确确认联网和费用。
-- Provider continuation、Prompt、正文、Tool 参数/结果和原始响应不得进入普通日志、事件或 Safe Report。
-- 第一阶段 Capability 门禁强制 Engine / Provider 已知能力；Catalog 中未核验的 Model 级能力保持 unknown，不按模型名猜测。
-
-## 快速接入
-
-在其他 Swift Package 中使用远程私有仓库时，初期建议锁定精确预发布版本：
+在 `Package.swift` 中精确固定已审核版本：
 
 ```swift
 dependencies: [
     .package(
-        url: "git@github.com:taokoplay/BoneAgentKit.git",
-        exact: "0.1.0-alpha.1"
+        url: "https://github.com/taokoplay/BoneAgentKit.git",
+        exact: "0.2.0-alpha.3"
     )
 ]
 ```
 
-目标依赖：
+基础运行目标：
 
 ```swift
-.product(name: "BoneAgentKit", package: "BoneAgentKit")
+.target(
+    name: "AppCore",
+    dependencies: [
+        .product(name: "BoneAgentKit", package: "BoneAgentKit")
+    ]
+)
 ```
 
-测试目标可额外依赖：
+测试目标可按需增加：
 
 ```swift
 .product(name: "BoneAgentTesting", package: "BoneAgentKit")
 ```
 
-Provider 渠道图片已经包含在 `BoneAgentKit` Product 中。调用方只需 `import BoneAgentKit`，按 Catalog 的稳定 `iconID` 读取对应显示倍率的 PNG：
+本地模型能力是独立 Product，只有显式依赖时才会进入调用方的依赖图。
+
+> [!IMPORTANT]
+> 当前为预发布版本。生产项目应精确固定版本或 revision，不要自动跟随 `main`。
+
+## 五分钟开始
 
 ```swift
-let data = try catalog.iconData(
-    iconID: entry.iconID,
-    scale: 3
+import BoneAgentKit
+
+let registry = try BoneAgentToolRegistry(
+    tools: [BoneAnyAgentTool(EchoTool())]
+)
+
+let agent = BoneAgentKit(
+    inferenceEngine: engine,
+    toolRegistry: registry,
+    toolContext: BoneAgentEmptyContext(),
+    configuration: try BoneAgentConfiguration(maximumSteps: 4)
+)
+
+let result = try await agent.run(
+    modelID: "model-id",
+    messages: [
+        BoneInferenceMessage(role: .user, content: "Say hello")
+    ]
 )
 ```
 
-## 快速验证
+完整的 Engine 与 Tool 定义见 [5 分钟快速开始](Documentation/GettingStarted.md)。
+
+## 核心能力
+
+### 推理与 Tool Calling
+
+- 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
+- OpenAI、Anthropic、Gemini 请求和事件聚合；
+- 请求级 Capability 推导，联网前 fail closed；
+- 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
+- 默认串行、显式只读并行的确定性调度。
+
+### Workflow 与恢复
+
+- 冻结 Workflow Plan 和 Run / Step / Attempt 状态机；
+- 原子 Run + Checkpoint、CAS 和 lease generation fencing；
+- Effect Intent / Receipt 与 reconcile-first 恢复；
+- 对不可确认副作用使用 `outcomeUnknown / recoveryRequired`，不伪造 exactly-once；
+- 安全事件、状态投影和可注入 Persistence seam。
+
+### 本地模型基础设施
+
+- 版本化 Catalog、可信下载源、SHA-256 和原子安装；
+- 设备环境快照、确定性运行预算和两阶段 Probe；
+- text-only llama Adapter 协议，不让 llama.cpp 污染 Core；
+- 当前状态快照与 `AsyncStream` 实时通知。
+
+## 执行模型
+
+```text
+User Intent
+    ↓
+Agent Runtime / Context Planning
+    ↓
+Model Inference
+    ↓
+Tool Scheduling / Authorization
+    ↓
+Tool Execution / Effect Receipt
+    ↓
+Persistence / Recovery
+    ↓
+Next Step or Final Result
+```
+
+Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、用户设置、凭据注入和持久化实现。两者只通过公开协议、类型化 Adapter 和不透明引用连接。
+
+详见 [架构与模块边界](Documentation/Architecture.md) 和 [App Host 集成边界](Documentation/CharacterHostIntegration.md)。
+
+## 文档
+
+### 开始使用
+
+- [5 分钟快速开始](Documentation/GettingStarted.md)
+- [Swift Package 接入](Documentation/PackageIntegration.md)
+- [Provider 与 Tool 扩展](Documentation/ProviderIntegration.md)
+
+### 核心概念
+
+- [架构与模块边界](Documentation/Architecture.md)
+- [Tool Calling](Documentation/ToolCalling.md)
+- [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
+- [本地模型基础设施](Documentation/LocalModels.md)
+
+### 运行与治理
+
+- [Testing 与 Harness](Documentation/Testing.md)
+- [安全与隐私](Documentation/SecurityAndPrivacy.md)
+- [来源与许可](Documentation/LicensingAndProvenance.md)
+- [完整文档地图](Documentation/INDEX.md)
+
+## 验证
 
 ```bash
 swift package resolve
@@ -115,3 +166,19 @@ swift test \
   -Xswiftc -warnings-as-errors
 swift run BoneAgentLiveProviderSmoke --dry-run
 ```
+
+## 当前限制
+
+- 当前提供确定性 Workflow + 局部 Agent Step，不支持任意 DAG；
+- 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
+- App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
+- Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
+- 第一批 `BoneAgentLlama` 只承诺文本能力，不提供 Token Streaming 或可靠加载百分比；
+- 未核验的 Model 级能力保持 unknown，不按模型名称猜测。
+
+## 许可证
+
+从 `0.2.0-alpha.2` 起，源码和文档采用 [GNU AGPL v3.0 only](LICENSE)（`AGPL-3.0-only`）。`0.2.0-alpha.1` 及更早 tag 保持签发时的 proprietary 许可。
+
+> [!NOTE]
+> `Sources/BoneAgentProviderAssets/Resources/ProviderIcons/` 下的 Provider PNG 及其中涉及的第三方商标不在 AGPL 授权范围内。分发前请阅读 [NOTICE.md](NOTICE.md)。

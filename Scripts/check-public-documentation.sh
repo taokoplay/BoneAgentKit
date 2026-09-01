@@ -26,4 +26,82 @@ for token in "${forbidden[@]}"; do
   fi
 done
 rm -f /tmp/bone-agent-doc-scan.txt
+
+required_readme=(
+  'https://github.com/taokoplay/BoneAgentKit.git'
+  'exact: "0.2.0-alpha.3"'
+  '`BoneAgentKit`'
+  '`BoneAgentTesting`'
+  '`BoneAgentLocalRuntime`'
+  '`BoneAgentLlama`'
+  'Documentation/INDEX.md'
+  'AGPL-3.0-only'
+)
+
+for token in "${required_readme[@]}"; do
+  if ! grep -Fq -- "$token" "$ROOT/README.md"; then
+    echo "README 缺少必需内容：$token" >&2
+    status=1
+  fi
+done
+
+python3 - "$ROOT" <<'PY' || status=1
+import re
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import unquote
+
+root = Path(sys.argv[1])
+tracked = subprocess.check_output(
+    ["git", "-C", str(root), "ls-files", "*.md"], text=True
+).splitlines()
+errors: list[str] = []
+link_pattern = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+
+for relative in tracked:
+    path = root / relative
+    text = path.read_text(encoding="utf-8")
+    headings = []
+    fenced = False
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if line.startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        match = re.match(r"^(#{1,6})\s+", line)
+        if match:
+            headings.append((line_number, len(match.group(1))))
+
+    h1_count = sum(level == 1 for _, level in headings)
+    if h1_count != 1:
+        errors.append(f"{relative}: 需要且只能有一个一级标题，实际 {h1_count}")
+    for (previous_line, previous), (line_number, current) in zip(headings, headings[1:]):
+        if current > previous + 1:
+            errors.append(
+                f"{relative}:{line_number}: 标题从 H{previous} 跳到 H{current}"
+            )
+
+    for target in link_pattern.findall(text):
+        target = target.strip().split()[0].strip("<>")
+        if not target or target.startswith(("http://", "https://", "mailto:", "#")):
+            continue
+        file_part = unquote(target.split("#", 1)[0])
+        if not file_part:
+            continue
+        destination = (path.parent / file_part).resolve()
+        try:
+            destination.relative_to(root.resolve())
+        except ValueError:
+            errors.append(f"{relative}: 链接越出仓库：{target}")
+            continue
+        if not destination.exists():
+            errors.append(f"{relative}: 相对链接目标不存在：{target}")
+
+if errors:
+    print("\n".join(errors), file=sys.stderr)
+    raise SystemExit(1)
+PY
+
 exit "$status"

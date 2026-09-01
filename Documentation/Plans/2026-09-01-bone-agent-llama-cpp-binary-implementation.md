@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Local repository skeleton and contracts
+## Task 1: Local repository skeleton and contracts
 
 **Files:**
 - Create: `BoneAgentLlamaCpp/Package.swift`
@@ -24,7 +24,7 @@
 3. 运行测试确认 RED。
 4. 添加最小文档与 manifest 结构使非 binary contract 通过。
 
-### Task 2: Reproducible XCFramework build
+## Task 2: Reproducible XCFramework build
 
 **Files:**
 - Create: `Scripts/build-llama-xcframework.sh`
@@ -40,7 +40,7 @@
 4. 验证 minimum OS、architectures、module map、linked frameworks、UUID。
 5. 计算 XCFramework tree checksum/provenance，并让 contract tests GREEN。
 
-### Task 3: Runtime lifecycle seam
+## Task 3: Runtime lifecycle seam
 
 **Files:**
 - Create: `Sources/BoneAgentLlamaCpp/BoneLlamaCppRuntime.swift`
@@ -53,7 +53,7 @@
 2. 实现 backend 一次初始化和 actor Runtime 状态机。
 3. 定向测试 GREEN。
 
-### Task 4: Tokenize, smoke and generation
+## Task 4: Tokenize, smoke and generation
 
 **Files:**
 - Modify: Runtime files
@@ -65,7 +65,7 @@
 3. 映射稳定 Runtime errors，不泄露路径/Prompt。
 4. 定向与 strict tests GREEN。
 
-### Task 5: Platform and release verification
+## Task 5: Platform and release verification
 
 **Steps:**
 1. `swift test` 与 strict concurrency。

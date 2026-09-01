@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Local Model Catalog
+## Task 1: Local Model Catalog
 
 **Files:**
 - Modify: `Package.swift`
@@ -24,7 +24,7 @@
 3. 新增 Product/Target/Test Target，并实现最小 Codable 类型和严格校验。
 4. 重跑定向测试，确认通过。
 
-### Task 2: Safe Artifact Store
+## Task 2: Safe Artifact Store
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Storage/BoneLocalModelStore.swift`
@@ -36,7 +36,7 @@
 3. 使用注入的根目录与 FileManager 实现 Store；默认不决定 App 的存储位置。
 4. 重跑定向测试并确认 GREEN。
 
-### Task 3: Environment and Runtime Planning
+## Task 3: Environment and Runtime Planning
 
 **Files:**
 - Create: `Sources/BoneAgentLocalRuntime/Environment/BoneLocalRuntimeEnvironment.swift`
@@ -49,7 +49,7 @@
 3. 实现可注入环境快照、Runtime 约束与确定性 Plan。
 4. 重跑定向测试并确认 GREEN。
 
-### Task 4: Documentation and Verification
+## Task 4: Documentation and Verification
 
 **Files:**
 - Modify: `README.md`
