@@ -5,7 +5,8 @@ BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime 
 `Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Library Product：
 
 - `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence、副作用恢复契约与内置 Provider 渠道图片；
-- `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report。
+- `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report；
+- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安装校验、环境快照与确定性运行规划，不绑定 llama.cpp 或 Foundation Models。
 
 渠道 PNG 由内部资源 Target 管理，调用方不需要了解或导入该实现模块。
 
@@ -43,7 +44,8 @@ User Intent
 
 ## 文档导航
 
-1. [快速开始](Documentation/GettingStarted.md)
+1. [本地模型基础 Module](Documentation/LocalModels.md)
+2. [快速开始](Documentation/GettingStarted.md)
 2. [架构与模块边界](Documentation/Architecture.md)
 3. [Tool Calling](Documentation/ToolCalling.md)
 4. [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
