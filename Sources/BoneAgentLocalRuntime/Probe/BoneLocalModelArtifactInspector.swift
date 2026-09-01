@@ -43,7 +43,8 @@ public enum BoneLocalModelArtifactInspector {
     private static func hasExpectedSignature(at url: URL, format: BoneLocalModelFormat) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 4), data.count == 4 else { return false }
+        let data = handle.readData(ofLength: 4)
+        guard data.count == 4 else { return false }
         switch format {
         case .gguf:
             return data == Data("GGUF".utf8)
