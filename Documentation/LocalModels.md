@@ -27,7 +27,7 @@
 
 ## Adapter seam
 
-后续 `BoneAgentLlama` 与 `BoneAgentFoundationModels` 将使用 Catalog、Store、Environment 和 Plan，并实现 `BoneInferenceEngine`。Core Product 不直接链接具体本地 Runtime。
+`BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、通用 ChatML encoder 与 text-only `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；后续 `BoneAgentLlamaCpp` 或 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
 
 ## 示例
 
@@ -63,4 +63,6 @@ let plan = try BoneLocalRuntimePlanner.plan(
 
 `metadata` 只运行静态预检；`load` 和 `smoke` 会在静态检查通过后调用 Adapter。Core 的 GGUF 检查仅验证前四字节 `GGUF`，架构、量化、Tokenizer、真实加载和最小 Decode 均属于 `BoneAgentLlama`。Probe Report 不包含绝对路径、Prompt、模型输出或底层错误文本。
 
-Background URLSession、全局下载队列、业务错误文案和实际推理 Adapter 尚不属于本批实现。
+`BoneLlamaInferenceEngine` 只承诺 `.text`，会拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Prompt encoder 不含业务人格或敏感数据策略，Host 可注入自己的模板。
+
+Background URLSession、全局下载队列、业务错误文案、真实 llama.cpp Binary bridge 和 Foundation Models Adapter 尚不属于本批实现。
