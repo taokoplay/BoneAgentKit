@@ -16,6 +16,10 @@ let package = Package(
             name: "BoneAgentTesting",
             targets: ["BoneAgentTesting"]
         ),
+        .library(
+            name: "BoneAgentProviderAssets",
+            targets: ["BoneAgentProviderAssets"]
+        ),
         .executable(
             name: "BoneAgentLiveProviderSmoke",
             targets: ["BoneAgentLiveProviderSmoke"]
@@ -30,6 +34,10 @@ let package = Package(
             name: "BoneAgentTesting",
             dependencies: ["BoneAgentKit"]
         ),
+        .target(
+            name: "BoneAgentProviderAssets",
+            resources: [.process("Resources")]
+        ),
         .executableTarget(
             name: "BoneAgentLiveProviderSmoke",
             dependencies: ["BoneAgentKit"]
@@ -41,6 +49,10 @@ let package = Package(
         .testTarget(
             name: "BoneAgentTestingTests",
             dependencies: ["BoneAgentTesting", "BoneAgentKit"]
+        ),
+        .testTarget(
+            name: "BoneAgentProviderAssetsTests",
+            dependencies: ["BoneAgentProviderAssets"]
         ),
     ]
 )

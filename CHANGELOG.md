@@ -6,6 +6,8 @@
 
 ### Added
 
+- 可选 `BoneAgentProviderAssets` Product，统一提供 14 个 Provider 渠道的 42 个 1x/2x/3x PNG。
+- `iconData(iconID:scale:)` fail-closed 资源接口与完整性测试。
 - ParsingBook compatibility manifest。
 - 实例与请求级 `BoneResolvedInferenceCapabilities`。
 - BoneAgentKit 现代化基线和发布契约。

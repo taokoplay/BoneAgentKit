@@ -4,11 +4,11 @@
 
 当前 BoneAgentKit 生产源码是本仓库内的 clean-room 实现。当前 Package 未声明或链接第三方 Swift Package、C/C++ binary target 或模型权重。
 
-## Provider 品牌素材
+## Provider 渠道图片
 
-BoneAgentKit Runtime 不内置第三方 Provider 品牌图标。Catalog 中的 `iconID` 只是供 Host 映射自有或经授权素材的稳定语义标识，不表示相应商标权利人赞助、认可或官方背书本项目。
+可选 Product `BoneAgentProviderAssets` 内置 42 个 Provider 渠道 PNG，用于在配置和选择界面识别渠道。Catalog 中的 `iconID` 是这些资源的稳定语义标识。
 
-ParsingBook 现有图标已经迁回 Host 工程，不属于 BoneAgentKit 独立 Package 的分发内容；其来源、许可和商标使用仍应由 ParsingBook 单独审计。
+这些渠道图片不表示相应商标权利人赞助、认可或官方背书本项目，也不得被解释为独立的品牌资产授权。BoneAgentKit 当前为私有 Package；任何对外公开分发前仍须逐项复核图片来源、许可与商标使用要求。
 
 ## 许可与待决事项
 
