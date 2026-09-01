@@ -25,7 +25,8 @@
 - `BoneLocalModelCatalog`、`BoneLocalModelStore`、`BoneLocalRuntimePlanner`
 - `BoneLocalModelDownloadCoordinator`、`BoneLocalModelDownloadTransport`、`BoneURLSessionLocalModelDownloadTransport`
 - `BoneLocalModelArtifactInspector`、`BoneLocalRuntimeProbeCoordinator`、`BoneLocalRuntimeAdapterProbing`
-- `BoneLlamaRuntime`、`BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaInferenceEngine`
+- `BoneLlamaRuntime`、`BoneLlamaRuntimeStateObserving`、`BoneLlamaRuntimeState`、`BoneLlamaModelState`
+- `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaInferenceEngine`
 
 ## 兼容承诺
 

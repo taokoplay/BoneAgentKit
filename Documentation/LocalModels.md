@@ -65,4 +65,23 @@ let plan = try BoneLocalRuntimePlanner.plan(
 
 `BoneLlamaInferenceEngine` 只承诺 `.text`，会拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Prompt encoder 不含业务人格或敏感数据策略，Host 可注入自己的模板。
 
+## 当前模型状态
+
+Host 可以按需读取状态，也可以让页面持续订阅：
+
+```swift
+let snapshot = await engine.currentModelState()
+
+for await state in await engine.modelStateUpdates() {
+    // loading → loaded：加载完成
+    // generating → loaded：生成完成且模型仍驻留
+    // unloading → notLoaded：卸载完成
+    // * → failed：操作失败
+}
+```
+
+新订阅会立即收到当前快照；流采用 `bufferingNewest(1)`，慢页面只保留最新状态。每次变化带单调递增 `revision`。状态不包含模型绝对路径、Prompt、输出、下载凭据或底层 C API 文本。首版不伪造 llama.cpp 无法稳定提供的加载百分比。
+
+具体 Runtime 可选择实现 `BoneLlamaRuntimeStateObserving`，直接暴露同样的快照与状态流；不实现该可选协议的旧 Runtime 仍可由 Engine 投影状态。当前同步原生生成仍受 actor 串行限制，状态 API 不应被解释为已提供低延迟跨任务取消。
+
 Background URLSession、全局下载队列、业务错误文案、真实 llama.cpp Binary bridge 和 Foundation Models Adapter 尚不属于本批实现。
