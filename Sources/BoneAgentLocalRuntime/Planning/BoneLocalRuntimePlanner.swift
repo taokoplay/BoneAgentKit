@@ -46,6 +46,18 @@ public struct BoneLocalRuntimePlan: Equatable, Sendable {
     public let maximumOutputTokens: Int
     public let batchTokens: Int
     public let threadCount: Int
+
+    public init(
+        contextTokens: Int,
+        maximumOutputTokens: Int,
+        batchTokens: Int,
+        threadCount: Int
+    ) {
+        self.contextTokens = contextTokens
+        self.maximumOutputTokens = maximumOutputTokens
+        self.batchTokens = batchTokens
+        self.threadCount = threadCount
+    }
 }
 
 public enum BoneLocalRuntimePlanningError: Error, Equatable, Sendable {

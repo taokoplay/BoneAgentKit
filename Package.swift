@@ -20,6 +20,10 @@ let package = Package(
             name: "BoneAgentLocalRuntime",
             targets: ["BoneAgentLocalRuntime"]
         ),
+        .library(
+            name: "BoneAgentLlama",
+            targets: ["BoneAgentLlama"]
+        ),
         .executable(
             name: "BoneAgentLiveProviderSmoke",
             targets: ["BoneAgentLiveProviderSmoke"]
@@ -43,6 +47,10 @@ let package = Package(
             name: "BoneAgentLocalRuntime",
             dependencies: ["BoneAgentKit"]
         ),
+        .target(
+            name: "BoneAgentLlama",
+            dependencies: ["BoneAgentKit", "BoneAgentLocalRuntime"]
+        ),
         .executableTarget(
             name: "BoneAgentLiveProviderSmoke",
             dependencies: ["BoneAgentKit"]
@@ -62,6 +70,10 @@ let package = Package(
         .testTarget(
             name: "BoneAgentLocalRuntimeTests",
             dependencies: ["BoneAgentLocalRuntime", "BoneAgentKit"]
+        ),
+        .testTarget(
+            name: "BoneAgentLlamaTests",
+            dependencies: ["BoneAgentLlama", "BoneAgentLocalRuntime", "BoneAgentKit"]
         ),
     ]
 )
