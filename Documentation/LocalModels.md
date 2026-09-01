@@ -13,6 +13,9 @@
 - `BoneLocalModelDownloadSecurityPolicy`：初始请求与逐跳重定向的 HTTPS/Host 白名单校验。
 - `BoneLocalRuntimeEnvironment`：可注入的内存、磁盘、CPU、模拟器、低电量和热状态快照。
 - `BoneLocalRuntimePlanner`：夹紧模型理论上限、Runtime 上限、Host 上限与请求偏好。
+- `BoneLocalModelArtifactInspector`：验证安装、完整性与最小格式签名，不解析完整 GGUF metadata。
+- `BoneLocalRuntimeProbeCoordinator`：编排 `metadata`、`load` 与 `smoke` 两阶段 Probe，并生成安全、确定性的报告。
+- `BoneLocalRuntimeAdapterProbing`：供 llama.cpp、Foundation Models 等独立 Adapter 实现真实 availability/load/smoke 检查。
 
 ## Host 仍然负责
 
@@ -42,6 +45,13 @@ let installedURL = try await downloader.download(
     environment: environment,
     policy: .init(allowsCellularAccess: false)
 )
+let metadataReport = await BoneLocalRuntimeProbeCoordinator(store: store).probe(
+    model: model,
+    environment: environment,
+    adapter: adapter,
+    depth: .metadata,
+    verifyChecksum: true
+)
 let plan = try BoneLocalRuntimePlanner.plan(
     model: model,
     environment: environment,
@@ -50,5 +60,7 @@ let plan = try BoneLocalRuntimePlanner.plan(
 ```
 
 暂停产生的 opaque resume data 会反映在 `.paused` 状态；Host 可以自行持久化，并通过 `resume` 继续。网络不可达、超时和 HTTP 5xx 可按 Catalog 顺序切换到下一可信来源；4xx、安全违规或完整性失败不会自动切源。
+
+`metadata` 只运行静态预检；`load` 和 `smoke` 会在静态检查通过后调用 Adapter。Core 的 GGUF 检查仅验证前四字节 `GGUF`，架构、量化、Tokenizer、真实加载和最小 Decode 均属于 `BoneAgentLlama`。Probe Report 不包含绝对路径、Prompt、模型输出或底层错误文本。
 
 Background URLSession、全局下载队列、业务错误文案和实际推理 Adapter 尚不属于本批实现。

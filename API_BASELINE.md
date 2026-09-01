@@ -6,7 +6,7 @@
 
 - `BoneAgentKit`：生产 Agent、Inference、Workflow、Provider 和 Persistence 契约。
 - `BoneAgentTesting`：测试 fixture、scripted engine、recorder、assertion 和 crash harness。
-- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安全下载、断点恢复、安装状态、安全存储、环境快照和运行规划契约。
+- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安全下载、断点恢复、安装状态、安全存储、环境快照、运行规划及两阶段 Runtime Probe 契约。
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
@@ -23,6 +23,7 @@
 - `BoneOpenAIInferenceEngine`、`BoneAnthropicInferenceEngine`、`BoneGeminiInferenceEngine`
 - `BoneLocalModelCatalog`、`BoneLocalModelStore`、`BoneLocalRuntimePlanner`
 - `BoneLocalModelDownloadCoordinator`、`BoneLocalModelDownloadTransport`、`BoneURLSessionLocalModelDownloadTransport`
+- `BoneLocalModelArtifactInspector`、`BoneLocalRuntimeProbeCoordinator`、`BoneLocalRuntimeAdapterProbing`
 
 ## 兼容承诺
 
