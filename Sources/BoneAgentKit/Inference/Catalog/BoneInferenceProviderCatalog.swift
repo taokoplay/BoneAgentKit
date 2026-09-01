@@ -136,7 +136,6 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
     /// Catalog 解码、校验或资源读取错误。
     public enum Error: Swift.Error, Equatable, Sendable {
         case resourceMissing(String)
-        case invalidIconScale(Int)
         case unsupportedSchema(Int)
         case duplicateProvider(String)
         case missingParent(provider: String, parent: String)
@@ -185,21 +184,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
         try BundledCatalogCache.shared.catalog()
     }
 
-    /// 按语义 icon ID 与显示 scale 读取 PNG；不暴露 Bundle 或资源路径。
-    public func iconData(iconID: String, scale: Int) throws -> Data {
-        guard (1...3).contains(scale) else {
-            throw Error.invalidIconScale(scale)
-        }
-        guard providers.contains(where: { $0.iconID == iconID }) else {
-            throw Error.resourceMissing(iconID)
-        }
-        let suffix = scale == 1 ? "" : "@\(scale)x"
-        return try Resources.data(
-            forResource: "\(iconID)\(suffix)",
-            withExtension: "png"
-        )
-    }
-
+    /// `iconID` 只是稳定的语义标识；实际品牌素材由 Host 自行提供。
 }
 
 private final class BundledCatalogCache: @unchecked Sendable {
