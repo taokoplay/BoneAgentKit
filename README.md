@@ -6,7 +6,7 @@ BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime 
 
 - `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence、副作用恢复契约与内置 Provider 渠道图片；
 - `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report；
-- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安装校验、环境快照与确定性运行规划，不绑定 llama.cpp 或 Foundation Models。
+- `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安全下载与断点恢复、安装校验、环境快照及确定性运行规划，不绑定 llama.cpp 或 Foundation Models。
 
 渠道 PNG 由内部资源 Target 管理，调用方不需要了解或导入该实现模块。
 
@@ -46,8 +46,8 @@ User Intent
 
 1. [本地模型基础 Module](Documentation/LocalModels.md)
 2. [快速开始](Documentation/GettingStarted.md)
-2. [架构与模块边界](Documentation/Architecture.md)
-3. [Tool Calling](Documentation/ToolCalling.md)
+3. [架构与模块边界](Documentation/Architecture.md)
+4. [Tool Calling](Documentation/ToolCalling.md)
 4. [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
 5. [Testing](Documentation/Testing.md)
 6. [安全与隐私](Documentation/SecurityAndPrivacy.md)
