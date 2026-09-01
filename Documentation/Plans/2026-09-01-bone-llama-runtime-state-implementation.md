@@ -40,9 +40,9 @@
 ### Task 3: llama.cpp Runtime state
 
 **Files:**
-- Modify: `/Users/xutaoyu/CodeSource/BonePackage/BoneAgentLlamaCpp/Sources/BoneAgentLlamaCpp/BoneLlamaCppRuntime.swift`
-- Modify: `/Users/xutaoyu/CodeSource/BonePackage/BoneAgentLlamaCpp/Tests/BoneAgentLlamaCppTests/BoneLlamaCppRuntimeTests.swift`
-- Modify: `/Users/xutaoyu/CodeSource/BonePackage/BoneAgentLlamaCpp/Tests/BoneAgentLlamaCppTests/BoneLlamaCppRealModelTests.swift`
+- Modify: `BoneAgentLlamaCpp/Sources/BoneAgentLlamaCpp/BoneLlamaCppRuntime.swift`
+- Modify: `BoneAgentLlamaCpp/Tests/BoneAgentLlamaCppTests/BoneLlamaCppRuntimeTests.swift`
+- Modify: `BoneAgentLlamaCpp/Tests/BoneAgentLlamaCppTests/BoneLlamaCppRealModelTests.swift`
 
 **Steps:**
 1. 写失败测试：直接 Runtime 初始回放、缺失模型 `loading → failed`、真实 GGUF `loading → loaded → generating → loaded → unloading → notLoaded`。
@@ -58,7 +58,7 @@
 - Modify: `Documentation/LocalModels.md`
 - Modify: `API_BASELINE.md`
 - Modify: `CHANGELOG.md`
-- Modify: `/Users/xutaoyu/CodeSource/BonePackage/BoneAgentLlamaCpp/README.md`
+- Modify: `BoneAgentLlamaCpp/README.md`
 
 **Steps:**
 1. 文档说明完成语义、订阅示例、首版无百分比及取消限制。
@@ -68,7 +68,7 @@
 ### Task 5: Physical iPhone state notification
 
 **Files:**
-- Modify temporary host: `/Users/xutaoyu/.proma/agent-workspaces/default/82ab65e3-d998-46f9-b9e7-f68edcb62835/device-test-host/Sources/DeviceTestApp.swift`
+- Modify temporary host: `temporary-device-test-host/Sources/DeviceTestApp.swift`
 
 **Steps:**
 1. 让页面订阅 Runtime state stream，并把 phase/revision 序列写入设备报告。
@@ -85,4 +85,4 @@
 3. generic iOS Simulator/device build。
 4. 敏感路径、模型权重、凭据、Prompt/输出和 diff checks。
 5. BoneAgentKit 按设计与功能创建本地提交；BoneAgentLlamaCpp 按状态实现创建本地提交。
-6. 不 push、tag、merge 或 release；复验 ParsingBook 仍只有用户原有 `MEMORY.md` 修改。
+6. 不 push、tag、merge 或 release；复验任何 App Host 均未被修改。

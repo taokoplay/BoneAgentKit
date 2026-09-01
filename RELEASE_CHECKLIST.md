@@ -19,9 +19,9 @@
 
 - [ ] SwiftPM 默认测试全部通过。
 - [ ] Swift 6 strict concurrency 与 warnings-as-errors 全部通过。
-- [ ] ParsingBook Debug / Release Simulator 构建通过。
+- [ ] 至少一个真实 Host 的 Debug / Release 构建通过。
 - [ ] 公开 API baseline 无意外删除。
-- [ ] ParsingBook compatibility、角色提取、任务和持久化专项通过。
+- [ ] Host compatibility、核心业务 Adapter、任务和持久化专项通过。
 - [ ] `git diff --check` 通过且没有未审查生成物。
 
 ## Provider Smoke

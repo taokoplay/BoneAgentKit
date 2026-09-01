@@ -13,7 +13,7 @@
 ### Task 1: Local repository skeleton and contracts
 
 **Files:**
-- Create: `/Users/xutaoyu/CodeSource/BonePackage/BoneAgentLlamaCpp/Package.swift`
+- Create: `BoneAgentLlamaCpp/Package.swift`
 - Create: `README.md`, `LICENSE`, `NOTICE.md`, `.gitignore`
 - Create: `Documentation/BuildAndProvenance.md`
 - Create: `Tests/BoneAgentLlamaCppTests/BinaryContractTests.swift`

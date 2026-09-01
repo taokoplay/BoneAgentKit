@@ -72,4 +72,4 @@
 2. 运行 BoneAgentLlama 定向、完整和 strict tests。
 3. 运行 Package graph、diff、敏感扫描。
 4. 按设计、runtime/probe、prompt/engine、docs 拆分本地 commit。
-5. 确认不 push/tag/merge，主仓、ParsingBook、Shorthand 未修改。
+5. 确认不 push/tag/merge，且任何 App Host 均未修改。

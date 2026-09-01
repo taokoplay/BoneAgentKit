@@ -68,4 +68,4 @@
 3. 运行 strict concurrency + warnings-as-errors。
 4. 运行 Package graph、diff 和敏感模式扫描。
 5. 按设计、contracts/inspector、coordinator、docs 拆分本地 commit。
-6. 确认不 push/tag/merge，且主仓、ParsingBook、Shorthand 未被修改。
+6. 确认不 push/tag/merge，且任何 App Host 均未被修改。

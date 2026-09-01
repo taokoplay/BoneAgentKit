@@ -109,4 +109,4 @@ for await state in engine.modelStateUpdates() {
 
 ## Non-goals
 
-不提供加载百分比、Token Streaming、跨进程状态、持久状态恢复或真正的即时取消；不把 UI 文案放入 Package；不修改 ParsingBook 或 Shorthand Host；不发布版本。
+不提供加载百分比、Token Streaming、跨进程状态、持久状态恢复或真正的即时取消；不把 UI 文案放入 Package；不修改任何 App Host；不发布版本。

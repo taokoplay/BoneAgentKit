@@ -37,5 +37,5 @@ git diff --cached --check
 
 - 发布契约、SemVer、CHANGELOG、API baseline 文档尚未建立；
 - LICENSE、NOTICE、Provider 图标来源和商标说明尚未补齐；
-- ParsingBook compatibility manifest 尚未建立；
+- Host compatibility manifest 尚未建立；
 - 严格消息 one-of 解码、实例级 capability、可执行 checkpoint、安全 Tool Result、Prepared Request 和本地 Runtime 尚未实施。

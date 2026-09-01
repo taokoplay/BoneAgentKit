@@ -72,4 +72,4 @@
 3. 运行 `swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`。
 4. 运行 Package graph、`git diff --check`、敏感模式扫描。
 5. 按设计/契约、Coordinator、URLSession Transport、文档拆分本地 commit。
-6. 确认未 push/tag/merge，主仓与 ParsingBook/Shorthand 未被修改。
+6. 确认未 push/tag/merge，且任何 App Host 均未被修改。

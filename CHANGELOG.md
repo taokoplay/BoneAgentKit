@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 公开说明改为通用 App Host 边界，不再包含任何调用项目名称或 Host 专有实现细节。
+- 新增公开说明扫描门禁，阻止项目专有术语重新进入仓库文档。
+
 ## [0.2.0-alpha.2] - 2026-09-01
 
 ### Changed
@@ -22,7 +27,7 @@
 - `BoneLlamaInferenceEngine` 提供当前模型状态快照和 AsyncStream 实时通知；可选 `BoneLlamaRuntimeStateObserving` 供具体 Runtime 暴露加载、生成、取消、卸载与失败状态。
 - `BoneAgentKit` 内置 14 个 Provider 渠道的 42 个 1x/2x/3x PNG，资源实现 Target 不作为独立 Product 暴露。
 - `BoneInferenceProviderCatalog.iconData(iconID:scale:)` fail-closed 资源接口与完整性测试。
-- ParsingBook compatibility manifest。
+- Host compatibility manifest。
 - 实例与请求级 `BoneResolvedInferenceCapabilities`。
 - BoneAgentKit 现代化基线和发布契约。
 
@@ -42,7 +47,7 @@
 
 ### 0.x-hardening
 
-只交付正确性、恢复语义、安全、严格并发和分发治理；不切换 ParsingBook 默认行为。
+只交付正确性、恢复语义、安全、严格并发和分发治理；不切换 Host 默认行为。
 
 ### 0.x-modularization
 

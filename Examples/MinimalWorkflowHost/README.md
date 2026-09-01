@@ -1,6 +1,6 @@
 # MinimalWorkflowHost
 
-独立于 ParsingBook 的第二 Host 编译与运行 Fixture，仅依赖：
+独立的 Host 编译与运行 Fixture，仅依赖：
 
 ```swift
 import BoneAgentKit

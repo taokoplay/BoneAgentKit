@@ -27,7 +27,7 @@ Tool 参数和结果各限制 1 MiB，但“未超限”不代表可写日志。
 `BoneAgentEventSink` 事件**不是持久事实源**，不能用于重建数据库或替代交易提交。事件丢失、重复观察或进程退出都不能改变业务事实。
 
 - 用户确认与一次性授权由 App 控制；Prompt 不能替代权限规则。
-- 数据库坐标、事务、人工字段保护和持久化状态由 App 控制。
+- 业务标识、事务、人工确认规则和持久化状态由 App 控制。
 - Agent Tool 只是 Adapter；通用 Kit 不直接访问数据库、Keychain、UIKit 或业务实体。
 
 ## Provider 与真实测试
@@ -36,7 +36,7 @@ Tool 参数和结果各限制 1 MiB，但“未超限”不代表可写日志。
 
 内置端点只允许 HTTPS；用户自定义 HTTP 只允许 localhost、回环、RFC1918、链路本地和 IPv6 ULA。绝对 operation endpoint 必须在解析后重新校验。自定义 Header 禁止覆盖 Authorization、API Key、Cookie、Host、Content-Length 和 Content-Type。
 
-ParsingBook 的 Catalog、模型发现、Provider 连通性、普通文本、角色复用文本链和生图已经使用 BoneInference 自有配置与 Transport；设置 UI、数据库和用户配置继续作为 App Host 业务边界存在，不依赖旧 Kit。App 错误映射只能读取 BoneInference 稳定枚举、HTTP 状态与脱敏网络诊断，不得读取 `localizedDescription`、`userInfo`、响应 Data、请求 Header 或 Body。旧 Kit 安全 Contract 的分类接管证据见 [LegacyProviderMigration.md](LegacyProviderMigration.md)。真实 Provider smoke 仅在 App 沙箱内显式 opt-in，固定最小输入，输出脱敏摘要；不得由测试脚本扫描环境变量、Keychain 或用户文件。
+Host 的 Catalog 映射、模型发现、Provider 连通性、文本和图片执行应使用 BoneInference 配置与 Transport；设置 UI、持久化和用户配置继续作为 App Host 业务边界存在。App 错误映射只能读取 BoneInference 稳定枚举、HTTP 状态与脱敏网络诊断，不得读取 `localizedDescription`、`userInfo`、响应 Data、请求 Header 或 Body。真实 Provider smoke 仅在 App 沙箱内显式 opt-in，固定最小输入，输出脱敏摘要；不得由测试脚本扫描环境变量、凭据存储或用户文件。
 
 ## 图片生成权利
 

@@ -8,7 +8,7 @@
 
 ## Persistence
 
-`BoneAgentPersistence` 将 Run 与 Checkpoint 作为同一原子提交单元，提供 create、load、CAS commit 和 acquireLease。所有推进同时受单调 revision 与 lease generation fencing 约束。ParsingBook Adapter 应在同一 GRDB transaction 中完成；不能把 Run 和 Checkpoint 拆到两个无法协调的 Store。
+`BoneAgentPersistence` 将 Run 与 Checkpoint 作为同一原子提交单元，提供 create、load、CAS commit 和 acquireLease。所有推进同时受单调 revision 与 lease generation fencing 约束。Host Adapter 应在同一原子事务中完成；不能把 Run 和 Checkpoint 拆到两个无法协调的 Store。
 
 ## Agent Step
 

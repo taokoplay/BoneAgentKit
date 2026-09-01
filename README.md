@@ -15,7 +15,7 @@ BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime 
 
 从 `0.2.0-alpha.2` 起，BoneAgentKit 源码和文档采用 [GNU AGPL v3.0 only](LICENSE)（`AGPL-3.0-only`）。`Sources/BoneAgentProviderAssets/Resources/ProviderIcons/` 下的 Provider PNG 及其中涉及的第三方商标不在 AGPL 授权范围内，具体边界见 [NOTICE.md](NOTICE.md)。`0.2.0-alpha.1` 及更早 tag 保持签发时的 proprietary 许可。
 
-生产 Product 不依赖 `BoneAgentTesting`。ParsingBook 的正文、角色 Parser、Evidence Grounder、数据库坐标、GRDB、手工字段保护和业务 Task DB 保留在 App Host。
+生产 Product 不依赖 `BoneAgentTesting`。业务数据、领域规则、持久化实现和产品级任务管理均由 App Host 负责。
 
 ## 框架定位
 
@@ -30,7 +30,7 @@ User Intent
 → Next Agent Step or Final Result
 ```
 
-这条受控执行链构成 BoneAgentKit 的 Agent Harness。它不是聊天 UI、业务数据库或 Prompt 内容仓库；ParsingBook 等 App Host 负责业务 Intent、数据源、用户设置、UI 和数据库映射，Kit 负责供应商无关的模型执行与 Agent 控制面。完整组件映射见[架构与模块边界](Documentation/Architecture.md#agent-harness-架构定位)。
+这条受控执行链构成 BoneAgentKit 的 Agent Harness。它不是聊天 UI、业务数据库或 Prompt 内容仓库；App Host 负责业务 Intent、数据源、用户设置、UI 和持久化映射，Kit 负责供应商无关的模型执行与 Agent 控制面。完整组件映射见[架构与模块边界](Documentation/Architecture.md#agent-harness-架构定位)。
 
 所有远程 Provider 共用 `BoneInferenceHTTPTransport` 作为联网 seam；具体 URLSession adapter 只负责发送已构造的请求并返回受限响应，不读取 App 全局状态，也不记录 Prompt、正文、Tool 参数/结果或凭据。迁移后的生产执行链不依赖 `AIProviderKit`，旧模块只作为迁移背景出现在边界文档中。
 
@@ -45,7 +45,7 @@ User Intent
 - Effect Intent / Effect Receipt、reconcile-first 与 `outcomeUnknown` 恢复决策；
 - 可恢复 Agent Workflow Step 和提交后事件；
 - 独立 `MinimalWorkflowHost` 跨项目编译运行示例；
-- ParsingBook `CharacterAgentHost` 不透明引用、业务 Bridge、灰度路由、任务中心投影和 Live Smoke 边界。
+- App Host 不透明引用、业务 Adapter、灰度路由、状态投影和安全 Smoke 边界。
 
 ## 文档导航
 
