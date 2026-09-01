@@ -6,7 +6,7 @@
 
 ## Provider 渠道图片
 
-可选 Product `BoneAgentProviderAssets` 内置 42 个 Provider 渠道 PNG，用于在配置和选择界面识别渠道。Catalog 中的 `iconID` 是这些资源的稳定语义标识。
+`BoneAgentKit` Product 内置 42 个 Provider 渠道 PNG，用于在配置和选择界面识别渠道；图片由内部资源 Target 管理。Catalog 中的 `iconID` 是这些资源的稳定语义标识。
 
 这些渠道图片不表示相应商标权利人赞助、认可或官方背书本项目，也不得被解释为独立的品牌资产授权。BoneAgentKit 当前为私有 Package；任何对外公开分发前仍须逐项复核图片来源、许可与商标使用要求。
 

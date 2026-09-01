@@ -42,7 +42,7 @@
 
 - [x] 当前私有预发布采用仓库根目录的 proprietary `LICENSE`；任何开源许可切换必须另行批准。
 - [ ] `NOTICE.md` 中所有第三方实质代码和资产条目已核实。
-- [ ] `BoneAgentProviderAssets` 的 42 个渠道 PNG 与 14 个 `iconID`、三档 scale 一致。
+- [ ] `BoneAgentKit` 内部资源 Target 的 42 个渠道 PNG 与 14 个 `iconID`、三档 scale 一致。
 - [ ] 当前渠道图片仅随私有 Package 分发；公开发布前逐项核实来源、权利状态和商标用途。
 - [ ] 不声称任何 Provider 官方背书。
 

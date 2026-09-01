@@ -2,11 +2,12 @@
 
 BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。当前以私有 Swift Package 形式维护；最低工具链为 Swift 5.9，最低平台为 iOS 13 和 macOS 13，稳定版本遵循 SemVer。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
 
-`Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供三个 Product：
+`Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Library Product：
 
-- `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence 与副作用恢复契约；
-- `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report；
-- `BoneAgentProviderAssets`：可选的内置 Provider 渠道 PNG，只返回 `Data`，不依赖 UIKit 或 SwiftUI。
+- `BoneAgentKit`：生产推理、Tool Calling、Agent Runtime、Workflow、授权、Persistence、副作用恢复契约与内置 Provider 渠道图片；
+- `BoneAgentTesting`：仅测试调用方使用的 Synthetic Provider、Scripted Engine、Recorder、Scenario、Assertions、Crash Harness 与 Safe Report。
+
+渠道 PNG 由内部资源 Target 管理，调用方不需要了解或导入该实现模块。
 
 生产 Product 不依赖 `BoneAgentTesting`。ParsingBook 的正文、角色 Parser、Evidence Grounder、数据库坐标、GRDB、手工字段保护和业务 Task DB 保留在 App Host。
 
@@ -88,16 +89,10 @@ dependencies: [
 .product(name: "BoneAgentTesting", package: "BoneAgentKit")
 ```
 
-需要内置 Provider 渠道图片时，额外依赖可选 Product：
+Provider 渠道图片已经包含在 `BoneAgentKit` Product 中。调用方只需 `import BoneAgentKit`，按 Catalog 的稳定 `iconID` 读取对应显示倍率的 PNG：
 
 ```swift
-.product(name: "BoneAgentProviderAssets", package: "BoneAgentKit")
-```
-
-并按 Catalog 的稳定 `iconID` 读取对应显示倍率的 PNG：
-
-```swift
-let data = try BoneAgentProviderAssets.iconData(
+let data = try catalog.iconData(
     iconID: entry.iconID,
     scale: 3
 )

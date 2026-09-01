@@ -16,10 +16,6 @@ let package = Package(
             name: "BoneAgentTesting",
             targets: ["BoneAgentTesting"]
         ),
-        .library(
-            name: "BoneAgentProviderAssets",
-            targets: ["BoneAgentProviderAssets"]
-        ),
         .executable(
             name: "BoneAgentLiveProviderSmoke",
             targets: ["BoneAgentLiveProviderSmoke"]
@@ -28,6 +24,7 @@ let package = Package(
     targets: [
         .target(
             name: "BoneAgentKit",
+            dependencies: ["BoneAgentProviderAssets"],
             resources: [.process("Resources")]
         ),
         .target(

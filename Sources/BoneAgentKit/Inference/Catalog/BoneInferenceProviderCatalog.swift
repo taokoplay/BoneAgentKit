@@ -1,3 +1,4 @@
+import BoneAgentProviderAssets
 import Foundation
 
 /// 版本化 Provider/Model 目录，是 BoneInference 唯一公开目录 Interface。
@@ -136,6 +137,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
     /// Catalog 解码、校验或资源读取错误。
     public enum Error: Swift.Error, Equatable, Sendable {
         case resourceMissing(String)
+        case invalidIconScale(Int)
         case unsupportedSchema(Int)
         case duplicateProvider(String)
         case missingParent(provider: String, parent: String)
@@ -184,7 +186,21 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
         try BundledCatalogCache.shared.catalog()
     }
 
-    /// `iconID` 只是稳定的语义标识；实际品牌素材由 Host 自行提供。
+    /// 按稳定语义 icon ID 与显示倍率读取内置渠道 PNG。
+    public func iconData(iconID: String, scale: Int) throws -> Data {
+        do {
+            return try BoneAgentProviderAssets.iconData(iconID: iconID, scale: scale)
+        } catch let error as BoneAgentProviderAssets.Error {
+            switch error {
+            case let .invalidScale(scale):
+                throw Error.invalidIconScale(scale)
+            case let .unknownIconID(iconID):
+                throw Error.resourceMissing(iconID)
+            case let .resourceMissing(iconID, _):
+                throw Error.resourceMissing(iconID)
+            }
+        }
+    }
 }
 
 private final class BundledCatalogCache: @unchecked Sendable {

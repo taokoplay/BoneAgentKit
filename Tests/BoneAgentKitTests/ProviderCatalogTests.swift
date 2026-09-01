@@ -10,6 +10,8 @@ final class ProviderCatalogTests: XCTestCase {
         XCTAssertEqual(catalog.providers.count, 21)
         XCTAssertEqual(catalog.provider(ident: "openai")?.providerKind, .openAI)
         XCTAssertEqual(catalog.provider(ident: "openai")?.iconID, "icon_ai_openAI")
+        XCTAssertFalse(try catalog.iconData(iconID: "icon_ai_openAI", scale: 1).isEmpty)
+        XCTAssertFalse(try catalog.iconData(iconID: "icon_ai_openAI", scale: 3).isEmpty)
 
         let knownLimits: [(String, String, Int, Int?, Int?)] = [
             ("Anthropic", "claude-sonnet-4-5-20250929", 200_000, 200_000, 64_000),
