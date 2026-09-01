@@ -84,11 +84,94 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
     public let toolResults: BoneInferenceToolResultBatch?
 
     public init(role: BoneInferenceMessageRole, content: String) {
+        precondition(role != .tool, "tool role 不能使用文本 payload")
+        precondition(!content.isEmpty, "文本消息内容不能为空")
         self.role = role
         self.content = content
         assistantTurn = nil
         toolResult = nil
         toolResults = nil
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let role = try container.decode(BoneInferenceMessageRole.self, forKey: .role)
+        let content = try container.decodeIfPresent(String.self, forKey: .content)
+        let assistantTurn = try container.decodeIfPresent(BoneInferenceAssistantTurn.self, forKey: .assistantTurn)
+        let toolResult = try container.decodeIfPresent(BoneInferenceToolResult.self, forKey: .toolResult)
+        let toolResults = try container.decodeIfPresent(BoneInferenceToolResultBatch.self, forKey: .toolResults)
+        let payloadCount = [content != nil, assistantTurn != nil, toolResult != nil, toolResults != nil]
+            .filter { $0 }
+            .count
+        guard payloadCount == 1 else {
+            throw Self.dataCorrupted(container, "消息必须且只能包含一种 payload")
+        }
+        switch role {
+        case .system, .user:
+            guard let content, !content.isEmpty else {
+                throw Self.dataCorrupted(container, "system/user 消息必须包含非空 content")
+            }
+            self.role = role
+            self.content = content
+            self.assistantTurn = nil
+            self.toolResult = nil
+            self.toolResults = nil
+        case .assistant:
+            guard assistantTurn != nil || content?.isEmpty == false else {
+                throw Self.dataCorrupted(container, "assistant 消息必须包含 assistantTurn 或兼容文本")
+            }
+            self.role = role
+            self.content = content
+            self.assistantTurn = assistantTurn
+            self.toolResult = nil
+            self.toolResults = nil
+        case .tool:
+            guard toolResult != nil || toolResults != nil else {
+                throw Self.dataCorrupted(container, "tool 消息必须包含 Tool Result")
+            }
+            self.role = role
+            self.content = nil
+            self.assistantTurn = nil
+            self.toolResult = toolResult
+            self.toolResults = toolResults
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(role, forKey: .role)
+        switch role {
+        case .system, .user:
+            guard let content, !content.isEmpty,
+                  assistantTurn == nil, toolResult == nil, toolResults == nil else {
+                throw EncodingError.invalidValue(self, .init(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "非法的 system/user 消息 payload"
+                ))
+            }
+            try container.encode(content, forKey: .content)
+        case .assistant:
+            guard toolResult == nil, toolResults == nil,
+                  (assistantTurn != nil) != (content != nil),
+                  content?.isEmpty != true else {
+                throw EncodingError.invalidValue(self, .init(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "非法的 assistant 消息 payload"
+                ))
+            }
+            try container.encodeIfPresent(content, forKey: .content)
+            try container.encodeIfPresent(assistantTurn, forKey: .assistantTurn)
+        case .tool:
+            guard content == nil, assistantTurn == nil,
+                  (toolResult != nil) != (toolResults != nil) else {
+                throw EncodingError.invalidValue(self, .init(
+                    codingPath: encoder.codingPath,
+                    debugDescription: "非法的 tool 消息 payload"
+                ))
+            }
+            try container.encodeIfPresent(toolResult, forKey: .toolResult)
+            try container.encodeIfPresent(toolResults, forKey: .toolResults)
+        }
     }
 
     private init(role: BoneInferenceMessageRole, assistantTurn: BoneInferenceAssistantTurn) {
@@ -144,6 +227,20 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         if let toolResults { return toolResults }
         if let toolResult { return try .init(results: [toolResult]) }
         throw BoneInferenceError.invalidToolResult
+    }
+
+    private static func dataCorrupted(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ description: String
+    ) -> DecodingError {
+        .dataCorrupted(.init(
+            codingPath: container.codingPath,
+            debugDescription: description
+        ))
+    }
+
+    private enum CodingKeys: CodingKey {
+        case role, content, assistantTurn, toolResult, toolResults
     }
 }
 

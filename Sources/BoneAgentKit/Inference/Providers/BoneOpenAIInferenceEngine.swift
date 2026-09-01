@@ -22,6 +22,22 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         self.transport = transport
     }
 
+    public func resolvedCapabilities(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneResolvedInferenceCapabilities {
+        var resolved = capabilities
+        // 兼容网关只承诺 OpenAI wire shape，不据此承诺原生 response_format。
+        if configuration.kind != .openAI {
+            resolved.remove(.structuredOutput)
+        }
+        return .init(
+            modelID: request.modelID,
+            invocation: invocation,
+            capabilities: resolved
+        )
+    }
+
     public func infer(
         request: BoneInferenceRequest
     ) async throws -> BoneInferenceResponse {
@@ -31,10 +47,11 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
     public func inferDetailed(
         request: BoneInferenceRequest
     ) async throws -> BoneInferenceDetailedResult {
+        let resolved = try resolvedCapabilities(for: request, invocation: .nonStreaming)
         try BoneInferenceCapabilityValidator.validate(
             request: request,
-            capabilities: capabilities,
-            invocation: .nonStreaming
+            capabilities: resolved.capabilities,
+            invocation: resolved.invocation
         )
         let prepared = try preparedRequest(request)
         let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
@@ -83,7 +100,12 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try BoneInferenceCapabilityValidator.validate(request: request, capabilities: capabilities, invocation: .streaming)
+                    let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
+                    try BoneInferenceCapabilityValidator.validate(
+                        request: request,
+                        capabilities: resolved.capabilities,
+                        invocation: resolved.invocation
+                    )
                     let prepared = try preparedRequest(request)
                     let urlRequest = try makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
                     var events: [BoneInferenceEventStreamEvent] = []
@@ -125,10 +147,11 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceDetailedResult {
+        let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
         try BoneInferenceCapabilityValidator.validate(
             request: request,
-            capabilities: capabilities,
-            invocation: .streaming
+            capabilities: resolved.capabilities,
+            invocation: resolved.invocation
         )
         let prepared = try preparedRequest(request)
         let urlRequest = try makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)

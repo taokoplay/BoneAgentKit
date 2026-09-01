@@ -57,7 +57,7 @@ ParsingBook Provider/目录模型
 
 `BoneInferenceHTTPTransport` 统一承载非流式 HTTP、模型发现有限重试和 SSE 事件请求。最终 URL 解析后执行 HTTPS/私网 HTTP 门禁，自定义 Header 不能覆盖认证、Cookie、Host 或消息边界字段；Transport 的错误和指标不携带 Prompt、正文、凭据、响应正文或 URL query。
 
-ParsingBook 的 Catalog、模型发现、Provider 连通性、生图和普通文本执行已完整使用这条链路；角色业务复用 `AIChatSource`，因此同步使用 BoneInference 文本 Engine。设置 UI、数据库与用户配置保留在 App Host，但只映射到 BoneInference 公开类型。生产源码、Xcode 引用和旧 Package 均已清零；`Frameworks/BoneAgentKit` 是唯一 Bone Agent Kit Package。
+ParsingBook 的 Catalog、模型发现、Provider 连通性、生图和普通文本执行已完整使用这条链路；角色业务复用 `AIChatSource`，因此同步使用 BoneInference 文本 Engine。设置 UI、数据库与用户配置保留在 App Host，但只映射到 BoneInference 公开类型。生产执行链不再依赖迁移前的 `AIProviderKit`；生产源码、Xcode 引用和旧 Package 均已清零，`Frameworks/BoneAgentKit` 是唯一 Bone Agent Kit Package。
 
 旧 Kit 删除前的 `111 tests, 0 failures` 历史基线按行为类别接管，不复制旧源码或旧 API。完整映射与删除门禁见 [LegacyProviderMigration.md](LegacyProviderMigration.md)。
 

@@ -32,7 +32,7 @@ Tool 参数和结果各限制 1 MiB，但“未超限”不代表可写日志。
 
 ## Provider 与真实测试
 
-凭据只从 App 既有安全设施在调用时注入 `BoneInferenceProviderConfiguration`，不得进入日志、事件、错误和普通持久化。`BoneInferenceHTTPTransport` 在 JSON/SSE 上层解析前限制响应容量，传播取消；POST 不自动重试，模型发现 GET 最多重试一次。SSE 只在正常 EOF 且完整成帧后交付结果，首事件/idle timeout、截断和超限不得返回部分结果。
+凭据只从 App 既有安全设施在调用时注入 `BoneInferenceProviderConfiguration`，不得进入日志、事件、错误和普通持久化。`BoneInferenceHTTPTransport` 在 JSON/SSE 上层解析前限制响应容量，传播取消；POST 不自动重试，模型发现 GET 最多重试一次。SSE 只在正常 EOF 且完整成帧后交付结果，首事件/idle timeout、截断和超限不得返回部分结果。生产执行链不得回退到迁移前的 `AIProviderKit` Transport，以免形成第二套认证、重试或日志策略。
 
 内置端点只允许 HTTPS；用户自定义 HTTP 只允许 localhost、回环、RFC1918、链路本地和 IPv6 ULA。绝对 operation endpoint 必须在解析后重新校验。自定义 Header 禁止覆盖 Authorization、API Key、Cookie、Host、Content-Length 和 Content-Type。
 

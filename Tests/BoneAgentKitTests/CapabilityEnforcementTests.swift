@@ -121,6 +121,55 @@ final class CapabilityEnforcementTests: XCTestCase {
         ))
     }
 
+    func testOpenAICompatibleInstanceDoesNotResolveNativeStructuredOutput() throws {
+        let official = BoneOpenAIInferenceEngine(
+            configuration: providerConfiguration(kind: .openAI),
+            transport: CapabilityCapturingTransport()
+        )
+        let compatible = BoneOpenAIInferenceEngine(
+            configuration: providerConfiguration(kind: .custom),
+            transport: CapabilityCapturingTransport()
+        )
+        let request = BoneInferenceRequest(
+            modelID: "same-model-name",
+            messages: [.init(role: .user, content: "private-prompt")],
+            responseFormat: .jsonObject(fallback: .requireNative)
+        )
+
+        let officialSnapshot = try official.resolvedCapabilities(
+            for: request,
+            invocation: .nonStreaming
+        )
+        let compatibleSnapshot = try compatible.resolvedCapabilities(
+            for: request,
+            invocation: .nonStreaming
+        )
+
+        XCTAssertTrue(officialSnapshot.capabilities.contains(.structuredOutput))
+        XCTAssertFalse(compatibleSnapshot.capabilities.contains(.structuredOutput))
+        XCTAssertEqual(officialSnapshot.modelID, request.modelID)
+        XCTAssertEqual(compatibleSnapshot.invocation, .nonStreaming)
+    }
+
+    func testCompatibleRequireNativeFailsBeforeTransportUsingResolvedCapabilities() async throws {
+        let transport = CapabilityCapturingTransport()
+        let engine = BoneOpenAIInferenceEngine(
+            configuration: providerConfiguration(kind: .custom),
+            transport: transport
+        )
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            responseFormat: .jsonObject(fallback: .requireNative)
+        )
+
+        await XCTAssertThrowsErrorAsync(try await engine.infer(request: request)) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedStructuredOutput)
+        }
+        let sends = await transport.sendCount()
+        XCTAssertEqual(sends, 0)
+    }
+
     func testAgentRejectsMissingTextCapabilityBeforeRunEventOrProviderCall() async throws {
         let engine = RecordingEngine(capabilities: [])
         let recorder = EventRecorder()
@@ -174,6 +223,29 @@ final class CapabilityEnforcementTests: XCTestCase {
         let eventCount = await recorder.count()
         XCTAssertEqual(requestCount, 0)
         XCTAssertEqual(eventCount, 0)
+    }
+
+    private func providerConfiguration(
+        kind: BoneInferenceProviderKind
+    ) -> BoneInferenceProviderConfiguration {
+        .init(
+            kind: kind,
+            apiKey: "test-key",
+            baseURL: URL(string: "https://synthetic.invalid")!,
+            endpointSecurityPolicy: kind == .custom ? .custom : .builtIn
+        )
+    }
+
+    private func XCTAssertThrowsErrorAsync<T>(
+        _ expression: @autoclosure () async throws -> T,
+        _ handler: (Error) -> Void
+    ) async {
+        do {
+            _ = try await expression()
+            XCTFail("异步操作应抛出错误")
+        } catch {
+            handler(error)
+        }
     }
 
     private static let toolDefinition = BoneAgentToolDefinition(

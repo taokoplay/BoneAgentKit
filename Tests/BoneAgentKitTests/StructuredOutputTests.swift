@@ -46,7 +46,7 @@ final class StructuredOutputTests: XCTestCase {
         let transport = CapturingTransport(response: Self.openAIResponse(text: #"{"characters":[]}"#))
         let engine = BoneOpenAIInferenceEngine(configuration: configuration(kind: .openAI), transport: transport)
         let response = try await engine.infer(request: request(format: .jsonSchema(schema, fallback: .requireNative)))
-        let body = try await transport.requestBody()
+        let body = try Self.requestBody(from: await transport.requestBodyData())
         let responseFormat = try XCTUnwrap(body["response_format"] as? [String: Any])
         XCTAssertEqual(responseFormat["type"] as? String, "json_schema")
         let wrapper = try XCTUnwrap(responseFormat["json_schema"] as? [String: Any])
@@ -87,7 +87,7 @@ final class StructuredOutputTests: XCTestCase {
         let transport = CapturingTransport(response: Self.openAIToolResponse(arguments: ["characters": []]))
         let engine = BoneOpenAIInferenceEngine(configuration: configuration(kind: .custom), transport: transport)
         let response = try await engine.infer(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)))
-        let body = try await transport.requestBody()
+        let body = try Self.requestBody(from: await transport.requestBodyData())
         XCTAssertNil(body["response_format"])
         let choice = try XCTUnwrap(body["tool_choice"] as? [String: Any])
         XCTAssertEqual(choice["type"] as? String, "function")
@@ -99,7 +99,7 @@ final class StructuredOutputTests: XCTestCase {
         let transport = CapturingTransport(response: Self.geminiResponse(text: #"{"characters":[]}"#))
         let engine = BoneGeminiInferenceEngine(configuration: configuration(kind: .google, authentication: .googleAPIKey), transport: transport)
         let response = try await engine.infer(request: request(format: .jsonSchema(schema, fallback: .requireNative)))
-        let body = try await transport.requestBody()
+        let body = try Self.requestBody(from: await transport.requestBodyData())
         let config = try XCTUnwrap(body["generationConfig"] as? [String: Any])
         XCTAssertEqual(config["responseMimeType"] as? String, "application/json")
         XCTAssertNotNil(config["responseSchema"] as? [String: Any])
@@ -295,6 +295,15 @@ final class StructuredOutputTests: XCTestCase {
         }
     }
 
+    /// 在测试调用方隔离域内解析请求 JSON，避免动态 Foundation 容器跨 actor 传递。
+    private static func requestBody(from data: Data?) throws -> [String: Any] {
+        guard let data,
+              let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+        return body
+    }
+
     private static func openAIResponse(text: String) -> Data {
         try! JSONSerialization.data(withJSONObject: [
             "choices": [["message": ["role": "assistant", "content": text], "finish_reason": "stop"]],
@@ -412,11 +421,6 @@ private actor CapturingTransport: BoneInferenceHTTPTransport {
 
     func capturedRequest() -> URLRequest? { request }
 
-    func requestBody() throws -> [String: Any] {
-        guard let data = request?.httpBody,
-              let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw BoneInferenceTransportError.invalidResponse
-        }
-        return body
-    }
+    /// 只跨 actor 返回 Sendable 原始数据；动态 JSON 容器由调用方本地解析。
+    func requestBodyData() -> Data? { request?.httpBody }
 }

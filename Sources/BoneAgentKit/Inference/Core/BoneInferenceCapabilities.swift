@@ -10,6 +10,23 @@ public enum BoneInferenceCapability: String, Codable, CaseIterable, Hashable, Se
 }
 
 /// BoneInference 边界上的稳定错误。
+/// 针对具体 Engine 实例、模型、请求和调用方式解析出的不可变能力快照。
+public struct BoneResolvedInferenceCapabilities: Equatable, Sendable {
+    public let modelID: String
+    public let invocation: BoneInferenceInvocation
+    public let capabilities: Set<BoneInferenceCapability>
+
+    public init(
+        modelID: String,
+        invocation: BoneInferenceInvocation,
+        capabilities: Set<BoneInferenceCapability>
+    ) {
+        self.modelID = modelID
+        self.invocation = invocation
+        self.capabilities = capabilities
+    }
+}
+
 public enum BoneInferenceError: Error, Equatable, Sendable {
     case unsupportedCapability(BoneInferenceCapability)
     case invalidGenerationOptions

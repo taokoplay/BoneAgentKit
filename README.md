@@ -1,6 +1,6 @@
 # BoneAgentKit
 
-BoneAgentKit 是仓库内、可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
+BoneAgentKit 是仓库内、可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。最低工具链为 Swift 5.9，最低平台为 iOS 13 和 macOS 13；稳定版本遵循 SemVer。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
 
 `Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Product：
 
@@ -23,6 +23,8 @@ User Intent
 ```
 
 这条受控执行链构成 BoneAgentKit 的 Agent Harness。它不是聊天 UI、业务数据库或 Prompt 内容仓库；ParsingBook 等 App Host 负责业务 Intent、数据源、用户设置、UI 和数据库映射，Kit 负责供应商无关的模型执行与 Agent 控制面。完整组件映射见[架构与模块边界](Documentation/Architecture.md#agent-harness-架构定位)。
+
+所有远程 Provider 共用 `BoneInferenceHTTPTransport` 作为联网 seam；具体 URLSession adapter 只负责发送已构造的请求并返回受限响应，不读取 App 全局状态，也不记录 Prompt、正文、Tool 参数/结果或凭据。迁移后的生产执行链不依赖 `AIProviderKit`，旧模块只作为迁移背景出现在边界文档中。
 
 ## 能力概览
 

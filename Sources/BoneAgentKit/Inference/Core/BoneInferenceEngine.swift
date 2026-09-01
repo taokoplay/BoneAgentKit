@@ -37,6 +37,12 @@ public protocol BoneInferenceEngine: Sendable {
     /// 可跨模块注入的图片生成组件；nil 表示不支持图片。
     var imageGenerator: (any BoneInferenceImageGenerating)? { get }
 
+    /// 根据具体实例、模型、请求及调用方式解析本次可承诺能力。
+    func resolvedCapabilities(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneResolvedInferenceCapabilities
+
     func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse
 }
 
@@ -49,6 +55,17 @@ public extension BoneInferenceEngine {
             result.insert(.imageGeneration)
         }
         return result
+    }
+
+    func resolvedCapabilities(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneResolvedInferenceCapabilities {
+        .init(
+            modelID: request.modelID,
+            invocation: invocation,
+            capabilities: capabilities
+        )
     }
 
     /// 统一安全图片入口；无图片组件时不发生 Provider 调用。

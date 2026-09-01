@@ -16,6 +16,10 @@ let package = Package(
             name: "BoneAgentTesting",
             targets: ["BoneAgentTesting"]
         ),
+        .executable(
+            name: "BoneAgentLiveProviderSmoke",
+            targets: ["BoneAgentLiveProviderSmoke"]
+        ),
     ],
     targets: [
         .target(
@@ -24,6 +28,10 @@ let package = Package(
         ),
         .target(
             name: "BoneAgentTesting",
+            dependencies: ["BoneAgentKit"]
+        ),
+        .executableTarget(
+            name: "BoneAgentLiveProviderSmoke",
             dependencies: ["BoneAgentKit"]
         ),
         .testTarget(

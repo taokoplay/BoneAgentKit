@@ -283,7 +283,8 @@ public actor BoneAgentWorkflowStepController {
         case .failed: expectedTerminal = .failed
         case .cancelled: expectedTerminal = .cancelled
         case .commitUncertain:
-            throw BoneAgentWorkflowStepError.invalidState
+            // 自动执行在此终止，但保留无业务终态的 checkpoint，等待 Host 显式调和。
+            expectedTerminal = nil
         case .pending, .ready, .running, .waiting, .paused, .skipped:
             expectedTerminal = nil
         }
@@ -300,7 +301,10 @@ public actor BoneAgentWorkflowStepController {
     }
 
     private func ensureNotTerminal() throws {
-        guard checkpoint.terminalState == nil else { throw BoneAgentWorkflowStepError.terminalState }
+        guard checkpoint.terminalState == nil,
+              checkpoint.state != .commitUncertain else {
+            throw BoneAgentWorkflowStepError.terminalState
+        }
     }
 
     private func copy(
