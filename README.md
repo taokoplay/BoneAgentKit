@@ -1,6 +1,6 @@
 # BoneAgentKit
 
-BoneAgentKit 是仓库内、可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。最低工具链为 Swift 5.9，最低平台为 iOS 13 和 macOS 13；稳定版本遵循 SemVer。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
+BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime SDK。当前以私有 Swift Package 形式维护；最低工具链为 Swift 5.9，最低平台为 iOS 13 和 macOS 13，稳定版本遵循 SemVer。它采用当前 AI Agent 领域常说的 **Agent Harness 架构**：在基础模型之上提供可控执行环境，统一管理上下文、Agent Loop、Tool 调用、策略与授权、持久工作流、副作用和失败恢复。
 
 `Harness` 在这里描述的是架构模式，不是生产 Module 或一级目录名称。生产代码按职责拆分为 `Agent + Inference + Workflow`，测试支架单独放在 `BoneAgentTesting`，避免把生产运行时与 Test Harness 混为一谈。早期 Task 1–3 的最小 Runtime 已扩展为完整 Tool Calling、Workflow 与 Testing 边界。对外提供两个 Product：
 
@@ -62,14 +62,38 @@ User Intent
 - Provider continuation、Prompt、正文、Tool 参数/结果和原始响应不得进入普通日志、事件或 Safe Report。
 - 第一阶段 Capability 门禁强制 Engine / Provider 已知能力；Catalog 中未核验的 Model 级能力保持 unknown，不按模型名猜测。
 
+## 快速接入
+
+在其他 Swift Package 中使用远程私有仓库时，初期建议锁定精确预发布版本：
+
+```swift
+dependencies: [
+    .package(
+        url: "git@github.com:taokoplay/BoneAgentKit.git",
+        exact: "0.1.0-alpha.1"
+    )
+]
+```
+
+目标依赖：
+
+```swift
+.product(name: "BoneAgentKit", package: "BoneAgentKit")
+```
+
+测试目标可额外依赖：
+
+```swift
+.product(name: "BoneAgentTesting", package: "BoneAgentKit")
+```
+
 ## 快速验证
 
 ```bash
-swift test --package-path Frameworks/BoneAgentKit --disable-sandbox
-python3 Tests/BoneAgentKit/bone_agent_kit_naming_regression.py
-xcodebuild -project ParsingBook.xcodeproj \
-  -scheme ParsingBook \
-  -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  build CODE_SIGNING_ALLOWED=NO
+swift package resolve
+swift test
+swift test \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warnings-as-errors
+swift run BoneAgentLiveProviderSmoke --dry-run
 ```
