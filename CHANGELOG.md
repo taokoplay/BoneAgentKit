@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.2] - 2026-09-01
+
+### Changed
+
+- BoneAgentKit 源码和文档从 proprietary 许可切换为 `AGPL-3.0-only`。
+- Provider 渠道 PNG 与其中涉及的第三方商标明确排除在 AGPL 授权范围外；历史 tag 的许可不追溯变更。
+
 ## [0.2.0-alpha.1] - 2026-09-01
 
 ### Added

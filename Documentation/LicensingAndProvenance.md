@@ -4,6 +4,8 @@
 
 BoneAgentKit 当前生产文件与文档均为本仓库内 **new clean-room** 实现：依据已批准设计、当前项目需求与自有回归新写，没有复制 AgentRunKit、SwiftHarnessAgent、SwiftLangChain 或第三方 SDK 的源码、注释、文档、Fixture、独特 API 组合或命名。
 
+自 `0.2.0-alpha.2` 起，上述源码和文档采用 `AGPL-3.0-only`。`Sources/BoneAgentProviderAssets/Resources/ProviderIcons/` 下的 Provider PNG 及第三方商标不在该授权范围内；历史 tag 保持签发时许可，详见仓库根目录 `NOTICE.md`。
+
 `Frameworks/AIProviderKit` 是用户自有 Git 历史中的迁移来源。Task 1–3 仅在文档中提供调用其公开 API 的迁移期 Adapter；Task 9 已依据该自有实现的可观察协议行为、仓库测试和供应商官方公开 API，将生图 Provider **reimplemented clean-room** 到 BoneInference。没有复制旧源码、注释、错误文案或独特 API；旧路径只作为行为核对和 provenance 证据。
 
 ## 逐文件 provenance

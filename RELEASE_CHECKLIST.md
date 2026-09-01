@@ -40,10 +40,11 @@
 
 ## 许可证和资源
 
-- [x] 当前私有预发布采用仓库根目录的 proprietary `LICENSE`；任何开源许可切换必须另行批准。
+- [x] 自 `0.2.0-alpha.2` 起，源码和文档采用 `AGPL-3.0-only`；更早 tag 保持签发时的 proprietary 许可。
 - [ ] `NOTICE.md` 中所有第三方实质代码和资产条目已核实。
 - [ ] `BoneAgentKit` 内部资源 Target 的 42 个渠道 PNG 与 14 个 `iconID`、三档 scale 一致。
-- [ ] 当前渠道图片仅随私有 Package 分发；公开发布前逐项核实来源、权利状态和商标用途。
+- [ ] Provider PNG 与第三方商标不属于 AGPL 授权范围；公开或再分发前逐项核实来源、权利状态和商标用途。
+- [ ] 发布页面和 Package 元数据不得将 Provider PNG 错误表述为 AGPL 资产。
 - [ ] 不声称任何 Provider 官方背书。
 
 ## 迁移

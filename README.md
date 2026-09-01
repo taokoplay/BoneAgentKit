@@ -11,6 +11,10 @@ BoneAgentKit 是可供多个 Swift 项目复用的生产级 Swift Agent Runtime 
 
 渠道 PNG 由内部资源 Target 管理，调用方不需要了解或导入该实现模块。
 
+## 许可证
+
+从 `0.2.0-alpha.2` 起，BoneAgentKit 源码和文档采用 [GNU AGPL v3.0 only](LICENSE)（`AGPL-3.0-only`）。`Sources/BoneAgentProviderAssets/Resources/ProviderIcons/` 下的 Provider PNG 及其中涉及的第三方商标不在 AGPL 授权范围内，具体边界见 [NOTICE.md](NOTICE.md)。`0.2.0-alpha.1` 及更早 tag 保持签发时的 proprietary 许可。
+
 生产 Product 不依赖 `BoneAgentTesting`。ParsingBook 的正文、角色 Parser、Evidence Grounder、数据库坐标、GRDB、手工字段保护和业务 Task DB 保留在 App Host。
 
 ## 框架定位
