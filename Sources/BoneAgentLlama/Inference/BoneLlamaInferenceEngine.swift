@@ -139,8 +139,22 @@ private actor Session {
                 isLoaded = true
                 publish(.loaded, configuration: configuration)
             }
+            let tokenization = try await runtime.tokenize(prompt: prompt)
+            let executionPlan = try BoneLlamaPromptExecutionPlanner.plan(
+                tokenization: tokenization,
+                configuration: configuration,
+                requestedMaximumOutputTokens: options.maximumOutputTokens
+            )
+            let effectiveOptions = try BoneLlamaGenerationOptions(
+                maximumOutputTokens: executionPlan.maximumOutputTokens,
+                temperature: options.temperature
+            )
             publish(.generating, configuration: configuration)
-            let result = try await runtime.generate(prompt: prompt, options: options)
+            let result = try await runtime.generate(
+                prompt: prompt,
+                executionPlan: executionPlan,
+                options: effectiveOptions
+            )
             let response: BoneInferenceResponse
             if let toolCalling {
                 response = try toolCalling.decode(

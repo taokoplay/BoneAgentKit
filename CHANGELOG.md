@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.6] - 2026-09-02
+
+### Added
+
+- 新增真实 Tokenizer 驱动的 `BoneLlamaPromptExecutionPlan` 与自动 prefill Token ranges；Prompt 可以安全跨多个 decode batch，输出上限会按剩余 Context 自动收紧。
+
+### Changed
+
+- 收紧 `BoneLlamaRuntime`：Runtime 必须实现真实 `tokenize(prompt:)`，并按 Engine 传入的 execution plan 分片 prefill；Context 超限在原生 decode 前映射为 `.promptTooLong`。
+
 ## [0.2.0-alpha.5] - 2026-09-02
 
 ### Added

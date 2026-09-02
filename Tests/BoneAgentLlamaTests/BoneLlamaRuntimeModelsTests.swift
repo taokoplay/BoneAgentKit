@@ -32,6 +32,43 @@ final class BoneLlamaRuntimeModelsTests: XCTestCase {
         XCTAssertEqual(options.maximumOutputTokens, 512)
     }
 
+    func testPromptExecutionPlannerAutomaticallySlicesPrefillAndClampsOutput() throws {
+        let plan = try BoneLlamaPromptExecutionPlanner.plan(
+            tokenization: BoneLlamaPromptTokenization(tokenCount: 600),
+            configuration: .init(plan: .init(
+                contextTokens: 700,
+                maximumOutputTokens: 512,
+                batchTokens: 256,
+                threadCount: 2
+            )),
+            requestedMaximumOutputTokens: 512
+        )
+
+        XCTAssertEqual(plan.promptTokenCount, 600)
+        XCTAssertEqual(plan.maximumOutputTokens, 100)
+        XCTAssertEqual(plan.prefillRanges, [0..<256, 256..<512, 512..<600])
+        XCTAssertTrue(plan.prefillRanges.allSatisfy { $0.count <= plan.batchTokens })
+    }
+
+    func testPromptExecutionPlannerRejectsContextOverflowAndEmptyTokenization() throws {
+        XCTAssertThrowsError(try BoneLlamaPromptTokenization(tokenCount: 0)) { error in
+            XCTAssertEqual(error as? BoneLlamaRuntimeError, .tokenizationFailed)
+        }
+        let configuration = BoneLlamaRuntimeConfiguration(plan: .init(
+            contextTokens: 512,
+            maximumOutputTokens: 128,
+            batchTokens: 64,
+            threadCount: 2
+        ))
+        XCTAssertThrowsError(try BoneLlamaPromptExecutionPlanner.plan(
+            tokenization: BoneLlamaPromptTokenization(tokenCount: 512),
+            configuration: configuration,
+            requestedMaximumOutputTokens: 1
+        )) { error in
+            XCTAssertEqual(error as? BoneLlamaRuntimeError, .promptTooLong)
+        }
+    }
+
     func testGenerationOptionsRejectInvalidValues() {
         XCTAssertThrowsError(try BoneLlamaGenerationOptions(
             inferenceOptions: .init(temperature: -1, maximumOutputTokens: 1),

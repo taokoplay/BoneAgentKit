@@ -33,6 +33,18 @@
 
 `BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、通用 ChatML encoder，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；后续 `BoneAgentLlamaCpp` 或 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
 
+## Token Context 与自动 Prefill 分片
+
+`contextTokens` 是 Prompt 与生成内容共享的 Context 总容量；`batchTokens` 是单次原生 decode 可接收的 Token 上限，两者不能混用。`BoneLlamaInferenceEngine` 会先要求 Runtime 用已加载模型的真实 Tokenizer 计算完整编码后 Prompt（含 Chat 模板、Tool Schema 和历史）的 Token 数，再通过 `BoneLlamaPromptExecutionPlanner`：
+
+- 在 Prompt 已达到 Context 时于原生 decode 前抛出 `.promptTooLong`；
+- 将最大输出收紧到剩余 Context；
+- 自动生成连续、无重叠、每片不超过 `batchTokens` 的 `prefillRanges`。
+
+例如 Prompt 为 600 Tokens、Batch 为 256 时，ranges 为 `0..<256`、`256..<512`、`512..<600`。这不是把对话拆成多个独立请求：具体 Runtime 必须对完整 Prompt tokenize，并按这些 **Token index** 分批 prefill 同一个 Context，保持绝对 position 连续。不得按 Character 或 UTF-8 字节切 Prompt，也不得仅靠调大 `n_batch` 避免崩溃。
+
+Runtime 实现 `generate(prompt:executionPlan:options:)` 时必须重新使用或复用与 `tokenize(prompt:)` 完全一致的 Token 序列，验证数量等于 `executionPlan.promptTokenCount`，按 `prefillRanges` 构造原生 batch；任何不一致映射为 `.tokenizationFailed`。只有最后一个 prefill Token 需要请求首个生成 logits，后续生成也必须保证 Prompt Tokens + Generated Tokens 不超过 `contextTokens`。容量错误不得进入 llama.cpp `GGML_ASSERT`。
+
 ## 示例
 
 ```swift

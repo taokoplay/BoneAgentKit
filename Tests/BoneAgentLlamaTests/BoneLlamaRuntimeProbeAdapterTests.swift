@@ -121,7 +121,15 @@ private actor LlamaRuntimeFixture: BoneLlamaRuntime {
         recorded.append(.load)
         if let error { throw error }
     }
-    func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
+    func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization {
+        try .init(tokenCount: max(1, prompt.utf8.count / 4))
+    }
+
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions
+    ) async throws -> BoneLlamaGenerationResult {
         recorded.append(.generate)
         guard !outputs.isEmpty else { return .init(text: "ok") }
         return .init(text: outputs.removeFirst())

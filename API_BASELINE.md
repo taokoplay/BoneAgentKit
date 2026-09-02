@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 209 个顶层 public 类型声明。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 212 个顶层 public 类型声明。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -26,6 +26,7 @@
 - `BoneLocalModelDownloadCoordinator`、`BoneLocalModelDownloadTransport`、`BoneURLSessionLocalModelDownloadTransport`
 - `BoneLocalModelArtifactInspector`、`BoneLocalRuntimeProbeCoordinator`、`BoneLocalRuntimeAdapterProbing`
 - `BoneLlamaRuntime`、`BoneLlamaRuntimeStateObserving`、`BoneLlamaRuntimeState`、`BoneLlamaModelState`
+- `BoneLlamaPromptTokenization`、`BoneLlamaPromptExecutionPlan`、`BoneLlamaPromptExecutionPlanner`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaToolCalling`、`BoneLlamaJSONToolCallingCodec`、`BoneLlamaInferenceEngine`
 
 ## 兼容承诺

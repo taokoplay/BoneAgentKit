@@ -89,9 +89,12 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             inferenceOptions: initial.generationOptions,
             plan: plan
         )
-        let first = try await runtime.generate(
-            prompt: try codec.encode(request: initial),
-            options: options
+        let firstPrompt = try codec.encode(request: initial)
+        let first = try await generate(
+            prompt: firstPrompt,
+            options: options,
+            runtime: runtime,
+            plan: plan
         )
         guard case let .assistantTurn(turn, reason, _, refusal, _) = try codec.decode(
             output: first.text,
@@ -116,9 +119,12 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             availableTools: [tool],
             generationOptions: initial.generationOptions
         )
-        let second = try await runtime.generate(
-            prompt: try codec.encode(request: continuation),
-            options: options
+        let secondPrompt = try codec.encode(request: continuation)
+        let second = try await generate(
+            prompt: secondPrompt,
+            options: options,
+            runtime: runtime,
+            plan: plan
         )
         guard case let .finish(finish) = try codec.decode(
             output: second.text,
@@ -126,6 +132,28 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         ), !finish.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BoneLlamaAdapterError.invalidToolCallingResponse
         }
+    }
+
+    private func generate(
+        prompt: String,
+        options: BoneLlamaGenerationOptions,
+        runtime: any BoneLlamaRuntime,
+        plan: BoneLocalRuntimePlan
+    ) async throws -> BoneLlamaGenerationResult {
+        let configuration = BoneLlamaRuntimeConfiguration(plan: plan)
+        let executionPlan = try BoneLlamaPromptExecutionPlanner.plan(
+            tokenization: try await runtime.tokenize(prompt: prompt),
+            configuration: configuration,
+            requestedMaximumOutputTokens: options.maximumOutputTokens
+        )
+        return try await runtime.generate(
+            prompt: prompt,
+            executionPlan: executionPlan,
+            options: try .init(
+                maximumOutputTokens: executionPlan.maximumOutputTokens,
+                temperature: options.temperature
+            )
+        )
     }
 
     private static let syntheticTool = BoneAgentToolDefinition(

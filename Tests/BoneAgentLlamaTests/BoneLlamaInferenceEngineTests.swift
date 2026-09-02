@@ -59,6 +59,45 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.lastPrompt?.contains("\"name\":\"echo\"") == true)
     }
 
+    func testUsesRealTokenCountToSlicePrefillAndClampOutput() async throws {
+        let runtime = EngineRuntimeFixture(result: "ok", tokenCount: 450)
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 128, batchTokens: 200, threadCount: 2),
+            runtimeFactory: { runtime }
+        )
+        _ = try await engine.infer(request: .init(
+            modelID: "model",
+            messages: [.init(role: .user, content: "short characters do not determine token count")]
+        ))
+
+        let snapshot = await runtime.snapshot()
+        XCTAssertEqual(snapshot.maximumOutputTokens, 62)
+        XCTAssertEqual(snapshot.prefillRanges, [0..<200, 200..<400, 400..<450])
+    }
+
+    func testRejectsPromptAtContextLimitBeforeGenerate() async throws {
+        let runtime = EngineRuntimeFixture(result: "unused", tokenCount: 512)
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 128, threadCount: 2),
+            runtimeFactory: { runtime }
+        )
+        do {
+            _ = try await engine.infer(request: .init(
+                modelID: "model",
+                messages: [.init(role: .user, content: "Hi")]
+            ))
+            XCTFail("Expected promptTooLong")
+        } catch {
+            XCTAssertEqual(error as? BoneLlamaAdapterError, .runtime(.promptTooLong))
+        }
+        let snapshot = await runtime.snapshot()
+        XCTAssertEqual(snapshot.generateCount, 0)
+    }
+
     func testReusesLoadedRuntimeAndFailsClosed() async throws {
         let runtime = EngineRuntimeFixture(result: "ok")
         let engine = BoneLlamaInferenceEngine(
@@ -200,7 +239,15 @@ private actor ControlledEngineRuntimeFixture: BoneLlamaRuntime {
         if let loadError { throw loadError }
     }
 
-    func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
+    func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization {
+        try .init(tokenCount: 8)
+    }
+
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions
+    ) async throws -> BoneLlamaGenerationResult {
         signal(&generateStarted, waiter: &generateStartWaiter)
         await withCheckedContinuation { generateFinish = $0 }
         return .init(text: "ok")
@@ -237,29 +284,49 @@ private actor ControlledEngineRuntimeFixture: BoneLlamaRuntime {
 private actor EngineRuntimeFixture: BoneLlamaRuntime {
     nonisolated let runtimeVersion = 1
     private let result: String
+    private let tokenCount: Int?
     private var loaded = false
     private var loadCount = 0
     private var generateCount = 0
     private var maximumOutputTokens: Int?
     private var lastPrompt: String?
+    private var prefillRanges: [Range<Int>]?
 
-    init(result: String) { self.result = result }
+    init(result: String, tokenCount: Int? = nil) {
+        self.result = result
+        self.tokenCount = tokenCount
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {
         loaded = true
         loadCount += 1
     }
-    func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
+    func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization {
+        try .init(tokenCount: tokenCount ?? max(1, prompt.utf8.count / 4))
+    }
+
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions
+    ) async throws -> BoneLlamaGenerationResult {
         generateCount += 1
         maximumOutputTokens = options.maximumOutputTokens
         lastPrompt = prompt
+        prefillRanges = executionPlan.prefillRanges
         return .init(text: result)
     }
     func smokeTest() async throws {}
     func cancel() async {}
     func unload() async { loaded = false }
 
-    func snapshot() -> (loadCount: Int, generateCount: Int, maximumOutputTokens: Int?, lastPrompt: String?) {
-        (loadCount, generateCount, maximumOutputTokens, lastPrompt)
+    func snapshot() -> (
+        loadCount: Int,
+        generateCount: Int,
+        maximumOutputTokens: Int?,
+        lastPrompt: String?,
+        prefillRanges: [Range<Int>]?
+    ) {
+        (loadCount, generateCount, maximumOutputTokens, lastPrompt, prefillRanges)
     }
 }
