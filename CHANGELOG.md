@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.5] - 2026-09-02
+
 ### Added
 
 - `BoneLlamaInferenceEngine` 支持显式注入 `BoneLlamaToolCalling` 后按实例声明 `.toolCalling`；新增严格 ChatML + JSON envelope 的 `BoneLlamaJSONToolCallingCodec`，覆盖 Tool schema、并行调用和 Tool Result 续轮，默认仍为 text-only。
@@ -12,9 +14,20 @@
 ### Changed
 
 - Provider 与 Llama Engine 在模型 Profile 已知时将其与实现能力取交集；`BoneAgent` 在 `runStarted` 前改用请求级 `resolvedCapabilities` 预检。
-- 公开说明改为通用 App Host 边界，不再包含任何调用项目名称或 Host 专有实现细节。
+- 新增公开 `BoneAgentKitVersion` 运行时版本镜像，并通过测试约束 README 与 CHANGELOG 的版本一致性；SwiftPM 发布版本仍以 Git Tag 为准。
+
+## [0.2.0-alpha.4] - 2026-09-01
+
+### Changed
+
 - README 重构为开源 SDK 门面，统一 Product、安装、能力、架构、限制与许可层级；新增分类文档地图。
 - 扩展公开说明门禁，检查项目专有术语、本机路径、README 契约、Markdown 相对链接和标题层级。
+
+## [0.2.0-alpha.3] - 2026-09-01
+
+### Changed
+
+- 公开说明改为通用 App Host 边界，不再包含任何调用项目名称或 Host 专有实现细节。
 
 ## [0.2.0-alpha.2] - 2026-09-01
 

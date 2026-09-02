@@ -13,6 +13,8 @@ BoneAgentKit 通过独立 Git 仓库中的 Swift Package 分发。调用方应�
 
 基础调用方只需依赖 `BoneAgentKit`；本地模型基础设施和 Adapter 是独立 Product，不会因基础依赖自动启用。
 
+Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.5`。
+
 ## 依赖方向
 
 ```text
