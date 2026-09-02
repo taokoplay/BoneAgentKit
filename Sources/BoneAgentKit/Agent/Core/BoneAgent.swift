@@ -58,10 +58,14 @@ public actor BoneAgent {
             reasoningDisclosure: initialRequest.reasoningDisclosure
         )
         do {
+            let resolved = try inferenceEngine.resolvedCapabilities(
+                for: preparedInitialRequest,
+                invocation: .nonStreaming
+            )
             try BoneInferenceCapabilityValidator.validate(
                 request: preparedInitialRequest,
-                capabilities: inferenceEngine.capabilities,
-                invocation: .nonStreaming
+                capabilities: resolved.capabilities,
+                invocation: resolved.invocation
             )
         } catch let BoneInferenceError.unsupportedCapability(capability) {
             throw BoneAgentError.unsupportedCapability(capability)

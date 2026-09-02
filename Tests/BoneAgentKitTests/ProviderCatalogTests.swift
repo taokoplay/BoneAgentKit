@@ -79,6 +79,21 @@ final class ProviderCatalogTests: XCTestCase {
         XCTAssertEqual(limits.documentationURL.absoluteString, "https://docs.example.com/model")
     }
 
+    func testCatalogDecodesOptionalFineGrainedInferenceCapabilities() throws {
+        let json = String(decoding: catalogData(tokenLimits: "null"), as: UTF8.self)
+            .replacingOccurrences(
+                of: "\"tokenLimits\": null,",
+                with: "\"tokenLimits\": null,\n              \"inferenceCapabilities\": {\"capabilities\":[\"text\",\"toolCalling\"],\"source\":\"official\",\"verifiedAt\":\"2026-09-02\"},"
+            )
+        let catalog = try BoneInferenceProviderCatalog.decode(data: Data(json.utf8))
+        let profile = try XCTUnwrap(catalog.providers.first?.models.first?.inferenceCapabilityProfile)
+        XCTAssertEqual(profile.capabilities, [.text, .toolCalling])
+        XCTAssertEqual(profile.source, .official)
+
+        let legacy = try BoneInferenceProviderCatalog.decode(data: catalogData(tokenLimits: "null"))
+        XCTAssertNil(legacy.providers.first?.models.first?.inferenceCapabilityProfile)
+    }
+
     func testCatalogAllowsOfficiallyUnspecifiedInputOrOutputLimits() throws {
         let catalog = try BoneInferenceProviderCatalog.decode(
             data: catalogData(tokenLimits: """

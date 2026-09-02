@@ -37,6 +37,7 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
 
         XCTAssertEqual(report.status, .incompatible)
         XCTAssertEqual(report.checks.map(\.kind), [.installation, .deviceMemory, .modelLoad])
+        XCTAssertTrue(report.verifiedCapabilities.isEmpty)
     }
 
     func testCompatibleRequiresNonemptyAllPassedChecks() {
@@ -49,14 +50,14 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
             ).status,
             .failed
         )
-        XCTAssertEqual(
-            BoneLocalRuntimeProbeReport(
-                modelID: "model",
-                adapterID: "adapter",
-                depth: .metadata,
-                checks: [.init(kind: .installation, status: .passed)]
-            ).status,
-            .compatible
+        let compatible = BoneLocalRuntimeProbeReport(
+            modelID: "model",
+            adapterID: "adapter",
+            depth: .smoke,
+            checks: [.init(kind: .smoke, status: .passed)],
+            verifiedCapabilities: [.text]
         )
+        XCTAssertEqual(compatible.status, .compatible)
+        XCTAssertEqual(compatible.verifiedCapabilities, [.text])
     }
 }

@@ -3,7 +3,7 @@ import BoneAgentLocalRuntime
 import Foundation
 
 public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sendable {
-    public let nonImageCapabilities: Set<BoneInferenceCapability> = [.text]
+    public let nonImageCapabilities: Set<BoneInferenceCapability>
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let modelID: String
@@ -14,14 +14,22 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         modelURL: URL,
         plan: BoneLocalRuntimePlan,
         promptEncoder: any BoneLlamaPromptEncoding = BoneLlamaChatMLPromptEncoder(),
+        toolCalling: (any BoneLlamaToolCalling)? = nil,
+        verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         self.modelID = modelID
+        let implemented: Set<BoneInferenceCapability> = toolCalling == nil
+            ? [.text]
+            : [.text, .toolCalling]
+        nonImageCapabilities = verifiedCapabilityProfile?
+            .resolved(engineCapabilities: implemented) ?? implemented
         session = Session(
             modelID: modelID,
             modelURL: modelURL,
             plan: plan,
             promptEncoder: promptEncoder,
+            toolCalling: toolCalling,
             runtime: runtimeFactory()
         )
     }
@@ -32,7 +40,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
     ) throws -> BoneResolvedInferenceCapabilities {
         guard request.modelID == modelID else { throw BoneLlamaAdapterError.modelMismatch }
         _ = try session.validateSynchronously(request)
-        return .init(modelID: modelID, invocation: invocation, capabilities: [.text])
+        return .init(modelID: modelID, invocation: invocation, capabilities: nonImageCapabilities)
     }
 
     public func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
@@ -57,6 +65,7 @@ private actor Session {
     let modelURL: URL
     let plan: BoneLocalRuntimePlan
     let promptEncoder: any BoneLlamaPromptEncoding
+    let toolCalling: (any BoneLlamaToolCalling)?
     let runtime: any BoneLlamaRuntime
     var isLoaded = false
 
@@ -69,12 +78,14 @@ private actor Session {
         modelURL: URL,
         plan: BoneLocalRuntimePlan,
         promptEncoder: any BoneLlamaPromptEncoding,
+        toolCalling: (any BoneLlamaToolCalling)?,
         runtime: any BoneLlamaRuntime
     ) {
         self.modelID = modelID
         self.modelURL = modelURL
         self.plan = plan
         self.promptEncoder = promptEncoder
+        self.toolCalling = toolCalling
         self.runtime = runtime
         state = .init(
             modelID: modelID,
@@ -91,7 +102,8 @@ private actor Session {
     }
 
     nonisolated func validateSynchronously(_ request: BoneInferenceRequest) throws -> String {
-        try promptEncoder.encode(request: request)
+        if let toolCalling { return try toolCalling.encode(request: request) }
+        return try promptEncoder.encode(request: request)
     }
 
     func currentState() -> BoneLlamaModelState { state }
@@ -109,7 +121,12 @@ private actor Session {
     }
 
     func infer(_ request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
-        let prompt = try promptEncoder.encode(request: request)
+        let prompt: String
+        if let toolCalling {
+            prompt = try toolCalling.encode(request: request)
+        } else {
+            prompt = try promptEncoder.encode(request: request)
+        }
         let options = try BoneLlamaGenerationOptions(
             inferenceOptions: request.generationOptions,
             plan: plan
@@ -124,10 +141,19 @@ private actor Session {
             }
             publish(.generating, configuration: configuration)
             let result = try await runtime.generate(prompt: prompt, options: options)
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { throw BoneLlamaAdapterError.emptyResponse }
+            let response: BoneInferenceResponse
+            if let toolCalling {
+                response = try toolCalling.decode(
+                    output: result.text,
+                    availableTools: request.availableTools
+                )
+            } else {
+                let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { throw BoneLlamaAdapterError.emptyResponse }
+                response = .finish(.init(text: text))
+            }
             publish(.loaded, configuration: configuration)
-            return .finish(.init(text: text))
+            return response
         } catch let error as BoneLlamaAdapterError {
             publish(.failed, configuration: configuration)
             throw error

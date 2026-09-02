@@ -31,7 +31,7 @@
 
 ## Adapter seam
 
-`BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、通用 ChatML encoder 与 text-only `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；后续 `BoneAgentLlamaCpp` 或 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
+`BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、通用 ChatML encoder，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；后续 `BoneAgentLlamaCpp` 或 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
 
 ## 示例
 
@@ -65,9 +65,25 @@ let plan = try BoneLocalRuntimePlanner.plan(
 
 暂停产生的 opaque resume data 会反映在 `.paused` 状态；Host 可以自行持久化，并通过 `resume` 继续。网络不可达、超时和 HTTP 5xx 可按 Catalog 顺序切换到下一可信来源；4xx、安全违规或完整性失败不会自动切源。
 
-`metadata` 只运行静态预检；`load` 和 `smoke` 会在静态检查通过后调用 Adapter。Core 的 GGUF 检查仅验证前四字节 `GGUF`，架构、量化、Tokenizer、真实加载和最小 Decode 均属于 `BoneAgentLlama`。Probe Report 不包含绝对路径、Prompt、模型输出或底层错误文本。
+`metadata` 只运行静态预检；`load` 和 `smoke` 会在静态检查通过后调用 Adapter。Core 的 GGUF 检查仅验证前四字节 `GGUF`，架构、量化、Tokenizer、真实加载和最小 Decode 均属于 `BoneAgentLlama`。Probe Report 不包含绝对路径、Prompt、模型输出或底层错误文本，并通过 `verifiedCapabilities` 只报告本次实际验证通过的能力：load 不授予推理能力，基础 smoke 成功授予 `.text`。
 
-`BoneLlamaInferenceEngine` 只承诺 `.text`，会拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Prompt encoder 不含业务人格或敏感数据策略，Host 可注入自己的模板。
+`BoneLocalModelDescriptor.inferenceCapabilityProfile` 是可选的 Catalog 证据；nil 表示 unknown，不表示模型明确不支持。Engine 配置 verified Profile 后，将其与当前 Runtime/Codec 实现取交集。模型声明 `.toolCalling` 且 Probe Adapter 注入对应 Codec 时，Smoke 使用无副作用 synthetic Tool 完成“生成调用 → 注入结果 → 生成最终文本”两轮验证；整个过程不注册或执行真实 Tool，任一步协议或 Schema 校验失败都不会授予 `.toolCalling`。
+
+`BoneLlamaInferenceEngine` 默认只承诺 `.text`，并继续拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Prompt encoder 不含业务人格或敏感数据策略，Host 可注入自己的模板。
+
+只有在初始化时显式注入 `BoneLlamaToolCalling`，Engine 才会为该实例声明 `.toolCalling`。内置 `BoneLlamaJSONToolCallingCodec` 使用 ChatML Prompt 和严格 JSON envelope，支持公开 Tool schema、同轮多个调用、Assistant Tool Call 历史及 Tool Result 续轮：
+
+```swift
+let engine = BoneLlamaInferenceEngine(
+    modelID: model.id,
+    modelURL: installedURL,
+    plan: plan,
+    toolCalling: BoneLlamaJSONToolCallingCodec(),
+    runtimeFactory: runtimeFactory
+)
+```
+
+调用输出必须完整匹配 `{"tool_calls":[{"id":"...","name":"wire_name","arguments":{...}}]}`；未知 Tool、重复调用 ID、非对象 arguments、空调用列表、截断 JSON 或夹带协议文本都会失败关闭。该 Codec 不是任意 GGUF 模型的自动兼容层：Host 必须通过真实模型 smoke 验证模型能够稳定遵循此模板；使用 Llama、Qwen、Hermes 等其他原生 Tool 模板时，应注入对应的 `BoneLlamaToolCalling` 实现。未注入 Codec 的旧初始化方式和 text-only 行为保持不变。
 
 ## 当前模型状态
 

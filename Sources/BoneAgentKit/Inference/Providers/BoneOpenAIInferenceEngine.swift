@@ -13,13 +13,16 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
 
     private let configuration: BoneInferenceProviderConfiguration
     private let transport: any BoneInferenceHTTPTransport
+    private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
-        transport: any BoneInferenceHTTPTransport
+        transport: any BoneInferenceHTTPTransport,
+        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:]
     ) {
         self.configuration = configuration
         self.transport = transport
+        self.modelCapabilityProfiles = modelCapabilityProfiles
     }
 
     public func resolvedCapabilities(
@@ -30,6 +33,9 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         // 兼容网关只承诺 OpenAI wire shape，不据此承诺原生 response_format。
         if configuration.kind != .openAI {
             resolved.remove(.structuredOutput)
+        }
+        if let profile = modelCapabilityProfiles[request.modelID] {
+            resolved = profile.resolved(engineCapabilities: resolved)
         }
         return .init(
             modelID: request.modelID,

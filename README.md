@@ -22,7 +22,7 @@ BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行�
 | `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
 | `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario 和 Crash Harness | 无，仅测试使用 |
 | `BoneAgentLocalRuntime` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
-| `BoneAgentLlama` | llama Runtime seam、Prompt、Probe 与 text-only Inference Engine | 无，不包含 llama.cpp |
+| `BoneAgentLlama` | llama Runtime seam、Prompt、Probe 与默认 text-only、可显式扩展 Tool Calling 的 Inference Engine | 无，不包含 llama.cpp |
 
 Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为独立 Product 暴露。
 
@@ -92,6 +92,7 @@ let result = try await agent.run(
 ### 推理与 Tool Calling
 
 - 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
+- 云端与本地目录共用带证据来源的可选模型能力 Profile，已知能力与 Engine/Runtime 实现取交集，unknown 保持兼容且不冒充模型级验证；
 - OpenAI、Anthropic、Gemini 请求和事件聚合；
 - 请求级 Capability 推导，联网前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
@@ -173,7 +174,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
 - App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
-- 第一批 `BoneAgentLlama` 只承诺文本能力，不提供 Token Streaming 或可靠加载百分比；
+- `BoneAgentLlama` 默认只承诺文本能力；Tool Calling 需显式注入并通过具体模型模板 smoke 验证，暂不提供 Token Streaming 或可靠加载百分比；
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测。
 
 ## 许可证

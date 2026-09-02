@@ -1,3 +1,4 @@
+import BoneAgentKit
 import Foundation
 
 public struct BoneLocalRuntimeProbeCoordinator: Sendable {
@@ -75,20 +76,28 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
             depth: depth
         )
         checks.append(result.check)
-        return report(model: model, adapter: adapter, depth: depth, checks: checks)
+        return report(
+            model: model,
+            adapter: adapter,
+            depth: depth,
+            checks: checks,
+            verifiedCapabilities: result.verifiedCapabilities
+        )
     }
 
     private func report(
         model: BoneLocalModelDescriptor,
         adapter: any BoneLocalRuntimeAdapterProbing,
         depth: BoneLocalRuntimeProbeDepth,
-        checks: [BoneLocalRuntimeProbeCheck]
+        checks: [BoneLocalRuntimeProbeCheck],
+        verifiedCapabilities: Set<BoneInferenceCapability> = []
     ) -> BoneLocalRuntimeProbeReport {
         BoneLocalRuntimeProbeReport(
             modelID: model.id,
             adapterID: adapter.descriptor.id,
             depth: depth,
-            checks: checks
+            checks: checks,
+            verifiedCapabilities: verifiedCapabilities
         )
     }
 }

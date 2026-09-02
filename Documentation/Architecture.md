@@ -85,13 +85,13 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
 
-第一阶段不按 Model ID 猜测能力：Catalog 或 Host 尚未提供可核验的模型级 Tool/Structured/Streaming 能力时保持 unknown。当前门禁只拒绝 Engine / Provider 已明确不支持的请求；后续再引入带来源的模型级能力交集。
+模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `hostVerified` 证据来源及验证日期。Profile 为 nil 表示 unknown，为兼容既有 Host 继续采用 Engine 级能力；Profile 存在时，`resolvedCapabilities` 必须将模型证据与 Engine/Runtime 实现取交集，不按 Model ID、模型 family 或协议名称猜测能力。`BoneAgent` 在发布 `runStarted` 前使用该请求级 resolved snapshot 预检。
 
 | 能力 | Capability 状态 | 当前执行事实 |
 | --- | --- | --- |
 | 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
 | 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
-| Tool Calling | Engine 级强制 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；具体 Model 是否支持仍由目录与真机 Smoke 验收 |
+| Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由模板 Codec 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
 | Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |
 | 图片编辑 | 后续 | 当前没有 Capability、请求 DTO 或 Runtime API，不得假设已实现 |

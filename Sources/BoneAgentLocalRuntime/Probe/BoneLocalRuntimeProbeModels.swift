@@ -1,3 +1,4 @@
+import BoneAgentKit
 import Foundation
 
 public enum BoneLocalRuntimeProbeDepth: Int, Codable, Comparable, Sendable {
@@ -85,18 +86,21 @@ public struct BoneLocalRuntimeProbeReport: Equatable, Sendable {
     public let adapterID: String
     public let depth: BoneLocalRuntimeProbeDepth
     public let checks: [BoneLocalRuntimeProbeCheck]
+    public let verifiedCapabilities: Set<BoneInferenceCapability>
     public let status: BoneLocalRuntimeProbeStatus
 
     public init(
         modelID: String,
         adapterID: String,
         depth: BoneLocalRuntimeProbeDepth,
-        checks: [BoneLocalRuntimeProbeCheck]
+        checks: [BoneLocalRuntimeProbeCheck],
+        verifiedCapabilities: Set<BoneInferenceCapability> = []
     ) {
         self.modelID = modelID
         self.adapterID = adapterID
         self.depth = depth
         self.checks = checks
+        self.verifiedCapabilities = verifiedCapabilities
         guard let mostSevere = checks.map(\.status).max() else {
             self.status = .failed
             return
@@ -114,9 +118,15 @@ public struct BoneLocalRuntimeProbeReport: Equatable, Sendable {
 
 public struct BoneLocalRuntimeAdapterProbeResult: Equatable, Sendable {
     public let check: BoneLocalRuntimeProbeCheck
+    /// 本次 Probe 实际验证通过的推理能力；load/metadata Probe 通常为空。
+    public let verifiedCapabilities: Set<BoneInferenceCapability>
 
-    public init(check: BoneLocalRuntimeProbeCheck) {
+    public init(
+        check: BoneLocalRuntimeProbeCheck,
+        verifiedCapabilities: Set<BoneInferenceCapability> = []
+    ) {
         self.check = check
+        self.verifiedCapabilities = verifiedCapabilities
     }
 }
 

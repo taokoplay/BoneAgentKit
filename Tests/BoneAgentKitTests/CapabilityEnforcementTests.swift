@@ -6,6 +6,28 @@ import XCTest
 @testable import BoneAgentKit
 
 final class CapabilityEnforcementTests: XCTestCase {
+    func testModelCapabilityProfileIntersectsEngineCapabilitiesAndRejectsInvalidMetadata() throws {
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text, .toolCalling],
+            source: .hostVerified,
+            verifiedAt: "2026-09-02"
+        )
+        XCTAssertEqual(
+            profile.resolved(engineCapabilities: [.text, .toolCalling, .streaming]),
+            [.text, .toolCalling]
+        )
+        XCTAssertThrowsError(try BoneModelCapabilityProfile(
+            capabilities: [.imageGeneration],
+            source: .official,
+            verifiedAt: "2026-09-02"
+        ))
+        XCTAssertThrowsError(try BoneModelCapabilityProfile(
+            capabilities: [.text],
+            source: .official,
+            verifiedAt: "2026-02-30"
+        ))
+    }
+
     func testRequirementsInferTextAndToolCallingFromRequest() throws {
         let request = BoneInferenceRequest(
             modelID: "model",
@@ -151,6 +173,33 @@ final class CapabilityEnforcementTests: XCTestCase {
         XCTAssertEqual(compatibleSnapshot.invocation, .nonStreaming)
     }
 
+    func testProviderModelProfileRemovesUnverifiedToolCalling() throws {
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text],
+            source: .hostVerified,
+            verifiedAt: "2026-09-02"
+        )
+        let engine = BoneOpenAIInferenceEngine(
+            configuration: providerConfiguration(kind: .openAI),
+            transport: CapabilityCapturingTransport(),
+            modelCapabilityProfiles: ["model": profile]
+        )
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            availableTools: [Self.toolDefinition]
+        )
+        let resolved = try engine.resolvedCapabilities(for: request, invocation: .nonStreaming)
+        XCTAssertEqual(resolved.capabilities, [.text])
+        XCTAssertThrowsError(try BoneInferenceCapabilityValidator.validate(
+            request: request,
+            capabilities: resolved.capabilities,
+            invocation: resolved.invocation
+        )) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedCapability(.toolCalling))
+        }
+    }
+
     func testCompatibleRequireNativeFailsBeforeTransportUsingResolvedCapabilities() async throws {
         let transport = CapabilityCapturingTransport()
         let engine = BoneOpenAIInferenceEngine(
@@ -191,6 +240,33 @@ final class CapabilityEnforcementTests: XCTestCase {
             XCTAssertEqual(error, .unsupportedCapability(.text))
         }
 
+        let requestCount = await engine.requestCount()
+        let eventCount = await recorder.count()
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertEqual(eventCount, 0)
+    }
+
+    func testAgentUsesResolvedCapabilitiesBeforeRunEventOrProviderCall() async throws {
+        let engine = ResolvedRecordingEngine(
+            capabilities: [.text, .toolCalling],
+            resolved: [.text]
+        )
+        let recorder = EventRecorder()
+        let registry = try BoneAgentToolRegistry(tools: [BoneAnyAgentTool(EchoTool())])
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: registry,
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 2),
+            eventSink: BoneAgentEventSink { event in await recorder.record(event) }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await agent.run(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")]
+        )) { error in
+            XCTAssertEqual(error as? BoneAgentError, .unsupportedCapability(.toolCalling))
+        }
         let requestCount = await engine.requestCount()
         let eventCount = await recorder.count()
         XCTAssertEqual(requestCount, 0)
@@ -330,6 +406,32 @@ private actor RecordingEngine: BoneInferenceEngine {
 
     init(capabilities: Set<BoneInferenceCapability>) {
         nonImageCapabilities = capabilities
+    }
+
+    func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
+        requests += 1
+        return .finish(.init(text: "unexpected"))
+    }
+
+    func requestCount() -> Int { requests }
+}
+
+private actor ResolvedRecordingEngine: BoneInferenceEngine {
+    nonisolated let nonImageCapabilities: Set<BoneInferenceCapability>
+    nonisolated let imageGenerator: (any BoneInferenceImageGenerating)? = nil
+    nonisolated private let resolved: Set<BoneInferenceCapability>
+    private var requests = 0
+
+    init(capabilities: Set<BoneInferenceCapability>, resolved: Set<BoneInferenceCapability>) {
+        nonImageCapabilities = capabilities
+        self.resolved = resolved
+    }
+
+    nonisolated func resolvedCapabilities(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneResolvedInferenceCapabilities {
+        .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
     func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {

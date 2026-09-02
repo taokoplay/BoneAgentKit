@@ -14,6 +14,18 @@ final class BoneLocalModelCatalogTests: XCTestCase {
         XCTAssertEqual(model.recommendedContextTokens, 4_096)
     }
 
+    func testCatalogDecodesOptionalInferenceCapabilityProfileAndKeepsLegacyCompatible() throws {
+        let withProfile = modelJSON().replacingOccurrences(
+            of: "\"artifact\": {",
+            with: "\"inferenceCapabilityProfile\": {\"capabilities\":[\"text\",\"toolCalling\"],\"source\":\"official\",\"verifiedAt\":\"2026-09-02\"},\n          \"artifact\": {"
+        )
+        let model = try XCTUnwrap(BoneLocalModelCatalog(
+            data: manifestData(models: withProfile)
+        ).models.first)
+        XCTAssertEqual(model.inferenceCapabilityProfile?.capabilities, [.text, .toolCalling])
+        XCTAssertNil(try BoneLocalModelCatalog(data: manifestData()).models.first?.inferenceCapabilityProfile)
+    }
+
     func testCatalogRejectsDuplicateModelID() {
         let model = modelJSON()
         XCTAssertThrowsError(try BoneLocalModelCatalog(data: manifestData(models: "\(model),\(model)"))) {

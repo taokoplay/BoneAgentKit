@@ -28,6 +28,37 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertEqual(snapshot.maximumOutputTokens, 64)
     }
 
+    func testToolCallingCodecEnablesCapabilityAndMapsResponse() async throws {
+        let runtime = EngineRuntimeFixture(result: """
+        {"tool_calls":[{"id":"call-1","name":"echo","arguments":{"value":"hello"}}]}
+        """)
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            toolCalling: BoneLlamaJSONToolCallingCodec(),
+            runtimeFactory: { runtime }
+        )
+        XCTAssertEqual(engine.nonImageCapabilities, [.text, .toolCalling])
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "Echo hello")],
+            availableTools: [Self.tool]
+        )
+
+        let resolved = try engine.resolvedCapabilities(for: request, invocation: .nonStreaming)
+        XCTAssertEqual(resolved.capabilities, [.text, .toolCalling])
+        let response = try await engine.infer(request: request)
+
+        guard case let .assistantTurn(turn, reason, _, _, _) = response else {
+            return XCTFail("Expected assistant turn")
+        }
+        XCTAssertEqual(reason, .toolCalls)
+        XCTAssertEqual(turn.toolCalls.first?.toolID, "test.echo")
+        let snapshot = await runtime.snapshot()
+        XCTAssertTrue(snapshot.lastPrompt?.contains("\"name\":\"echo\"") == true)
+    }
+
     func testReusesLoadedRuntimeAndFailsClosed() async throws {
         let runtime = EngineRuntimeFixture(result: "ok")
         let engine = BoneLlamaInferenceEngine(
@@ -127,6 +158,20 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertEqual(secondFailure, firstFailure)
     }
 
+    private static let tool = BoneAgentToolDefinition(
+        id: "test.echo",
+        version: "1",
+        title: "Echo",
+        summary: "Echo a value",
+        wireName: "echo",
+        schemaVersion: 1,
+        inputSchema: .object(
+            properties: ["value": .string(enumValues: [], minimumLength: nil, maximumLength: nil)],
+            required: ["value"],
+            additionalProperties: false
+        )
+    )
+
     private func makeControlledEngine(_ runtime: ControlledEngineRuntimeFixture) -> BoneLlamaInferenceEngine {
         BoneLlamaInferenceEngine(
             modelID: "model",
@@ -196,6 +241,7 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
     private var loadCount = 0
     private var generateCount = 0
     private var maximumOutputTokens: Int?
+    private var lastPrompt: String?
 
     init(result: String) { self.result = result }
 
@@ -206,13 +252,14 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
     func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
         generateCount += 1
         maximumOutputTokens = options.maximumOutputTokens
+        lastPrompt = prompt
         return .init(text: result)
     }
     func smokeTest() async throws {}
     func cancel() async {}
     func unload() async { loaded = false }
 
-    func snapshot() -> (loadCount: Int, generateCount: Int, maximumOutputTokens: Int?) {
-        (loadCount, generateCount, maximumOutputTokens)
+    func snapshot() -> (loadCount: Int, generateCount: Int, maximumOutputTokens: Int?, lastPrompt: String?) {
+        (loadCount, generateCount, maximumOutputTokens, lastPrompt)
     }
 }

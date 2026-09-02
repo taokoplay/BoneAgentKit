@@ -250,6 +250,7 @@ public extension BoneInferenceProviderCatalog {
                 supportedImageCounts: counts,
                 generationOptions: options,
                 tokenLimits: tokenLimits,
+                inferenceCapabilityProfile: raw.inferenceCapabilities,
                 deprecated: raw.deprecated
             )
         }
@@ -466,5 +467,6 @@ private struct RawModel: Decodable {
     let supportedImageCounts: [Int]?
     let parameters: RawParameters?
     let tokenLimits: RawTokenLimits?
+    let inferenceCapabilities: BoneModelCapabilityProfile?
     let deprecated: Bool
 }

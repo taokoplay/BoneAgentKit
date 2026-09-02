@@ -7,18 +7,18 @@
 - `BoneAgentKit`：生产 Agent、Inference、Workflow、Provider 和 Persistence 契约。
 - `BoneAgentTesting`：测试 fixture、scripted engine、recorder、assertion 和 crash harness。
 - `BoneAgentLocalRuntime`：本地模型 Catalog、Artifact、安全下载、断点恢复、安装状态、安全存储、环境快照、运行规划及两阶段 Runtime Probe 契约。
-- `BoneAgentLlama`：llama Runtime seam、Probe Adapter、Prompt encoder 与 text-only `BoneInferenceEngine`。
+- `BoneAgentLlama`：llama Runtime seam、Probe Adapter、Prompt encoder，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneInferenceEngine`。
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 204 个顶层 public 类型声明。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 208 个顶层 public 类型声明。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
 - `BoneAgent`、`BoneAgentKit`、`BoneAgentConfiguration`
 - `BoneInferenceEngine`、`BoneInferenceStreaming`
 - `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`
-- `BoneResolvedInferenceCapabilities`
+- `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`
 - `BoneAgentTool`、`BoneAgentToolDefinition`、`BoneAgentToolRegistry`
 - `BoneWorkflowPlan`、`BoneRunCheckpoint`、`BoneAgentPersistence`
 - `BoneOpenAIInferenceEngine`、`BoneAnthropicInferenceEngine`、`BoneGeminiInferenceEngine`
@@ -26,7 +26,7 @@
 - `BoneLocalModelDownloadCoordinator`、`BoneLocalModelDownloadTransport`、`BoneURLSessionLocalModelDownloadTransport`
 - `BoneLocalModelArtifactInspector`、`BoneLocalRuntimeProbeCoordinator`、`BoneLocalRuntimeAdapterProbing`
 - `BoneLlamaRuntime`、`BoneLlamaRuntimeStateObserving`、`BoneLlamaRuntimeState`、`BoneLlamaModelState`
-- `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaInferenceEngine`
+- `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaToolCalling`、`BoneLlamaJSONToolCallingCodec`、`BoneLlamaInferenceEngine`
 
 ## 兼容承诺
 

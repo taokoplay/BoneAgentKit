@@ -61,6 +61,8 @@ public struct BoneLocalModelDescriptor: Codable, Equatable, Sendable {
     public let recommendedContextTokens: Int
     public let minimumRuntimeVersion: Int
     public let contextLimits: BoneModelContextLimits
+    /// Catalog 中有证据的模型级能力；nil 表示尚未验证，而不是不支持。
+    public let inferenceCapabilityProfile: BoneModelCapabilityProfile?
     public let artifact: BoneLocalModelArtifact
     public let license: BoneLocalModelLicense
 
@@ -75,6 +77,7 @@ public struct BoneLocalModelDescriptor: Codable, Equatable, Sendable {
         recommendedContextTokens: Int,
         minimumRuntimeVersion: Int,
         contextLimits: BoneModelContextLimits,
+        inferenceCapabilityProfile: BoneModelCapabilityProfile? = nil,
         artifact: BoneLocalModelArtifact,
         license: BoneLocalModelLicense
     ) {
@@ -88,6 +91,7 @@ public struct BoneLocalModelDescriptor: Codable, Equatable, Sendable {
         self.recommendedContextTokens = recommendedContextTokens
         self.minimumRuntimeVersion = minimumRuntimeVersion
         self.contextLimits = contextLimits
+        self.inferenceCapabilityProfile = inferenceCapabilityProfile
         self.artifact = artifact
         self.license = license
     }

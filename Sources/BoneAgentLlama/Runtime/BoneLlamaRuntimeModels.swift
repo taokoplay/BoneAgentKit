@@ -59,6 +59,7 @@ public enum BoneLlamaAdapterError: Error, Equatable, Sendable {
     case modelMismatch
     case invalidGenerationOptions
     case unsupportedRequest
+    case invalidToolCallingResponse
     case emptyResponse
     case runtime(BoneLlamaRuntimeError)
 }

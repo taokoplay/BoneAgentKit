@@ -59,6 +59,8 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
         public let supportedImageCounts: [Int]
         public let generationOptions: BoneInferenceGenerationOptions
         public let tokenLimits: BoneModelContextLimits?
+        /// 有证据的模型级推理能力；nil 表示目录尚无可核验结论。
+        public let inferenceCapabilityProfile: BoneModelCapabilityProfile?
         public let deprecated: Bool
 
         public init(
@@ -70,6 +72,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
             supportedImageCounts: [Int] = [],
             generationOptions: BoneInferenceGenerationOptions = .init(),
             tokenLimits: BoneModelContextLimits? = nil,
+            inferenceCapabilityProfile: BoneModelCapabilityProfile? = nil,
             deprecated: Bool = false
         ) {
             self.id = id
@@ -80,6 +83,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
             self.supportedImageCounts = supportedImageCounts
             self.generationOptions = generationOptions
             self.tokenLimits = tokenLimits
+            self.inferenceCapabilityProfile = inferenceCapabilityProfile
             self.deprecated = deprecated
         }
     }

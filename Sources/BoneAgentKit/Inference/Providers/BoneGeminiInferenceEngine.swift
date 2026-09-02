@@ -13,13 +13,25 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
 
     private let configuration: BoneInferenceProviderConfiguration
     private let transport: any BoneInferenceHTTPTransport
+    private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
-        transport: any BoneInferenceHTTPTransport
+        transport: any BoneInferenceHTTPTransport,
+        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:]
     ) {
         self.configuration = configuration
         self.transport = transport
+        self.modelCapabilityProfiles = modelCapabilityProfiles
+    }
+
+    public func resolvedCapabilities(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneResolvedInferenceCapabilities {
+        let resolved = modelCapabilityProfiles[request.modelID]?
+            .resolved(engineCapabilities: capabilities) ?? capabilities
+        return .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
     public func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
@@ -29,10 +41,11 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
     public func inferDetailed(
         request: BoneInferenceRequest
     ) async throws -> BoneInferenceDetailedResult {
+        let resolved = try resolvedCapabilities(for: request, invocation: .nonStreaming)
         try BoneInferenceCapabilityValidator.validate(
             request: request,
-            capabilities: capabilities,
-            invocation: .nonStreaming
+            capabilities: resolved.capabilities,
+            invocation: resolved.invocation
         )
         let urlRequest = try makeRequest(request, streaming: false)
         let response = try await transport.send(urlRequest)
@@ -72,7 +85,12 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try BoneInferenceCapabilityValidator.validate(request: request, capabilities: capabilities, invocation: .streaming)
+                    let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
+                    try BoneInferenceCapabilityValidator.validate(
+                        request: request,
+                        capabilities: resolved.capabilities,
+                        invocation: resolved.invocation
+                    )
                     let urlRequest = try makeRequest(request, streaming: true)
                     var events: [BoneInferenceEventStreamEvent] = []
                     var mapper = BoneGeminiNormalizedEventMapper(
@@ -113,10 +131,11 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceDetailedResult {
+        let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
         try BoneInferenceCapabilityValidator.validate(
             request: request,
-            capabilities: capabilities,
-            invocation: .streaming
+            capabilities: resolved.capabilities,
+            invocation: resolved.invocation
         )
         let urlRequest = try makeRequest(request, streaming: true)
         let response: BoneInferenceEventStreamResponse

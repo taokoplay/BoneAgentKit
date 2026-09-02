@@ -21,7 +21,46 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
 
         let events = await runtime.events()
         XCTAssertEqual(result.check, .init(kind: .modelLoad, status: .passed))
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
         XCTAssertEqual(events, [.load, .unload])
+    }
+
+    func testSmokeProbeVerifiesTextCapability() async throws {
+        let runtime = LlamaRuntimeFixture()
+        let adapter = BoneLlamaRuntimeProbeAdapter(runtimeVersion: 1, runtimeFactory: { runtime })
+        let result = await adapter.probe(
+            model: try model(), artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+        XCTAssertEqual(result.verifiedCapabilities, [.text])
+        let events = await runtime.events()
+        XCTAssertEqual(events, [.load, .smoke, .unload])
+    }
+
+    func testSmokeProbeVerifiesDeclaredToolCallingWithTwoSyntheticGenerations() async throws {
+        let runtime = LlamaRuntimeFixture(outputs: [
+            #"{"tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#,
+            "Capability verified.",
+        ])
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 1,
+            toolCalling: BoneLlamaJSONToolCallingCodec(),
+            runtimeFactory: { runtime }
+        )
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text, .toolCalling],
+            source: .official,
+            verifiedAt: "2026-09-02"
+        )
+        let result = await adapter.probe(
+            model: try model(profile: profile),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling])
+        let events = await runtime.events()
+        XCTAssertEqual(events, [.load, .smoke, .generate, .generate, .unload])
     }
 
     func testSmokeProbeRunsSmokeAndMapsRuntimeErrors() async throws {
@@ -50,32 +89,43 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         .init(physicalMemoryBytes: 10_000, availableDiskBytes: 10_000, activeProcessorCount: 4, isSimulator: false, isLowPowerModeEnabled: false, thermalState: .nominal)
     }
 
-    private func model() throws -> BoneLocalModelDescriptor {
+    private func model(
+        profile: BoneModelCapabilityProfile? = nil
+    ) throws -> BoneLocalModelDescriptor {
         .init(
             id: "model", displayName: "Model", family: "Test", format: .gguf,
             parameterCount: 1, quantization: "Q4", minimumMemoryBytes: 1,
             recommendedContextTokens: 512, minimumRuntimeVersion: 1,
             contextLimits: try .init(contextWindowTokens: 1_024, maximumInputTokens: 768, maximumOutputTokens: 256, source: .official, verifiedAt: "2026-09-01", documentationURL: URL(string: "https://example.com")!),
+            inferenceCapabilityProfile: profile,
             artifact: .init(fileName: "model.gguf", expectedByteCount: 4, sha256: String(repeating: "a", count: 64), sources: []),
             license: .init(name: "Test", url: URL(string: "https://example.com")!, modelCardURL: URL(string: "https://example.com")!)
         )
     }
 }
 
-private enum LlamaRuntimeEvent: Equatable, Sendable { case load, smoke, unload }
+private enum LlamaRuntimeEvent: Equatable, Sendable { case load, smoke, generate, unload }
 
 private actor LlamaRuntimeFixture: BoneLlamaRuntime {
     nonisolated let runtimeVersion = 1
     private let error: BoneLlamaRuntimeError?
+    private var outputs: [String]
     private var recorded: [LlamaRuntimeEvent] = []
 
-    init(error: BoneLlamaRuntimeError? = nil) { self.error = error }
+    init(error: BoneLlamaRuntimeError? = nil, outputs: [String] = []) {
+        self.error = error
+        self.outputs = outputs
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {
         recorded.append(.load)
         if let error { throw error }
     }
-    func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult { .init(text: "ok") }
+    func generate(prompt: String, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
+        recorded.append(.generate)
+        guard !outputs.isEmpty else { return .init(text: "ok") }
+        return .init(text: outputs.removeFirst())
+    }
     func smokeTest() async throws { recorded.append(.smoke) }
     func cancel() async {}
     func unload() async { recorded.append(.unload) }
