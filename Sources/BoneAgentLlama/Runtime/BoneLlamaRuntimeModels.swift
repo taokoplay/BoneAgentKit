@@ -116,11 +116,24 @@ public enum BoneLlamaPromptExecutionPlanner {
     }
 }
 
+public enum BoneLlamaGenerationTermination: String, Codable, Equatable, Sendable {
+    case eog
+    case stopToken
+    case stopString
+    case maximumTokens
+    case runtimeCompleted
+}
+
 public struct BoneLlamaGenerationResult: Equatable, Sendable {
     public let text: String
+    public let termination: BoneLlamaGenerationTermination
 
-    public init(text: String) {
+    public init(
+        text: String,
+        termination: BoneLlamaGenerationTermination = .runtimeCompleted
+    ) {
         self.text = text
+        self.termination = termination
     }
 }
 
@@ -141,6 +154,9 @@ public enum BoneLlamaAdapterError: Error, Equatable, Sendable {
     case modelMismatch
     case invalidConfiguration
     case invalidGenerationOptions
+    case invalidGenerationControl
+    case unsupportedGenerationControl
+    case outputTruncated
     case unsupportedRequest
     case invalidToolCallingResponse
     case emptyResponse
