@@ -1,3 +1,4 @@
+import BoneAgentKit
 import XCTest
 @testable import BoneAgentLocalRuntime
 
@@ -38,6 +39,34 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
         XCTAssertEqual(report.status, .incompatible)
         XCTAssertEqual(report.checks.map(\.kind), [.installation, .deviceMemory, .modelLoad])
         XCTAssertTrue(report.verifiedCapabilities.isEmpty)
+    }
+
+    func testProbeResultCarriesVerificationIdentityWithoutPayloadContent() throws {
+        let identity = try BoneCapabilityVerificationIdentity(
+            artifactSHA256: String(repeating: "a", count: 64),
+            runtimeID: "llama.cpp",
+            runtimeVersion: 2,
+            tokenizerID: "gguf",
+            tokenizerVersion: "1",
+            templateDigest: String(repeating: "b", count: 64),
+            rendererID: "native",
+            rendererVersion: "1",
+            reasoningMode: "disabled",
+            generationControlDigest: String(repeating: "c", count: 64),
+            toolEnvelopeID: nil,
+            toolEnvelopeVersion: nil,
+            constraintDecoderID: nil,
+            constraintDecoderVersion: nil,
+            contextTokens: 4096,
+            batchTokens: 256
+        )
+        let result = BoneLocalRuntimeAdapterProbeResult(
+            check: .init(kind: .smoke, status: .passed),
+            verifiedCapabilities: [.text],
+            verificationIdentity: identity
+        )
+
+        XCTAssertEqual(result.verificationIdentity, identity)
     }
 
     func testCompatibleRequiresNonemptyAllPassedChecks() {

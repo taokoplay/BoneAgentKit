@@ -81,7 +81,8 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
             adapter: adapter,
             depth: depth,
             checks: checks,
-            verifiedCapabilities: result.verifiedCapabilities
+            verifiedCapabilities: result.verifiedCapabilities,
+            verificationIdentity: result.verificationIdentity
         )
     }
 
@@ -90,14 +91,16 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
         adapter: any BoneLocalRuntimeAdapterProbing,
         depth: BoneLocalRuntimeProbeDepth,
         checks: [BoneLocalRuntimeProbeCheck],
-        verifiedCapabilities: Set<BoneInferenceCapability> = []
+        verifiedCapabilities: Set<BoneInferenceCapability> = [],
+        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
     ) -> BoneLocalRuntimeProbeReport {
         BoneLocalRuntimeProbeReport(
             modelID: model.id,
             adapterID: adapter.descriptor.id,
             depth: depth,
             checks: checks,
-            verifiedCapabilities: verifiedCapabilities
+            verifiedCapabilities: verifiedCapabilities,
+            verificationIdentity: verificationIdentity
         )
     }
 }

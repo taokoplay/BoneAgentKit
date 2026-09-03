@@ -13,25 +13,34 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         case emptyCapabilities
         case unsupportedCapability(BoneInferenceCapability)
         case invalidVerifiedAt
+        case missingVerificationIdentity
     }
 
     public let capabilities: Set<BoneInferenceCapability>
     public let source: BoneModelCapabilityEvidenceSource
     public let verifiedAt: String
+    public let verificationIdentity: BoneCapabilityVerificationIdentity?
 
     public init(
         capabilities: Set<BoneInferenceCapability>,
         source: BoneModelCapabilityEvidenceSource,
-        verifiedAt: String
+        verifiedAt: String,
+        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
     ) throws {
         guard !capabilities.isEmpty else { throw ValidationError.emptyCapabilities }
         if let unsupported = capabilities.first(where: { $0 == .imageGeneration }) {
             throw ValidationError.unsupportedCapability(unsupported)
         }
         guard Self.isValidDate(verifiedAt) else { throw ValidationError.invalidVerifiedAt }
+        if source == .runtimeSmoke,
+           capabilities.contains(where: { $0 == .toolCalling || $0 == .constrainedOutput }),
+           verificationIdentity == nil {
+            throw ValidationError.missingVerificationIdentity
+        }
         self.capabilities = capabilities
         self.source = source
         self.verifiedAt = verifiedAt
+        self.verificationIdentity = verificationIdentity
     }
 
     /// 将模型级证据与当前 Engine/Runtime 的实际实现取交集。
@@ -43,6 +52,7 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         case capabilities
         case source
         case verifiedAt
+        case verificationIdentity
     }
 
     public init(from decoder: any Decoder) throws {
@@ -50,8 +60,17 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         let capabilities = try container.decode(Set<BoneInferenceCapability>.self, forKey: .capabilities)
         let source = try container.decode(BoneModelCapabilityEvidenceSource.self, forKey: .source)
         let verifiedAt = try container.decode(String.self, forKey: .verifiedAt)
+        let verificationIdentity = try container.decodeIfPresent(
+            BoneCapabilityVerificationIdentity.self,
+            forKey: .verificationIdentity
+        )
         do {
-            try self.init(capabilities: capabilities, source: source, verifiedAt: verifiedAt)
+            try self.init(
+                capabilities: capabilities,
+                source: source,
+                verifiedAt: verifiedAt,
+                verificationIdentity: verificationIdentity
+            )
         } catch {
             throw DecodingError.dataCorruptedError(
                 forKey: .capabilities,
