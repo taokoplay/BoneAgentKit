@@ -12,11 +12,22 @@ public enum BoneGeminiResponseAggregator {
               let candidate = candidates.first else {
             throw BoneInferenceTransportError.invalidResponse
         }
-        if let reason = candidate["finishReason"] as? String,
-           ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].contains(reason.uppercased()) {
-            throw BoneInferenceTransportError.safetyBlocked
+        if let reason = candidate["finishReason"] as? String {
+            let normalized = reason.uppercased()
+            if ["SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"].contains(normalized) {
+                throw BoneInferenceTransportError.safetyBlocked
+            }
+            if normalized == "MAX_TOKENS" {
+                throw BoneInferenceTransportError.outputTruncated
+            }
+            guard normalized == "STOP" else {
+                throw BoneInferenceTransportError.invalidResponse
+            }
+        } else {
+            throw BoneInferenceTransportError.invalidResponse
         }
-        guard let content = candidate["content"] as? [String: Any],
+        guard candidates.count == 1,
+              let content = candidate["content"] as? [String: Any],
               let parts = content["parts"] as? [[String: Any]] else {
             throw BoneInferenceTransportError.invalidResponse
         }

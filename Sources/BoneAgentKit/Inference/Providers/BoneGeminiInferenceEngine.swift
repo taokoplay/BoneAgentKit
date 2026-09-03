@@ -7,7 +7,7 @@ import FoundationNetworking
 public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStreaming,
     BoneInferenceDetailedResultProviding, BoneInferenceDetailedStreaming, BoneInferenceEventStreaming {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
-        .text, .structuredOutput, .toolCalling, .streaming,
+        .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
@@ -29,8 +29,19 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocation
     ) throws -> BoneResolvedInferenceCapabilities {
-        let resolved = modelCapabilityProfiles[request.modelID]?
+        var resolved = modelCapabilityProfiles[request.modelID]?
             .resolved(engineCapabilities: capabilities) ?? capabilities
+        resolved.remove(.constrainedOutput)
+        if let constraint = request.outputConstraint,
+           configuration.kind == .google,
+           BoneGeminiOutputConstraintAdapter().supports(constraint),
+           let identity = try? constraintIdentity(modelID: request.modelID, invocation: invocation),
+           BoneProviderVerificationIdentitySupport.isVerified(
+               profile: modelCapabilityProfiles[request.modelID],
+               currentIdentity: identity
+           ) {
+            resolved.insert(.constrainedOutput)
+        }
         return .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
@@ -51,7 +62,13 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         let response = try await transport.send(urlRequest)
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
         let finalResponse: BoneInferenceResponse
-        if request.responseFormat.isStructured {
+        if let constraint = request.outputConstraint {
+            let text = try BoneGeminiResponseAggregator.text(from: json)
+            finalResponse = try BoneGeminiOutputConstraintAdapter().response(
+                from: Data(text.utf8),
+                constraint: constraint
+            )
+        } else if request.responseFormat.isStructured {
             guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
             finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                 from: BoneGeminiResponseAggregator.text(from: json),
@@ -103,7 +120,16 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
                     }
                     let aggregated = try BoneGeminiToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
                     let response: BoneInferenceResponse
-                    if request.responseFormat.isStructured {
+                    if let constraint = request.outputConstraint {
+                        guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
+                              reason == .stop, refusal == nil, let text = turn.text else {
+                            throw BoneInferenceTransportError.invalidResponse
+                        }
+                        response = try BoneGeminiOutputConstraintAdapter().response(
+                            from: Data(text.utf8),
+                            constraint: constraint
+                        )
+                    } else if request.responseFormat.isStructured {
                         guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
                               reason == .stop, refusal == nil, let text = turn.text else {
                             throw BoneInferenceTransportError.invalidResponse
@@ -151,7 +177,20 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
             throw BoneInferenceProviderResponseValidator.mappedError(statusCode: response.statusCode)
         }
         let finalResponse: BoneInferenceResponse
-        if request.responseFormat.isStructured {
+        if let constraint = request.outputConstraint {
+            let aggregated = try BoneGeminiToolStreamAggregator.aggregate(
+                events: response.events,
+                definitions: []
+            )
+            guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
+                  reason == .stop, refusal == nil, let text = turn.text else {
+                throw BoneInferenceTransportError.invalidResponse
+            }
+            finalResponse = try BoneGeminiOutputConstraintAdapter().response(
+                from: Data(text.utf8),
+                constraint: constraint
+            )
+        } else if request.responseFormat.isStructured {
             guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
             let aggregated = try BoneGeminiToolStreamAggregator.aggregate(
                 events: response.events,
@@ -264,7 +303,15 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         if let maximumOutputTokens = options.maximumOutputTokens {
             generationConfig["maxOutputTokens"] = maximumOutputTokens
         }
-        if responseFormat.isStructured {
+        if let constraint = inferenceRequest.outputConstraint {
+            let fields = try BoneGeminiOutputConstraintAdapter().requestFields(for: constraint)
+            guard let constraintConfig = fields["generationConfig"] as? [String: Any] else {
+                throw BoneInferenceError.invalidOutputConstraint
+            }
+            generationConfig.merge(constraintConfig) { _, _ in
+                preconditionFailure("duplicate Gemini constraint field")
+            }
+        } else if responseFormat.isStructured {
             generationConfig["responseMimeType"] = "application/json"
             if let schema = try BoneStructuredOutputSupport.geminiSchema(responseFormat) {
                 generationConfig["responseSchema"] = schema
@@ -273,5 +320,25 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         if !generationConfig.isEmpty { body["generationConfig"] = generationConfig }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    private func constraintIdentity(
+        modelID: String,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneProviderCapabilityVerificationIdentity {
+        let adapter = BoneGeminiOutputConstraintAdapter()
+        return try BoneProviderVerificationIdentitySupport.identity(
+            configuration: configuration,
+            protocolVariant: .geminiGenerateContent,
+            apiVersion: "v1beta",
+            modelID: modelID,
+            requestMapperID: "bone.gemini.generate-content",
+            requestMapperVersion: "1",
+            responseDecoderID: "bone.gemini.generate-content",
+            responseDecoderVersion: "1",
+            constraintDialectID: adapter.identity.id,
+            constraintDialectVersion: adapter.identity.version,
+            invocation: invocation
+        )
     }
 }
