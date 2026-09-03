@@ -7,7 +7,7 @@ import FoundationNetworking
 public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStreaming,
     BoneInferenceDetailedResultProviding, BoneInferenceDetailedStreaming, BoneInferenceEventStreaming {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
-        .text, .structuredOutput, .toolCalling, .streaming,
+        .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
@@ -30,12 +30,23 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         invocation: BoneInferenceInvocation
     ) throws -> BoneResolvedInferenceCapabilities {
         var resolved = capabilities
-        // 兼容网关只承诺 OpenAI wire shape，不据此承诺原生 response_format。
+        // 兼容网关只承诺 OpenAI wire shape，不据此承诺官方原生约束。
         if configuration.kind != .openAI {
             resolved.remove(.structuredOutput)
         }
         if let profile = modelCapabilityProfiles[request.modelID] {
             resolved = profile.resolved(engineCapabilities: resolved)
+        }
+        resolved.remove(.constrainedOutput)
+        if let constraint = request.outputConstraint,
+           configuration.kind == .openAI,
+           BoneOpenAIOutputConstraintAdapter().supports(constraint),
+           let identity = try? constraintIdentity(modelID: request.modelID, invocation: invocation),
+           BoneProviderVerificationIdentitySupport.isVerified(
+               profile: modelCapabilityProfiles[request.modelID],
+               currentIdentity: identity
+           ) {
+            resolved.insert(.constrainedOutput)
         }
         return .init(
             modelID: request.modelID,
@@ -64,7 +75,13 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         let response = try await transport.send(urlRequest)
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
         let finalResponse: BoneInferenceResponse
-        if let tool = prepared.tool {
+        if let constraint = request.outputConstraint {
+            let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
+            finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
+                from: Data(text.utf8),
+                constraint: constraint
+            )
+        } else if let tool = prepared.tool {
             let parsed = try parseOpenAIToolResponse(json, definitions: [tool])
             finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                 from: parsed,
@@ -124,7 +141,13 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
                         for mapped in try mapper.consume(event) { continuation.yield(mapped) }
                     }
                     let response: BoneInferenceResponse
-                    if let tool = prepared.tool {
+                    if let constraint = request.outputConstraint {
+                        let text = try BoneOpenAIResponseAggregator.streamingText(from: events)
+                        response = try BoneOpenAIOutputConstraintAdapter().response(
+                            from: Data(text.utf8),
+                            constraint: constraint
+                        )
+                    } else if let tool = prepared.tool {
                         let parsed = try BoneOpenAIToolStreamAggregator.aggregate(events: events, definitions: [tool])
                         response = try BoneStructuredOutputSupport.structuredResponse(from: parsed, schema: request.responseFormat.schema?.root)
                     } else if request.responseFormat.isStructured {
@@ -174,7 +197,13 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
             throw BoneInferenceProviderResponseValidator.mappedError(statusCode: response.statusCode)
         }
         let finalResponse: BoneInferenceResponse
-        if let tool = prepared.tool {
+        if let constraint = request.outputConstraint {
+            let text = try BoneOpenAIResponseAggregator.streamingText(from: response.events)
+            finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
+                from: Data(text.utf8),
+                constraint: constraint
+            )
+        } else if let tool = prepared.tool {
             let parsed = try parseOpenAIToolStream(response.events, definitions: [tool])
             finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                 from: parsed,
@@ -310,7 +339,10 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
                 "function": ["name": forcedTool.wireName!],
             ]
         }
-        if let nativeFormat = try BoneStructuredOutputSupport.nativeWireFormat(responseFormat) {
+        if let constraint = inferenceRequest.outputConstraint {
+            let fields = try BoneOpenAIOutputConstraintAdapter().requestFields(for: constraint)
+            body.merge(fields) { _, _ in preconditionFailure("duplicate OpenAI constraint field") }
+        } else if let nativeFormat = try BoneStructuredOutputSupport.nativeWireFormat(responseFormat) {
             body["response_format"] = nativeFormat
         }
         if let temperature = options.temperature { body["temperature"] = temperature }
@@ -325,5 +357,25 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    private func constraintIdentity(
+        modelID: String,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneProviderCapabilityVerificationIdentity {
+        let adapter = BoneOpenAIOutputConstraintAdapter()
+        return try BoneProviderVerificationIdentitySupport.identity(
+            configuration: configuration,
+            protocolVariant: .openAI,
+            apiVersion: "v1",
+            modelID: modelID,
+            requestMapperID: "bone.openai.chat-completions",
+            requestMapperVersion: "1",
+            responseDecoderID: "bone.openai.chat-completions",
+            responseDecoderVersion: "1",
+            constraintDialectID: adapter.identity.id,
+            constraintDialectVersion: adapter.identity.version,
+            invocation: invocation
+        )
     }
 }
