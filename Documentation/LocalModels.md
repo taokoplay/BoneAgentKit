@@ -100,6 +100,8 @@ let engine = BoneLlamaInferenceEngine(
 
 `BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断，不能将输出交给 Tool Envelope 解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Control、Envelope、Constraint Decoder、Context 或 Batch 任一变化，都必须重新执行 Smoke。
 
+云端验证身份与这里的本地 Runtime 身份是两套独立证据。`BoneProviderCapabilityVerificationIdentity` 绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式，不包含 GGUF Artifact、Tokenizer、Template、Prefill 或 Context/Batch；`BoneCapabilityVerificationIdentity` 也不能替云 Provider 背书。任一侧通过 Smoke 都不会自动授予另一侧能力。
+
 ## 示例
 
 ```swift

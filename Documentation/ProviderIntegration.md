@@ -49,13 +49,15 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
 
 - 在构造 URLRequest 和调用 Transport 前使用 `BoneInferenceCapabilityValidator`，确保请求所需 Text、Tool Calling、Structured Output 或 Streaming 能力已满足；
 - 结构化输出 fallback 必须由 `BoneInferenceResponseFormat` 显式允许，不能由 Provider 静默降级；
-- Model 级能力无法核验时保持 unknown，不按模型名或兼容协议名称猜测；
+- Model 级能力无法核验时保持 unknown，不按模型名或兼容协议名称猜测；请求级 `.constrainedOutput` 还必须匹配 `.providerSmoke` 的 `BoneProviderCapabilityVerificationIdentity`，仅有官方文档证据不能授权；
 - 通过 `BoneInferenceProviderConfiguration` 注入凭据、Base URL、协议和端点；
 - 通过 `BoneInferenceProviderRequestBuilder` 执行最终 URL 与 Header 门禁；
 - POST 不自动重试，模型发现 GET 只能使用有限重试入口；
 - 通过 `BoneInferenceProviderResponseValidator` 映射稳定状态与结构化 safety；
 - 不把 Prompt、响应正文、凭据、完整 URL、Cookie 或 Authorization 写入错误、日志、事件和 Harness 报告；
-- Streaming 必须在协议完整终态后返回统一 Response，不发布半截 token。
+- Streaming 必须在协议完整终态后返回统一 Response，不发布半截 token；
+- OpenAI、Gemini、Anthropic 的 Output Constraint 使用各自官方 JSON Schema 字段，不套本地 Prompt Template 或 Tool Envelope；首版不得与 structured `responseFormat` 或 Tool Catalog 混用；
+- Schema 必须经过 Provider 方言编译并在响应后本地复验；兼容 Endpoint、未知字段支持或身份漂移均在联网前失败。
 
 ## 可读推理披露
 

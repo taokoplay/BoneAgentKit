@@ -19,6 +19,8 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 
 当前 `main` 的下一预发布开发线在 alpha.6 基础上新增模板无关 Conversation、唯一 Renderer、GGUF Native Template seam、受控生成和严格 Tool Envelope v2。alpha.6 的 `promptEncoder` / `toolCalling` 初始化入口仍可编译；新接入应改用 `conversationRenderer` + `toolEnvelope`。只有 Runtime 需要 Native Template 时实现 `BoneLlamaNativeTemplateRenderingRuntime`；只有需要 Stop/EOG 或 Constraint 时实现 `BoneLlamaControlledGenerationRuntime`；用于高级 Smoke 身份时再实现 `BoneLlamaRuntimeVerificationIdentifying`。未实现对应协议时必须失败关闭，不会静默降级。
 
+同一开发线也为官方 OpenAI、Gemini 和 Anthropic 增加请求级原生 Output Constraint seam。调用方只设置 `BoneInferenceRequest.outputConstraint`，不得同时设置 structured `responseFormat` 或非空 Tools。Engine 只有在精确模型的 `.providerSmoke` Profile 包含与当前 Provider、Endpoint 摘要、API、Mapper/Decoder、Constraint 方言和调用模式完全匹配的 `BoneProviderCapabilityVerificationIdentity` 时才启用；Bundled Catalog 当前没有此类真实 Smoke 身份，因此默认不会自动授权。普通云调用方无需接入 Llama Renderer、Tokenizer 或 Runtime 身份。
+
 ## 依赖方向
 
 ```text

@@ -85,13 +85,15 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
 
-模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `hostVerified` 证据来源及验证日期。Runtime Smoke 对 Tool Calling 或受约束输出还必须绑定 `BoneCapabilityVerificationIdentity`：Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Control、Tool Envelope、Constraint Decoder 和 Context/Batch 任一变化，历史证据即不匹配。Profile 为 nil 表示 unknown，为兼容既有 Host 继续采用 Engine 级能力；Profile 存在时，`resolvedCapabilities` 必须将模型证据与 Engine/Runtime 实现取交集，不按 Model ID、模型 family 或协议名称猜测能力。`BoneAgent` 在发布 `runStarted` 前使用该请求级 resolved snapshot 预检。
+模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `providerSmoke` / `hostVerified` 证据来源及验证日期。本地 Runtime Smoke 对 Tool Calling 或受约束输出必须绑定 `BoneCapabilityVerificationIdentity`：Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Control、Tool Envelope、Constraint Decoder 和 Context/Batch 任一变化，历史证据即不匹配。云 Provider Smoke 使用独立的 `BoneProviderCapabilityVerificationIdentity`，绑定 Provider kind、协议方言、Endpoint 身份摘要、API 版本、精确模型、Mapper/Decoder、Constraint 方言和 Streaming 模式；任一字段变化同样使证据失效。两类身份互不替代，也都不保存 Prompt、Schema、输出、凭据或完整路径/URL。
+
+Profile 为 nil 表示 unknown，为兼容既有 Host，普通能力继续采用 Engine 级实现；但云端 `.constrainedOutput` 是更严格的例外：OpenAI、Gemini 和 Anthropic Engine 会先移除该能力，只有官方 Provider kind、当前 Constraint 方言可编译且匹配 `.providerSmoke` 身份时才为本次请求加回。`official` 文档证据和兼容协议名称不能单独授权。`BoneAgent` 在发布 `runStarted` 前使用请求级 resolved snapshot 预检。
 
 | 能力 | Capability 状态 | 当前执行事实 |
 | --- | --- | --- |
 | 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
 | 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
-| 受约束输出 | 请求级强制 | `outputConstraint` 要求 `.constrainedOutput`；Engine 必须原生实现或调用前拒绝，Prompt 指令不算受约束能力 |
+| 受约束输出 | 请求级强制 + 执行身份 | `outputConstraint` 要求 `.constrainedOutput`；云端映射官方 JSON Schema 协议，本地映射受信任 Runtime Constraint；首版禁止与 structured `responseFormat` 或 Tools 混用，Prompt 指令不算能力 |
 | Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由唯一模板 Renderer、Tool Envelope 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
 | Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |

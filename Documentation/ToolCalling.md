@@ -38,6 +38,12 @@ let message = try BoneInferenceMessage.toolResult(
 
 alpha.6 的 `BoneLlamaToolCalling` / `BoneLlamaJSONToolCallingCodec` 组合入口继续兼容，但它已经包含完整 ChatML 模板，不能再与 Native Renderer 叠加。新接入应使用独立 Renderer + Envelope。
 
+## 云 Provider Output Constraint
+
+`BoneInferenceOutputConstraint` 与 Tool Calling 是不同请求语义。当前首版要求 `responseFormat == .text` 且 Tool Catalog 为空，避免未定义的“Tool Call 或受约束 Final”联合。Enum 通过固定 `{"value": ...}` 包装映射到 Provider 原生 JSON Schema，返回后逐字节精确匹配；JSON Schema 同样包装任意 JSON value，并在 SDK 边界再次验证。不得 trim、大小写折叠、抽取外壳或修复 JSON。
+
+官方 Provider 映射为：OpenAI `response_format.json_schema`、Gemini `generationConfig.responseSchema`、Anthropic `output_config.format.json_schema`。只有官方 Provider kind、受支持 Schema 方言和精确 `.providerSmoke` 身份匹配时才授予 `.constrainedOutput`；兼容端点和 bundled Catalog 中没有真实 Smoke 身份的模型继续联网前失败。云端不使用本地 Chat Template、Tool Envelope、Tokenizer 或 Prefill 身份。
+
 ## Provider wire
 
 - OpenAI：完整 Assistant `tool_calls` 历史，随后按 call ID 回传多条 `role=tool`；
@@ -54,4 +60,4 @@ Streaming 只交付完整终态：OpenAI 需要语义 finish 和 `[DONE]`；Anth
 
 Tool 使用六维影响：数据访问、外部传输、状态变化、经济影响、用户可见影响、权限变化。未知影响、缺 Handler 或超出 Host Policy 都拒绝。高风险调用使用一次性 `BoneAuthorizationGrant`，绑定 Run/Step/Attempt/Call、Tool/schema 版本、canonical arguments SHA-256、principal、resource scope/revision、影响维度、有效期与 nonce。执行前重验，防止 TOCTOU。
 
-真实 OpenAI、Anthropic、Gemini Tool Calling 必须通过真机 Smoke；自动 Contract 不能替代真实 Provider 验收。
+真实 OpenAI、Anthropic、Gemini Tool Calling 与 Output Constraint 必须通过真实 Provider/真机 Smoke；自动 Contract 只能证明 SDK 映射和失败关闭，不能替代具体在线模型验收。Anthropic Structured Outputs 可能独立缓存 Schema，调用方不得把 PHI、密码、Token、完整卡号或其他个人敏感值放入属性名和 enum 候选；这些值只能位于受正常数据政策保护的消息/响应内容中。

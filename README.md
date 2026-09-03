@@ -93,8 +93,8 @@ let result = try await agent.run(
 
 - 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
 - 云端与本地目录共用带证据来源的可选模型能力 Profile，已知能力与 Engine/Runtime 实现取交集，unknown 保持兼容且不冒充模型级验证；
-- OpenAI、Anthropic、Gemini 请求和事件聚合；
-- 请求级 Capability 推导与 Output Constraint，未实现能力在联网或本地生成前 fail closed；
+- OpenAI、Anthropic、Gemini 请求和事件聚合，并为经过真实 Smoke 绑定身份的精确模型提供原生 Output Constraint seam；
+- 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地使用受信任 Runtime Constraint；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
 - 默认串行、显式只读并行的确定性调度。
 
@@ -176,7 +176,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
 - `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke，暂不提供 Token Streaming 或可靠加载百分比；
-- 未核验的 Model 级能力保持 unknown，不按模型名称猜测。
+- 未核验的 Model 级能力保持 unknown，不按模型名称猜测；当前 bundled 云模型尚未写入 Provider Smoke 身份，因此云端 Constraint seam 默认不自动启用。
 
 ## 许可证
 

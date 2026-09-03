@@ -10,12 +10,16 @@
 - 新增模板无关的 Llama Conversation、唯一 Renderer、GGUF Native Template Runtime seam，以及显式 Stop/EOG、生成约束和终止原因契约。
 - 新增严格判别联合的 `BoneLlamaConstrainedJSONToolEnvelopeCodec`，动态约束当前 Tool Catalog，并在生成后继续执行 Tool、参数 Schema 和调用 ID 校验。
 - 新增绑定 Artifact、Runtime、Tokenizer、Template、Generation Control、Tool Envelope、Constraint Decoder 与 Context/Batch 的 `BoneCapabilityVerificationIdentity`。
+- 新增云 Provider 专用 `BoneProviderCapabilityVerificationIdentity`、`.providerSmoke` 证据来源及安全的 `BoneLiveConstraintSmoke` 聚合报告；身份绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式。
+- 新增 OpenAI Chat Completions、Gemini GenerateContent 与 Anthropic Messages 的原生请求级 Output Constraint Adapter；统一使用严格包装 Schema，并在 SDK 边界复验和还原结果。
 
 ### Changed
 
 - `BoneLlamaInferenceEngine` 新增 canonical `Build → Render → Tokenize → Plan → Generate → Decode` 路线；alpha.6 的 Prompt Encoder/Tool Calling 初始化入口继续兼容。
 - Llama Runtime Probe 可执行受约束 Tool Call 与 Tool Result 续轮 Smoke；截断、reasoning 标记、缺少受控 Runtime 或验证身份均失败关闭。
-- `.runtimeSmoke` 若要证明 `.toolCalling` 或 `.constrainedOutput`，必须携带完整验证身份；旧无身份证据最多继续证明 `.text`。
+- `.runtimeSmoke` 若要证明 `.toolCalling` 或 `.constrainedOutput`，必须携带完整本地 Runtime 验证身份；`.providerSmoke` 若要证明云端 `.constrainedOutput`，必须携带匹配的 Provider 验证身份。
+- `outputConstraint` 首版不能与 structured `responseFormat` 或非空 Tool Catalog 混用；Enum 逐字节精确匹配，JSON Schema 结果不做裁剪、提取或修复。
+- 云 Provider 只有官方 kind、受支持方言和精确 Smoke 身份同时匹配时才动态授予 `.constrainedOutput`；兼容端点、仅官方文档证据、流式模式或执行身份漂移均在联网前失败。Bundled Catalog 尚未写入真实 Provider Smoke 身份，因此默认能力不自动启用。
 
 ## [0.2.0-alpha.6] - 2026-09-02
 
