@@ -301,6 +301,36 @@ final class CapabilityEnforcementTests: XCTestCase {
         XCTAssertEqual(received?.outputConstraint, request.outputConstraint)
     }
 
+    func testAgentRejectsOutputConstraintCombinedWithRegistryBeforeRunEvent() async throws {
+        let engine = RecordingEngine(capabilities: [.text, .toolCalling, .constrainedOutput])
+        let recorder = EventRecorder()
+        let registry = try BoneAgentToolRegistry(tools: [BoneAnyAgentTool(EchoTool())])
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: registry,
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 1),
+            eventSink: BoneAgentEventSink { event in await recorder.record(event) }
+        )
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            outputConstraint: .enumChoice(["private-choice-a", "private-choice-b"])
+        )
+
+        do {
+            _ = try await agent.run(request: request)
+            XCTFail("Constraint 与动态 Tool Catalog 的未定义组合必须在 runStarted 前拒绝")
+        } catch let error as BoneAgentError {
+            XCTAssertEqual(error, .inferenceFailed)
+            XCTAssertFalse(String(describing: error).contains("private"))
+        }
+        let requestCount = await engine.requestCount()
+        let eventCount = await recorder.count()
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertEqual(eventCount, 0)
+    }
+
     func testAgentRejectsMissingTextCapabilityBeforeRunEventOrProviderCall() async throws {
         let engine = RecordingEngine(capabilities: [])
         let recorder = EventRecorder()
