@@ -38,4 +38,15 @@ python3 Tests/BoneAgentKit/bone_harness_testing_package_graph_regression.py
 
 ## 真实 Provider
 
-真实 OpenAI、Anthropic、Gemini Tool Calling 和角色 Agent Smoke 必须在 App 沙箱由用户显式 opt-in 并确认联网与费用。命令行 Harness 不读取凭据，不导出真实响应。报告只允许稳定状态、长度和计数；未知事实为 `unavailable`。自动 Contract、Synthetic Fixture 和 Simulator build 不能替代真机验收。
+真实 OpenAI、Anthropic、Gemini Tool Calling 和角色 Agent Smoke 必须在 App 沙箱由用户显式 opt-in 并确认联网与费用。通用命令行 Harness 不扫描环境、Keychain、凭据存储或用户文件，也不导出真实响应。专用 `BoneAgentLiveProviderSmoke` 仅在同时给出 `--live`、`--confirm-network-and-costs`、Provider、精确模型 ID 和次数时读取所选 Provider 的单个固定凭据变量；`--dry-run` 不读取凭据且 Transport 永不发送。报告只允许 Provider、精确模型 ID、稳定执行身份、调用模式、次数、失败分类、聚合耗时和日期，不含 Prompt、Schema、候选值、Header、完整 URL 或模型正文。自动 Contract、Synthetic Fixture 和 Simulator build 不能替代真机验收。
+
+```bash
+swift run BoneAgentLiveProviderSmoke --dry-run
+
+# 真实模式会联网并可能产生费用；只在明确授权的签发环境运行。
+swift run BoneAgentLiveProviderSmoke --live --confirm-network-and-costs \
+  --provider openai --model '<exact-model-id>' --iterations 100 \
+  --invocation non-streaming
+```
+
+凭据变量固定为 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `GEMINI_API_KEY`；Runner 不枚举其它环境变量。真实报告仍只是候选证据，只有满足发布阈值并经审核后才能写入 bundled model Profile。

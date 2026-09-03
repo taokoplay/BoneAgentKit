@@ -7,22 +7,114 @@ private struct DryRunProvider: Encodable {
     let status: String
 }
 
+private enum LiveProvider: String {
+    case openai, anthropic, gemini
+
+    var kind: BoneInferenceProviderKind {
+        switch self {
+        case .openai: return .openAI
+        case .anthropic: return .anthropic
+        case .gemini: return .google
+        }
+    }
+
+    var credentialVariable: String {
+        switch self {
+        case .openai: return "OPENAI_API_KEY"
+        case .anthropic: return "ANTHROPIC_API_KEY"
+        case .gemini: return "GEMINI_API_KEY"
+        }
+    }
+}
+
+private struct LiveArguments {
+    let provider: LiveProvider
+    let modelID: String
+    let iterations: Int
+    let invocation: BoneInferenceInvocationIdentity
+
+    init(arguments: [String]) throws {
+        guard arguments.contains("--live"),
+              arguments.contains("--confirm-network-and-costs"),
+              let providerValue = Self.value(after: "--provider", in: arguments),
+              let provider = LiveProvider(rawValue: providerValue),
+              let modelID = Self.value(after: "--model", in: arguments),
+              !modelID.isEmpty,
+              let iterationsText = Self.value(after: "--iterations", in: arguments),
+              let iterations = Int(iterationsText),
+              (1...1_000).contains(iterations) else {
+            throw BoneInferenceTransportError.invalidConfiguration
+        }
+        let invocationText = Self.value(after: "--invocation", in: arguments) ?? "non-streaming"
+        switch invocationText {
+        case "non-streaming": invocation = .nonStreaming
+        case "streaming": invocation = .streaming
+        default: throw BoneInferenceTransportError.invalidConfiguration
+        }
+        self.provider = provider
+        self.modelID = modelID
+        self.iterations = iterations
+    }
+
+    private static func value(after option: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: option), arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+}
+
 @main
 enum BoneAgentLiveProviderSmokeMain {
-    static func main() throws {
-        guard CommandLine.arguments == [CommandLine.arguments[0], "--dry-run"] else {
-            FileHandle.standardError.write(Data(
-                "当前 runner 只实现 --dry-run；真实联网 Smoke 必须在签发环境另行授权。\n".utf8
-            ))
+    static func main() async throws {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--dry-run"] {
+            try dryRun()
+            return
+        }
+
+        let live: LiveArguments
+        do {
+            live = try LiveArguments(arguments: arguments)
+        } catch {
+            writeUsage()
+            Foundation.exit(2)
+        }
+        guard let apiKey = ProcessInfo.processInfo.environment[live.provider.credentialVariable],
+              !apiKey.isEmpty else {
+            FileHandle.standardError.write(Data("缺少所选 Provider 的固定凭据变量。\n".utf8))
             Foundation.exit(2)
         }
 
+        let transport = BoneInferenceURLSessionTransport()
+        let (engine, identity) = try makeVerifiedEngine(
+            provider: live.provider,
+            modelID: live.modelID,
+            apiKey: apiKey,
+            invocation: live.invocation,
+            transport: transport
+        )
+        let report = try await BoneLiveConstraintSmoke.run(
+            provider: live.provider.kind,
+            modelID: live.modelID,
+            invocation: live.invocation,
+            engine: engine,
+            identity: identity,
+            iterations: live.iterations
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        print(String(decoding: try encoder.encode(report), as: UTF8.self))
+        guard report.succeededCount == report.attemptedCount else { Foundation.exit(1) }
+    }
+
+    private static func dryRun() throws {
         let transport = RejectingDryRunTransport()
         let fixtures: [(DryRunProvider, any BoneInferenceEngine)] = [
             (
                 .init(provider: "openai", model: "smoke-openai", status: "dry-run"),
                 BoneOpenAIInferenceEngine(
-                    configuration: configuration(kind: .openAI, baseURL: "https://api.openai.com"),
+                    configuration: configuration(kind: .openAI, apiKey: "dry-run", baseURL: "https://api.openai.com"),
                     transport: transport
                 )
             ),
@@ -31,6 +123,7 @@ enum BoneAgentLiveProviderSmokeMain {
                 BoneAnthropicInferenceEngine(
                     configuration: configuration(
                         kind: .anthropic,
+                        apiKey: "dry-run",
                         baseURL: "https://api.anthropic.com",
                         authentication: .anthropicDual
                     ),
@@ -42,6 +135,7 @@ enum BoneAgentLiveProviderSmokeMain {
                 BoneGeminiInferenceEngine(
                     configuration: configuration(
                         kind: .google,
+                        apiKey: "dry-run",
                         baseURL: "https://generativelanguage.googleapis.com",
                         authentication: .googleAPIKey
                     ),
@@ -49,7 +143,6 @@ enum BoneAgentLiveProviderSmokeMain {
                 )
             ),
         ]
-
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         for (report, engine) in fixtures {
@@ -62,18 +155,78 @@ enum BoneAgentLiveProviderSmokeMain {
         }
     }
 
+    private static func makeVerifiedEngine(
+        provider: LiveProvider,
+        modelID: String,
+        apiKey: String,
+        invocation: BoneInferenceInvocationIdentity,
+        transport: any BoneInferenceHTTPTransport
+    ) throws -> (any BoneInferenceEngine, BoneProviderCapabilityVerificationIdentity) {
+        let coreInvocation: BoneInferenceInvocation = invocation == .streaming ? .streaming : .nonStreaming
+        switch provider {
+        case .openai:
+            let config = configuration(kind: .openAI, apiKey: apiKey, baseURL: "https://api.openai.com")
+            let base = BoneOpenAIInferenceEngine(configuration: config, transport: transport)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let profile = try verifiedProfile(identity: identity)
+            return (BoneOpenAIInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
+        case .anthropic:
+            let config = configuration(kind: .anthropic, apiKey: apiKey, baseURL: "https://api.anthropic.com", authentication: .anthropicDual)
+            let base = BoneAnthropicInferenceEngine(configuration: config, transport: transport)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let profile = try verifiedProfile(identity: identity)
+            return (BoneAnthropicInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
+        case .gemini:
+            let config = configuration(kind: .google, apiKey: apiKey, baseURL: "https://generativelanguage.googleapis.com", authentication: .googleAPIKey)
+            let base = BoneGeminiInferenceEngine(configuration: config, transport: transport)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let profile = try verifiedProfile(identity: identity)
+            return (BoneGeminiInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
+        }
+    }
+
+    private static func verifiedProfile(
+        identity: BoneProviderCapabilityVerificationIdentity
+    ) throws -> BoneModelCapabilityProfile {
+        try .init(
+            capabilities: [.text, .constrainedOutput, .streaming],
+            source: .providerSmoke,
+            verifiedAt: utcDateString(),
+            providerVerificationIdentities: [identity]
+        )
+    }
+
     private static func configuration(
         kind: BoneInferenceProviderKind,
+        apiKey: String,
         baseURL: String,
         authentication: BoneInferenceAuthenticationMode = .bearer
     ) -> BoneInferenceProviderConfiguration {
         .init(
             kind: kind,
-            apiKey: "dry-run-placeholder-not-a-credential",
+            apiKey: apiKey,
             baseURL: URL(string: baseURL)!,
             authenticationMode: authentication,
             endpointSecurityPolicy: .builtIn
         )
+    }
+
+    private static func utcDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    private static func writeUsage() {
+        let usage = """
+        Usage:
+          BoneAgentLiveProviderSmoke --dry-run
+          BoneAgentLiveProviderSmoke --live --confirm-network-and-costs --provider <openai|anthropic|gemini> --model <exact-model-id> --iterations <1...1000> [--invocation <non-streaming|streaming>]
+        """
+        FileHandle.standardError.write(Data((usage + "\n").utf8))
     }
 }
 

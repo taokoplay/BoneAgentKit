@@ -41,7 +41,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         if let constraint = request.outputConstraint,
            configuration.kind == .openAI,
            BoneOpenAIOutputConstraintAdapter().supports(constraint),
-           let identity = try? constraintIdentity(modelID: request.modelID, invocation: invocation),
+           let identity = try? constraintVerificationIdentity(modelID: request.modelID, invocation: invocation),
            BoneProviderVerificationIdentitySupport.isVerified(
                profile: modelCapabilityProfiles[request.modelID],
                currentIdentity: identity
@@ -359,7 +359,8 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         return request
     }
 
-    private func constraintIdentity(
+    /// 返回当前官方 OpenAI Constraint 执行组合的稳定验证身份；不包含凭据或完整 Endpoint。
+    public func constraintVerificationIdentity(
         modelID: String,
         invocation: BoneInferenceInvocation
     ) throws -> BoneProviderCapabilityVerificationIdentity {
