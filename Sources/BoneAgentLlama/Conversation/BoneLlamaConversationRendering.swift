@@ -42,11 +42,28 @@ public struct BoneLlamaTemplateIdentity: Codable, Equatable, Hashable, Sendable 
 public struct BoneLlamaRenderedPrompt: Sendable {
     public let prompt: String
     public let templateIdentity: BoneLlamaTemplateIdentity
+    public let generationControl: BoneLlamaGenerationControl
 
-    public init(prompt: String, templateIdentity: BoneLlamaTemplateIdentity) throws {
+    public init(
+        prompt: String,
+        templateIdentity: BoneLlamaTemplateIdentity
+    ) throws {
+        try self.init(
+            prompt: prompt,
+            templateIdentity: templateIdentity,
+            generationControl: BoneLlamaGenerationControl()
+        )
+    }
+
+    public init(
+        prompt: String,
+        templateIdentity: BoneLlamaTemplateIdentity,
+        generationControl: BoneLlamaGenerationControl
+    ) throws {
         guard !prompt.isEmpty else { throw BoneLlamaAdapterError.unsupportedRequest }
         self.prompt = prompt
         self.templateIdentity = templateIdentity
+        self.generationControl = generationControl
     }
 }
 

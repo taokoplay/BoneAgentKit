@@ -59,6 +59,92 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.lastPrompt?.contains("\"name\":\"echo\"") == true)
     }
 
+    func testCanonicalPipelineRendersToolConversationExactlyOnce() async throws {
+        let runtime = EngineRuntimeFixture(result: "Answer")
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+
+        _ = try await engine.infer(request: .init(
+            modelID: "model",
+            messages: [.init(role: .user, content: "Hello")],
+            availableTools: [Self.tool]
+        ))
+
+        let prompt = await runtime.snapshot().lastPrompt
+        XCTAssertEqual(prompt?.components(separatedBy: "<|im_start|>assistant\n").count, 2)
+        XCTAssertTrue(prompt?.contains("\"name\":\"echo\"") == true)
+    }
+
+    func testCanonicalPipelineRejectsNativeRendererWhenRuntimeDoesNotSupportIt() async {
+        let runtime = EngineRuntimeFixture(result: "unused")
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaNativeTemplateRenderer(),
+            runtimeFactory: { runtime }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await engine.infer(request: .init(
+            modelID: "model",
+            messages: [.init(role: .user, content: "Hello")]
+        ))) { error in
+            XCTAssertEqual(error as? BoneLlamaAdapterError, .runtime(.nativeTemplateUnavailable))
+        }
+        let snapshot = await runtime.snapshot()
+        XCTAssertEqual(snapshot.generateCount, 0)
+    }
+
+    func testCanonicalPipelineRejectsControlWhenRuntimeDoesNotSupportIt() async {
+        let runtime = EngineRuntimeFixture(result: "unused")
+        let renderer = ControlledRendererFixture(control: try! .init(stopTokenIDs: [2]))
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: renderer,
+            runtimeFactory: { runtime }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await engine.infer(request: .init(
+            modelID: "model",
+            messages: [.init(role: .user, content: "Hello")]
+        ))) { error in
+            XCTAssertEqual(error as? BoneLlamaAdapterError, .unsupportedGenerationControl)
+        }
+        let snapshot = await runtime.snapshot()
+        XCTAssertEqual(snapshot.generateCount, 0)
+    }
+
+    func testCanonicalToolPipelineRejectsTruncatedOutputBeforeDecode() async {
+        let runtime = EngineRuntimeFixture(
+            result: #"{"tool_calls":["#,
+            termination: .maximumTokens
+        )
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+
+        await XCTAssertThrowsErrorAsync(try await engine.infer(request: .init(
+            modelID: "model",
+            messages: [.init(role: .user, content: "Hello")],
+            availableTools: [Self.tool]
+        ))) { error in
+            XCTAssertEqual(error as? BoneLlamaAdapterError, .outputTruncated)
+        }
+    }
+
     func testUsesRealTokenCountToSlicePrefillAndClampOutput() async throws {
         let runtime = EngineRuntimeFixture(result: "ok", tokenCount: 450)
         let engine = BoneLlamaInferenceEngine(
@@ -211,6 +297,18 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         )
     )
 
+    private func XCTAssertThrowsErrorAsync<T>(
+        _ expression: @autoclosure () async throws -> T,
+        _ handler: (Error) -> Void
+    ) async {
+        do {
+            _ = try await expression()
+            XCTFail("Expected async error")
+        } catch {
+            handler(error)
+        }
+    }
+
     private func makeControlledEngine(_ runtime: ControlledEngineRuntimeFixture) -> BoneLlamaInferenceEngine {
         BoneLlamaInferenceEngine(
             modelID: "model",
@@ -281,9 +379,32 @@ private actor ControlledEngineRuntimeFixture: BoneLlamaRuntime {
     }
 }
 
+private struct ControlledRendererFixture: BoneLlamaConversationRendering {
+    let control: BoneLlamaGenerationControl
+
+    func render(
+        conversation: BoneLlamaConversation,
+        using runtime: any BoneLlamaRuntime
+    ) async throws -> BoneLlamaRenderedPrompt {
+        try .init(
+            prompt: "rendered",
+            templateIdentity: .init(
+                source: .sdk,
+                templateDigest: "fixture",
+                rendererID: "fixture",
+                rendererVersion: "1",
+                reasoningMode: .disabled,
+                addGenerationPrompt: true
+            ),
+            generationControl: control
+        )
+    }
+}
+
 private actor EngineRuntimeFixture: BoneLlamaRuntime {
     nonisolated let runtimeVersion = 1
     private let result: String
+    private let termination: BoneLlamaGenerationTermination
     private let tokenCount: Int?
     private var loaded = false
     private var loadCount = 0
@@ -292,8 +413,13 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
     private var lastPrompt: String?
     private var prefillRanges: [Range<Int>]?
 
-    init(result: String, tokenCount: Int? = nil) {
+    init(
+        result: String,
+        termination: BoneLlamaGenerationTermination = .runtimeCompleted,
+        tokenCount: Int? = nil
+    ) {
         self.result = result
+        self.termination = termination
         self.tokenCount = tokenCount
     }
 
@@ -314,7 +440,7 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
         maximumOutputTokens = options.maximumOutputTokens
         lastPrompt = prompt
         prefillRanges = executionPlan.prefillRanges
-        return .init(text: result)
+        return .init(text: result, termination: termination)
     }
     func smokeTest() async throws {}
     func cancel() async {}
