@@ -45,6 +45,37 @@
 
 Runtime 实现 `generate(prompt:executionPlan:options:)` 时必须重新使用或复用与 `tokenize(prompt:)` 完全一致的 Token 序列，验证数量等于 `executionPlan.promptTokenCount`，按 `prefillRanges` 构造原生 batch；任何不一致映射为 `.tokenizationFailed`。只有最后一个 prefill Token 需要请求首个生成 logits，后续生成也必须保证 Prompt Tokens + Generated Tokens 不超过 `contextTokens`。容量错误不得进入 llama.cpp `GGML_ASSERT`。
 
+## 从 alpha.5 迁移到 alpha.6
+
+`0.2.0-alpha.6` 有意收紧了 `BoneLlamaRuntime` 协议。所有 Runtime 实现都必须迁移；这不是可选能力，也不能通过字符数估算或旧生成入口绕过。
+
+alpha.5 的实现：
+
+```swift
+func generate(
+    prompt: String,
+    options: BoneLlamaGenerationOptions
+) async throws -> BoneLlamaGenerationResult
+```
+
+alpha.6 必须改为：
+
+```swift
+func tokenize(
+    prompt: String
+) async throws -> BoneLlamaPromptTokenization
+
+func generate(
+    prompt: String,
+    executionPlan: BoneLlamaPromptExecutionPlan,
+    options: BoneLlamaGenerationOptions
+) async throws -> BoneLlamaGenerationResult
+```
+
+迁移后的 Runtime 必须使用已加载模型的真实 Tokenizer，并保证 `generate` 使用或复用同一 Token 序列。对每个 `executionPlan.prefillRanges`，从完整 Token 数组按 Token index 取片，在同一模型 Context、同一 sequence 中按连续绝对 position 执行 prefill；批次之间不能清除 KV Cache 或 recurrent state。最后一个 prefill batch 完成后才能开始采样。若重新 Tokenize 后数量与 `executionPlan.promptTokenCount` 不同，应抛出 `.tokenizationFailed`；若生成即将超过 `executionPlan.contextTokens`，应停止或抛出 `.promptTooLong`，不得调用会触发原生断言的 decode。
+
+`BoneLlamaRuntimeStateObserving` 仍然是可选协议；它与上述必须迁移的 `BoneLlamaRuntime` Token 容量契约是两个不同层级。
+
 ## 示例
 
 ```swift
@@ -114,7 +145,7 @@ for await state in await engine.modelStateUpdates() {
 
 新订阅会立即收到当前快照；流采用 `bufferingNewest(1)`，慢页面只保留最新状态。每次变化带单调递增 `revision`。状态不包含模型绝对路径、Prompt、输出、下载凭据或底层 C API 文本。首版不伪造 llama.cpp 无法稳定提供的加载百分比。
 
-具体 Runtime 可选择实现 `BoneLlamaRuntimeStateObserving`，直接暴露同样的快照与状态流；不实现该可选协议的旧 Runtime 仍可由 Engine 投影状态。当前同步原生生成仍受 actor 串行限制，状态 API 不应被解释为已提供低延迟跨任务取消。
+具体 Runtime 可选择实现 `BoneLlamaRuntimeStateObserving`，直接暴露同样的快照与状态流；不实现这一状态观察协议时，Engine 仍会投影状态。这里的“可选”仅指状态观察：所有 alpha.6 Runtime 仍必须实现 `BoneLlamaRuntime` 要求的 `tokenize(prompt:)` 和 `generate(prompt:executionPlan:options:)`。当前同步原生生成仍受 actor 串行限制，状态 API 不应被解释为已提供低延迟跨任务取消。
 
 Background URLSession、全局下载队列、业务错误文案、真实 llama.cpp Binary bridge 和 Foundation Models Adapter 尚不属于本批实现。
 
