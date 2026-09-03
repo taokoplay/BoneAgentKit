@@ -6,7 +6,9 @@ import FoundationNetworking
 /// Anthropic Messages 协议的通用推理实现。
 public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceStreaming,
     BoneInferenceDetailedResultProviding, BoneInferenceDetailedStreaming, BoneInferenceEventStreaming {
-    public let nonImageCapabilities: Set<BoneInferenceCapability> = [.text, .toolCalling, .streaming]
+    public let nonImageCapabilities: Set<BoneInferenceCapability> = [
+        .text, .constrainedOutput, .toolCalling, .streaming,
+    ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let configuration: BoneInferenceProviderConfiguration
@@ -27,8 +29,19 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocation
     ) throws -> BoneResolvedInferenceCapabilities {
-        let resolved = modelCapabilityProfiles[request.modelID]?
+        var resolved = modelCapabilityProfiles[request.modelID]?
             .resolved(engineCapabilities: capabilities) ?? capabilities
+        resolved.remove(.constrainedOutput)
+        if let constraint = request.outputConstraint,
+           configuration.kind == .anthropic,
+           BoneAnthropicOutputConstraintAdapter().supports(constraint),
+           let identity = try? constraintIdentity(modelID: request.modelID, invocation: invocation),
+           BoneProviderVerificationIdentitySupport.isVerified(
+               profile: modelCapabilityProfiles[request.modelID],
+               currentIdentity: identity
+           ) {
+            resolved.insert(.constrainedOutput)
+        }
         return .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
@@ -50,7 +63,13 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
         let response = try await transport.send(urlRequest)
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
         let finalResponse: BoneInferenceResponse
-        if let tool = prepared.tool {
+        if let constraint = request.outputConstraint {
+            let text = try BoneAnthropicResponseAggregator.nonStreamingText(from: json)
+            finalResponse = try BoneAnthropicOutputConstraintAdapter().response(
+                from: Data(text.utf8),
+                constraint: constraint
+            )
+        } else if let tool = prepared.tool {
             let parsed = try parseAnthropicToolResponse(json, definitions: [tool])
             finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                 from: parsed,
@@ -104,7 +123,13 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
                         for mapped in try mapper.consume(event) { continuation.yield(mapped) }
                     }
                     let response: BoneInferenceResponse
-                    if let tool = prepared.tool {
+                    if let constraint = request.outputConstraint {
+                        let text = try BoneAnthropicResponseAggregator.streamingText(from: events)
+                        response = try BoneAnthropicOutputConstraintAdapter().response(
+                            from: Data(text.utf8),
+                            constraint: constraint
+                        )
+                    } else if let tool = prepared.tool {
                         let parsed = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: [tool])
                         response = try BoneStructuredOutputSupport.structuredResponse(
                             from: parsed,
@@ -158,7 +183,13 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
         }
         let finalResponse: BoneInferenceResponse
         do {
-            if let tool = prepared.tool {
+            if let constraint = request.outputConstraint {
+                let text = try BoneAnthropicResponseAggregator.streamingText(from: response.events)
+                finalResponse = try BoneAnthropicOutputConstraintAdapter().response(
+                    from: Data(text.utf8),
+                    constraint: constraint
+                )
+            } else if let tool = prepared.tool {
                 let parsed = try BoneAnthropicToolStreamAggregator.aggregate(
                     events: response.events,
                     definitions: [tool]
@@ -283,9 +314,33 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
             }
         }
         if let system = systemMessages.first?.content, !system.isEmpty { body["system"] = system }
+        if let constraint = inferenceRequest.outputConstraint {
+            let fields = try BoneAnthropicOutputConstraintAdapter().requestFields(for: constraint)
+            body.merge(fields) { _, _ in preconditionFailure("duplicate Anthropic constraint field") }
+        }
         if let temperature = options.temperature { body["temperature"] = temperature }
         if streaming { body["stream"] = true }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    private func constraintIdentity(
+        modelID: String,
+        invocation: BoneInferenceInvocation
+    ) throws -> BoneProviderCapabilityVerificationIdentity {
+        let adapter = BoneAnthropicOutputConstraintAdapter()
+        return try BoneProviderVerificationIdentitySupport.identity(
+            configuration: configuration,
+            protocolVariant: .anthropicMessages,
+            apiVersion: "2023-06-01",
+            modelID: modelID,
+            requestMapperID: "bone.anthropic.messages",
+            requestMapperVersion: "1",
+            responseDecoderID: "bone.anthropic.messages",
+            responseDecoderVersion: "1",
+            constraintDialectID: adapter.identity.id,
+            constraintDialectVersion: adapter.identity.version,
+            invocation: invocation
+        )
     }
 }

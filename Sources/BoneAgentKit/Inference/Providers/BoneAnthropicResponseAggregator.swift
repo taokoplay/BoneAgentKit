@@ -6,9 +6,14 @@ public enum BoneAnthropicResponseAggregator {
     static let truncationStopReasons: Set<String> = ["max_tokens", "max_output_tokens"]
 
     public static func nonStreamingText(from json: [String: Any]) throws -> String {
-        if let reason = json["stop_reason"] as? String,
-           truncationStopReasons.contains(reason) {
+        guard let reason = json["stop_reason"] as? String else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+        if truncationStopReasons.contains(reason) {
             throw BoneInferenceTransportError.outputTruncated
+        }
+        guard ["end_turn", "stop_sequence"].contains(reason) else {
+            throw BoneInferenceTransportError.invalidResponse
         }
         let blocks = json["content"] as? [[String: Any]] ?? []
         let text = blocks.compactMap { block -> String? in
