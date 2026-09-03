@@ -1,7 +1,7 @@
 import Foundation
 
 /// BoneInference 自有 Provider 标识；不依赖 App 数据库或旧 AIProviderKit。
-public enum BoneInferenceProviderKind: String, Codable, CaseIterable, Sendable {
+public enum BoneInferenceProviderKind: String, Codable, CaseIterable, Hashable, Sendable {
     case anthropic = "Anthropic"
     case openAI = "OpenAI"
     case google = "Google"
@@ -14,7 +14,7 @@ public enum BoneInferenceProviderKind: String, Codable, CaseIterable, Sendable {
 }
 
 /// Provider 请求/响应协议变体。
-public enum BoneInferenceProtocolVariant: String, Codable, CaseIterable, Sendable {
+public enum BoneInferenceProtocolVariant: String, Codable, CaseIterable, Hashable, Sendable {
     case openAI
     case anthropicMessages
     case geminiGenerateContent

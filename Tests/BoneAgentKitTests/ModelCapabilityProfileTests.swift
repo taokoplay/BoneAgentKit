@@ -8,6 +8,7 @@ final class ModelCapabilityProfileTests: XCTestCase {
         let profile = try JSONDecoder().decode(BoneModelCapabilityProfile.self, from: data)
 
         XCTAssertNil(profile.verificationIdentity)
+        XCTAssertTrue(profile.providerVerificationIdentities.isEmpty)
         XCTAssertEqual(profile.capabilities, [.text])
     }
 

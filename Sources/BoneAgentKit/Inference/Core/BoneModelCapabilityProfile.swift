@@ -4,6 +4,7 @@ import Foundation
 public enum BoneModelCapabilityEvidenceSource: String, Codable, Sendable {
     case official
     case runtimeSmoke
+    case providerSmoke
     case hostVerified
 }
 
@@ -14,18 +15,21 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         case unsupportedCapability(BoneInferenceCapability)
         case invalidVerifiedAt
         case missingVerificationIdentity
+        case missingProviderVerificationIdentity
     }
 
     public let capabilities: Set<BoneInferenceCapability>
     public let source: BoneModelCapabilityEvidenceSource
     public let verifiedAt: String
     public let verificationIdentity: BoneCapabilityVerificationIdentity?
+    public let providerVerificationIdentities: [BoneProviderCapabilityVerificationIdentity]
 
     public init(
         capabilities: Set<BoneInferenceCapability>,
         source: BoneModelCapabilityEvidenceSource,
         verifiedAt: String,
-        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
+        verificationIdentity: BoneCapabilityVerificationIdentity? = nil,
+        providerVerificationIdentities: [BoneProviderCapabilityVerificationIdentity] = []
     ) throws {
         guard !capabilities.isEmpty else { throw ValidationError.emptyCapabilities }
         if let unsupported = capabilities.first(where: { $0 == .imageGeneration }) {
@@ -37,10 +41,19 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
            verificationIdentity == nil {
             throw ValidationError.missingVerificationIdentity
         }
+        if source == .providerSmoke,
+           capabilities.contains(.constrainedOutput),
+           providerVerificationIdentities.isEmpty {
+            throw ValidationError.missingProviderVerificationIdentity
+        }
+        guard Set(providerVerificationIdentities).count == providerVerificationIdentities.count else {
+            throw ValidationError.missingProviderVerificationIdentity
+        }
         self.capabilities = capabilities
         self.source = source
         self.verifiedAt = verifiedAt
         self.verificationIdentity = verificationIdentity
+        self.providerVerificationIdentities = providerVerificationIdentities
     }
 
     /// 将模型级证据与当前 Engine/Runtime 的实际实现取交集。
@@ -53,6 +66,7 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         case source
         case verifiedAt
         case verificationIdentity
+        case providerVerificationIdentities
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,12 +78,17 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
             BoneCapabilityVerificationIdentity.self,
             forKey: .verificationIdentity
         )
+        let providerVerificationIdentities = try container.decodeIfPresent(
+            [BoneProviderCapabilityVerificationIdentity].self,
+            forKey: .providerVerificationIdentities
+        ) ?? []
         do {
             try self.init(
                 capabilities: capabilities,
                 source: source,
                 verifiedAt: verifiedAt,
-                verificationIdentity: verificationIdentity
+                verificationIdentity: verificationIdentity,
+                providerVerificationIdentities: providerVerificationIdentities
             )
         } catch {
             throw DecodingError.dataCorruptedError(
