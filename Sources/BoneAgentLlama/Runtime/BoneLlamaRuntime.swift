@@ -32,4 +32,28 @@ public protocol BoneLlamaNativeTemplateRenderingRuntime: BoneLlamaRuntime {
     ) async throws -> BoneLlamaRenderedPrompt
 }
 
+/// Runtime 在能力 Smoke 中提供的实际 Tokenizer 与 Constraint Decoder 身份。
+public struct BoneLlamaRuntimeVerificationComponents: Equatable, Sendable {
+    public let tokenizerID: String
+    public let tokenizerVersion: String
+    public let constraintDecoderID: String?
+    public let constraintDecoderVersion: String?
+
+    public init(
+        tokenizerID: String,
+        tokenizerVersion: String,
+        constraintDecoderID: String? = nil,
+        constraintDecoderVersion: String? = nil
+    ) {
+        self.tokenizerID = tokenizerID
+        self.tokenizerVersion = tokenizerVersion
+        self.constraintDecoderID = constraintDecoderID
+        self.constraintDecoderVersion = constraintDecoderVersion
+    }
+}
+
+public protocol BoneLlamaRuntimeVerificationIdentifying: BoneLlamaRuntime {
+    func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents
+}
+
 public typealias BoneLlamaRuntimeFactory = @Sendable () -> any BoneLlamaRuntime

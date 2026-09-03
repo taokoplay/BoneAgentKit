@@ -63,6 +63,67 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(events, [.load, .smoke, .generate, .generate, .unload])
     }
 
+    func testConstrainedSmokeVerifiesToolContinuationAndReturnsIdentity() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(outputs: [
+            (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
+            (#"{"type":"final","content":"Capability verified."}"#, .eog),
+        ])
+        let renderer = ProbeRendererFixture()
+        let envelope = BoneLlamaConstrainedJSONToolEnvelopeCodec()
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: renderer,
+            toolEnvelope: envelope,
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(),
+            plan: plan(),
+            depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .passed)
+        XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling, .constrainedOutput])
+        XCTAssertEqual(result.verificationIdentity?.toolEnvelopeVersion, "2")
+        XCTAssertEqual(result.verificationIdentity?.artifactSHA256, String(repeating: "a", count: 64))
+        let controls = await runtime.controls()
+        XCTAssertEqual(controls.count, 2)
+        XCTAssertTrue(controls.allSatisfy { $0.constraint != nil })
+        let sawMultipleRanges = await runtime.sawMultiplePrefillRanges()
+        XCTAssertTrue(sawMultipleRanges)
+    }
+
+    func testConstrainedSmokeFailsClosedOnInvalidTermination() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(outputs: [
+            (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .maximumTokens),
+        ])
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: ProbeRendererFixture(),
+            toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .failed)
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
+        XCTAssertNil(result.verificationIdentity)
+    }
+
     func testSmokeProbeRunsSmokeAndMapsRuntimeErrors() async throws {
         for (error, expected) in [
             (BoneLlamaRuntimeError.modelIncompatible, BoneLocalRuntimeProbeCheckStatus.incompatible),
@@ -102,6 +163,65 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
             license: .init(name: "Test", url: URL(string: "https://example.com")!, modelCardURL: URL(string: "https://example.com")!)
         )
     }
+}
+
+private struct ProbeRendererFixture: BoneLlamaConversationRendering {
+    func render(
+        conversation: BoneLlamaConversation,
+        using runtime: any BoneLlamaRuntime
+    ) async throws -> BoneLlamaRenderedPrompt {
+        try .init(
+            prompt: conversation.messages.map(\.content).joined(separator: "\n") + String(repeating: " x", count: 200),
+            templateIdentity: .init(
+                source: .ggufMetadata,
+                templateDigest: String(repeating: "b", count: 64),
+                rendererID: "fixture.native",
+                rendererVersion: "1",
+                reasoningMode: .disabled,
+                addGenerationPrompt: true
+            )
+        )
+    }
+}
+
+private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
+    nonisolated let runtimeVersion = 2
+    private var outputs: [(String, BoneLlamaGenerationTermination)]
+    private var recordedControls: [BoneLlamaGenerationControl] = []
+    private var multiplePrefillRanges = false
+
+    init(outputs: [(String, BoneLlamaGenerationTermination)]) { self.outputs = outputs }
+
+    func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
+    func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 96) }
+    func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
+        throw BoneLlamaRuntimeError.generationFailed
+    }
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions,
+        control: BoneLlamaGenerationControl
+    ) async throws -> BoneLlamaGenerationResult {
+        recordedControls.append(control)
+        multiplePrefillRanges = multiplePrefillRanges || executionPlan.prefillRanges.count > 1
+        guard !outputs.isEmpty else { throw BoneLlamaRuntimeError.generationFailed }
+        let next = outputs.removeFirst()
+        return .init(text: next.0, termination: next.1)
+    }
+    func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents {
+        .init(
+            tokenizerID: "fixture-tokenizer",
+            tokenizerVersion: "1",
+            constraintDecoderID: "fixture-grammar",
+            constraintDecoderVersion: "1"
+        )
+    }
+    func smokeTest() async throws {}
+    func cancel() async {}
+    func unload() async {}
+    func controls() -> [BoneLlamaGenerationControl] { recordedControls }
+    func sawMultiplePrefillRanges() -> Bool { multiplePrefillRanges }
 }
 
 private enum LlamaRuntimeEvent: Equatable, Sendable { case load, smoke, generate, unload }
