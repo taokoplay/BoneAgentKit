@@ -250,6 +250,57 @@ final class CapabilityEnforcementTests: XCTestCase {
         XCTAssertEqual(sends, 0)
     }
 
+    func testCloudProvidersRejectOutputConstraintBeforeTransport() async throws {
+        let providers: [any BoneInferenceEngine] = [
+            BoneOpenAIInferenceEngine(
+                configuration: providerConfiguration(kind: .openAI),
+                transport: CapabilityCapturingTransport()
+            ),
+            BoneAnthropicInferenceEngine(
+                configuration: providerConfiguration(kind: .anthropic),
+                transport: CapabilityCapturingTransport()
+            ),
+            BoneGeminiInferenceEngine(
+                configuration: providerConfiguration(kind: .google),
+                transport: CapabilityCapturingTransport()
+            ),
+        ]
+
+        for provider in providers {
+            let request = BoneInferenceRequest(
+                modelID: "model",
+                messages: [.init(role: .user, content: "private-prompt")],
+                outputConstraint: .enumChoice(["yes", "no"])
+            )
+            do {
+                _ = try await provider.infer(request: request)
+                XCTFail("未实现 Constraint 的 Provider 必须在联网前拒绝")
+            } catch let error as BoneInferenceError {
+                XCTAssertEqual(error, .unsupportedCapability(.constrainedOutput))
+            }
+        }
+    }
+
+    func testAgentPreservesOutputConstraintForPreflightAndInference() async throws {
+        let engine = RecordingEngine(capabilities: [.text, .constrainedOutput])
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: try BoneAgentToolRegistry(tools: []),
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 1)
+        )
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "answer")],
+            outputConstraint: .enumChoice(["yes", "no"])
+        )
+
+        _ = try await agent.run(request: request)
+
+        let received = await engine.lastRequest()
+        XCTAssertEqual(received?.outputConstraint, request.outputConstraint)
+    }
+
     func testAgentRejectsMissingTextCapabilityBeforeRunEventOrProviderCall() async throws {
         let engine = RecordingEngine(capabilities: [])
         let recorder = EventRecorder()
@@ -434,6 +485,7 @@ private actor RecordingEngine: BoneInferenceEngine {
     nonisolated let nonImageCapabilities: Set<BoneInferenceCapability>
     nonisolated let imageGenerator: (any BoneInferenceImageGenerating)? = nil
     private var requests = 0
+    private var latestRequest: BoneInferenceRequest?
 
     init(capabilities: Set<BoneInferenceCapability>) {
         nonImageCapabilities = capabilities
@@ -441,10 +493,12 @@ private actor RecordingEngine: BoneInferenceEngine {
 
     func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
         requests += 1
+        latestRequest = request
         return .finish(.init(text: "unexpected"))
     }
 
     func requestCount() -> Int { requests }
+    func lastRequest() -> BoneInferenceRequest? { latestRequest }
 }
 
 private actor ResolvedRecordingEngine: BoneInferenceEngine {

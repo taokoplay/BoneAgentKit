@@ -55,6 +55,7 @@ public actor BoneAgent {
             availableTools: toolRegistry.definitions,
             generationOptions: initialRequest.generationOptions,
             responseFormat: .text,
+            outputConstraint: initialRequest.outputConstraint,
             reasoningDisclosure: initialRequest.reasoningDisclosure
         )
         do {
@@ -158,6 +159,7 @@ public actor BoneAgent {
                 availableTools: toolRegistry.definitions,
                 generationOptions: template.generationOptions,
                 responseFormat: .text,
+                outputConstraint: template.outputConstraint,
                 providerContinuation: providerContinuation,
                 reasoningDisclosure: template.reasoningDisclosure
             )
