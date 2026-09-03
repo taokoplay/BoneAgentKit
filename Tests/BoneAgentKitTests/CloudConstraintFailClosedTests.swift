@@ -52,6 +52,70 @@ final class CloudConstraintFailClosedTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
+    func testAuthenticationAndSemanticHeaderDriftRevokeCapabilityBeforeTransport() async throws {
+        let verifiedConfiguration = configuration(baseURL: "https://verified.invalid")
+        for currentConfiguration in [
+            BoneInferenceProviderConfiguration(
+                kind: .openAI,
+                apiKey: "private-api-key",
+                baseURL: URL(string: "https://verified.invalid")!,
+                authenticationMode: .apiKey,
+                endpointSecurityPolicy: .custom
+            ),
+            BoneInferenceProviderConfiguration(
+                kind: .openAI,
+                apiKey: "private-api-key",
+                baseURL: URL(string: "https://verified.invalid")!,
+                customHeaders: ["OpenAI-Beta": "changed"],
+                endpointSecurityPolicy: .custom
+            ),
+        ] {
+            let identity = try openAIIdentity(configuration: verifiedConfiguration)
+            let profile = try BoneModelCapabilityProfile(
+                capabilities: [.text, .constrainedOutput],
+                source: .providerSmoke,
+                verifiedAt: "2026-09-03",
+                providerVerificationIdentities: [identity]
+            )
+            let transport = CloudConstraintCapturingTransport()
+            let engine = BoneOpenAIInferenceEngine(
+                configuration: currentConfiguration,
+                transport: transport,
+                modelCapabilityProfiles: ["model": profile]
+            )
+            do {
+                _ = try await engine.infer(request: .init(
+                    modelID: "model",
+                    messages: [.init(role: .user, content: "answer")],
+                    outputConstraint: .enumChoice(["a", "b"])
+                ))
+                XCTFail("semantic execution drift must fail before transport")
+            } catch let error as BoneInferenceError {
+                XCTAssertEqual(error, .unsupportedCapability(.constrainedOutput))
+            }
+            let count = await transport.sendCount()
+            XCTAssertEqual(count, 0)
+        }
+    }
+
+    func testCredentialHeaderValuesDoNotEnterProviderIdentity() throws {
+        let first = BoneInferenceProviderConfiguration(
+            kind: .openAI,
+            apiKey: "credential-one",
+            baseURL: URL(string: "https://verified.invalid")!,
+            customHeaders: ["Authorization": "Bearer secret-one"],
+            endpointSecurityPolicy: .custom
+        )
+        let second = BoneInferenceProviderConfiguration(
+            kind: .openAI,
+            apiKey: "credential-two",
+            baseURL: URL(string: "https://verified.invalid")!,
+            customHeaders: ["authorization": "Bearer secret-two"],
+            endpointSecurityPolicy: .custom
+        )
+        XCTAssertEqual(try openAIIdentity(configuration: first), try openAIIdentity(configuration: second))
+    }
+
     func testOfficialEvidenceAloneCannotGrantProviderConstraint() throws {
         let profile = try BoneModelCapabilityProfile(
             capabilities: [.text, .constrainedOutput],
@@ -72,6 +136,25 @@ final class CloudConstraintFailClosedTests: XCTestCase {
 
         let resolved = try engine.resolvedCapabilities(for: request, invocation: .nonStreaming)
         XCTAssertFalse(resolved.capabilities.contains(.constrainedOutput))
+    }
+
+    private func openAIIdentity(
+        configuration: BoneInferenceProviderConfiguration
+    ) throws -> BoneProviderCapabilityVerificationIdentity {
+        let adapter = BoneOpenAIOutputConstraintAdapter()
+        return try BoneProviderVerificationIdentitySupport.identity(
+            configuration: configuration,
+            protocolVariant: .openAI,
+            apiVersion: "v1",
+            modelID: "model",
+            requestMapperID: "bone.openai.chat-completions",
+            requestMapperVersion: "1",
+            responseDecoderID: "bone.openai.chat-completions",
+            responseDecoderVersion: "1",
+            constraintDialectID: adapter.identity.id,
+            constraintDialectVersion: adapter.identity.version,
+            invocation: .nonStreaming
+        )
     }
 
     private func configuration(baseURL: String) -> BoneInferenceProviderConfiguration {

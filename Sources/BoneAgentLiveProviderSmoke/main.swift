@@ -1,5 +1,10 @@
 import BoneAgentKit
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private struct DryRunProvider: Encodable {
     let provider: String
@@ -34,18 +39,42 @@ private struct LiveArguments {
     let invocation: BoneInferenceInvocationIdentity
 
     init(arguments: [String]) throws {
-        guard arguments.contains("--live"),
-              arguments.contains("--confirm-network-and-costs"),
-              let providerValue = Self.value(after: "--provider", in: arguments),
+        let flagOptions: Set<String> = ["--live", "--confirm-network-and-costs"]
+        let valueOptions: Set<String> = ["--provider", "--model", "--iterations", "--invocation"]
+        var flags = Set<String>()
+        var values: [String: String] = [:]
+        var index = 0
+        while index < arguments.count {
+            let option = arguments[index]
+            if flagOptions.contains(option) {
+                guard flags.insert(option).inserted else {
+                    throw BoneInferenceTransportError.invalidConfiguration
+                }
+                index += 1
+            } else if valueOptions.contains(option) {
+                guard values[option] == nil,
+                      arguments.indices.contains(index + 1),
+                      !arguments[index + 1].hasPrefix("--") else {
+                    throw BoneInferenceTransportError.invalidConfiguration
+                }
+                values[option] = arguments[index + 1]
+                index += 2
+            } else {
+                throw BoneInferenceTransportError.invalidConfiguration
+            }
+        }
+        guard flags == flagOptions,
+              values.count == valueOptions.count,
+              let providerValue = values["--provider"],
               let provider = LiveProvider(rawValue: providerValue),
-              let modelID = Self.value(after: "--model", in: arguments),
-              !modelID.isEmpty,
-              let iterationsText = Self.value(after: "--iterations", in: arguments),
+              let modelID = values["--model"],
+              Self.isValidModelID(modelID),
+              let iterationsText = values["--iterations"],
               let iterations = Int(iterationsText),
-              (1...1_000).contains(iterations) else {
+              (1...1_000).contains(iterations),
+              let invocationText = values["--invocation"] else {
             throw BoneInferenceTransportError.invalidConfiguration
         }
-        let invocationText = Self.value(after: "--invocation", in: arguments) ?? "non-streaming"
         switch invocationText {
         case "non-streaming": invocation = .nonStreaming
         case "streaming": invocation = .streaming
@@ -56,11 +85,10 @@ private struct LiveArguments {
         self.iterations = iterations
     }
 
-    private static func value(after option: String, in arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(of: option), arguments.indices.contains(index + 1) else {
-            return nil
-        }
-        return arguments[index + 1]
+    private static func isValidModelID(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 128
+            && value.range(of: "^[A-Za-z0-9][A-Za-z0-9._/-]*$", options: .regularExpression) != nil
+            && !value.contains("://") && !value.contains("//")
     }
 }
 
@@ -80,7 +108,8 @@ enum BoneAgentLiveProviderSmokeMain {
             writeUsage()
             Foundation.exit(2)
         }
-        guard let apiKey = ProcessInfo.processInfo.environment[live.provider.credentialVariable],
+        guard let rawAPIKey = getenv(live.provider.credentialVariable),
+              let apiKey = String(validatingUTF8: rawAPIKey),
               !apiKey.isEmpty else {
             FileHandle.standardError.write(Data("缺少所选 Provider 的固定凭据变量。\n".utf8))
             Foundation.exit(2)
@@ -224,7 +253,7 @@ enum BoneAgentLiveProviderSmokeMain {
         let usage = """
         Usage:
           BoneAgentLiveProviderSmoke --dry-run
-          BoneAgentLiveProviderSmoke --live --confirm-network-and-costs --provider <openai|anthropic|gemini> --model <exact-model-id> --iterations <1...1000> [--invocation <non-streaming|streaming>]
+          BoneAgentLiveProviderSmoke --live --confirm-network-and-costs --provider <openai|anthropic|gemini> --model <exact-model-id> --iterations <1...1000> --invocation <non-streaming|streaming>
         """
         FileHandle.standardError.write(Data((usage + "\n").utf8))
     }

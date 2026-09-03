@@ -44,6 +44,42 @@ final class OpenAIOutputConstraintTests: XCTestCase {
         XCTAssertNil(json["tools"])
     }
 
+    func testConstrainedEventStreamDoesNotPublishTentativeInvalidText() async throws {
+        let events = [
+            BoneInferenceEventStreamEvent(
+                event: nil,
+                data: #"{"choices":[{"index":0,"delta":{"content":"{\"value\":\"PRIVATE-CANARY\"}"},"finish_reason":null}]}"#
+            ),
+            BoneInferenceEventStreamEvent(
+                event: nil,
+                data: #"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#
+            ),
+            BoneInferenceEventStreamEvent(event: nil, data: "[DONE]"),
+        ]
+        let transport = OpenAIConstraintTransport(response: Data(), events: events)
+        let configuration = Self.configuration(kind: .openAI)
+        let engine = BoneOpenAIInferenceEngine(
+            configuration: configuration,
+            transport: transport,
+            modelCapabilityProfiles: [
+                modelID: try profile(configuration: configuration, invocation: .streaming),
+            ]
+        )
+        var published: [BoneInferenceStreamEvent] = []
+        do {
+            for try await event in engine.inferenceEvents(
+                request: request(),
+                options: .init()
+            ) {
+                published.append(event)
+            }
+            XCTFail("invalid constrained stream must fail")
+        } catch {
+            XCTAssertEqual(error as? BoneInferenceTransportError, .invalidResponse)
+        }
+        XCTAssertTrue(published.isEmpty)
+    }
+
     func testCompatibleProviderNeverInheritsOfficialConstraintCapability() async throws {
         let transport = OpenAIConstraintTransport(response: Self.response(text: #"{"value":"approve"}"#))
         let configuration = Self.configuration(kind: .custom)
@@ -56,11 +92,14 @@ final class OpenAIOutputConstraintTests: XCTestCase {
         await assertUnsupported(engine, transport: transport)
     }
 
-    func testRejectsInvalidAndTruncatedConstraintResponses() async throws {
+    func testRejectsInvalidTruncatedAndAmbiguousConstraintResponses() async throws {
         let configuration = Self.configuration(kind: .openAI)
         for data in [
             Self.response(text: #"{"value":"Approve"}"#),
             Self.response(text: #"{"value":"approve"}"#, finishReason: "length"),
+            Self.response(text: #"{"value":"approve"}"#, finishReason: "content_filter"),
+            Self.response(text: #"{"value":"approve"}"#, index: 1),
+            Self.multipleChoiceResponse(),
         ] {
             let transport = OpenAIConstraintTransport(response: data)
             let engine = BoneOpenAIInferenceEngine(
@@ -138,18 +177,39 @@ final class OpenAIOutputConstraintTests: XCTestCase {
         )
     }
 
-    private static func response(text: String, finishReason: String = "stop") -> Data {
+    private static func response(
+        text: String,
+        finishReason: String = "stop",
+        index: Int = 0
+    ) -> Data {
         try! JSONSerialization.data(withJSONObject: [
-            "choices": [["message": ["role": "assistant", "content": text], "finish_reason": finishReason]],
+            "choices": [[
+                "index": index,
+                "message": ["role": "assistant", "content": text],
+                "finish_reason": finishReason,
+            ]],
+        ])
+    }
+
+    private static func multipleChoiceResponse() -> Data {
+        try! JSONSerialization.data(withJSONObject: [
+            "choices": [
+                ["index": 0, "message": ["role": "assistant", "content": #"{"value":"approve"}"#], "finish_reason": "stop"],
+                ["index": 1, "message": ["role": "assistant", "content": #"{"value":"reject"}"#], "finish_reason": "stop"],
+            ],
         ])
     }
 }
 
 private actor OpenAIConstraintTransport: BoneInferenceHTTPTransport {
     private let response: Data
+    private let events: [BoneInferenceEventStreamEvent]
     private var requests: [URLRequest] = []
 
-    init(response: Data) { self.response = response }
+    init(response: Data, events: [BoneInferenceEventStreamEvent] = []) {
+        self.response = response
+        self.events = events
+    }
 
     func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
         requests.append(request)
@@ -161,7 +221,7 @@ private actor OpenAIConstraintTransport: BoneInferenceHTTPTransport {
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceEventStreamResponse {
         requests.append(request)
-        return .init(statusCode: 200, events: [], headers: [:])
+        return .init(statusCode: 200, events: events, headers: [:])
     }
 
     func sendRetryableForModels(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {

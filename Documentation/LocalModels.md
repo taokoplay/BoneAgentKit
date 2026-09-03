@@ -98,7 +98,7 @@ let engine = BoneLlamaInferenceEngine(
 - `BoneLlamaControlledGenerationRuntime`：执行 Stop Token、Stop String 与由受信任 Adapter 产生的 Schema Constraint，并返回稳定 termination；
 - `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer 与 Constraint Decoder 的稳定身份供 Smoke 绑定。
 
-`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断，不能将输出交给 Tool Envelope 解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Control、Envelope、Constraint Decoder、Context 或 Batch 任一变化，都必须重新执行 Smoke。
+`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`，而 `stopToken` / `stopString` 只有在本次 Control 实际配置对应 Stop 时才可进入解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Generation Prompt、Control、Envelope、Constraint Decoder、Context、Batch 或 Smoke 输出容量任一变化，都必须重新执行 Smoke。Engine 必须显式获得当前 `BoneCapabilityVerificationIdentity` 并精确匹配 Profile；缺失或漂移时撤销 Tool Calling 与 Constrained Output。
 
 云端验证身份与这里的本地 Runtime 身份是两套独立证据。`BoneProviderCapabilityVerificationIdentity` 绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式，不包含 GGUF Artifact、Tokenizer、Template、Prefill 或 Context/Batch；`BoneCapabilityVerificationIdentity` 也不能替云 Provider 背书。任一侧通过 Smoke 都不会自动授予另一侧能力。
 

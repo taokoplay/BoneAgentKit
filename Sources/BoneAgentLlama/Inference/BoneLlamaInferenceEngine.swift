@@ -17,14 +17,18 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         promptEncoder: any BoneLlamaPromptEncoding = BoneLlamaChatMLPromptEncoder(),
         toolCalling: (any BoneLlamaToolCalling)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
+        currentVerificationIdentity: BoneCapabilityVerificationIdentity? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         self.modelID = modelID
         let implemented: Set<BoneInferenceCapability> = toolCalling == nil
             ? [.text]
             : [.text, .toolCalling]
-        nonImageCapabilities = verifiedCapabilityProfile?
-            .resolved(engineCapabilities: implemented) ?? implemented
+        nonImageCapabilities = Self.resolvedCapabilities(
+            implemented: implemented,
+            profile: verifiedCapabilityProfile,
+            currentIdentity: currentVerificationIdentity
+        )
         session = Session(
             modelID: modelID,
             modelURL: modelURL,
@@ -42,14 +46,18 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         conversationRenderer: any BoneLlamaConversationRendering,
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
+        currentVerificationIdentity: BoneCapabilityVerificationIdentity? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         self.modelID = modelID
         let implemented: Set<BoneInferenceCapability> = toolEnvelope == nil
             ? [.text]
             : [.text, .toolCalling]
-        nonImageCapabilities = verifiedCapabilityProfile?
-            .resolved(engineCapabilities: implemented) ?? implemented
+        nonImageCapabilities = Self.resolvedCapabilities(
+            implemented: implemented,
+            profile: verifiedCapabilityProfile,
+            currentIdentity: currentVerificationIdentity
+        )
         session = Session(
             modelID: modelID,
             modelURL: modelURL,
@@ -57,6 +65,26 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
             pipeline: .canonical(renderer: conversationRenderer, toolEnvelope: toolEnvelope),
             runtime: runtimeFactory()
         )
+    }
+
+    private static func resolvedCapabilities(
+        implemented: Set<BoneInferenceCapability>,
+        profile: BoneModelCapabilityProfile?,
+        currentIdentity: BoneCapabilityVerificationIdentity?
+    ) -> Set<BoneInferenceCapability> {
+        guard let profile else { return implemented }
+        var resolved = profile.resolved(engineCapabilities: implemented)
+        let advanced: Set<BoneInferenceCapability> = [.toolCalling, .constrainedOutput]
+        if !resolved.isDisjoint(with: advanced) {
+            guard profile.source == .runtimeSmoke,
+                  let verifiedIdentity = profile.verificationIdentity,
+                  let currentIdentity,
+                  verifiedIdentity.matches(currentIdentity) else {
+                resolved.subtract(advanced)
+                return resolved
+            }
+        }
+        return resolved
     }
 
     public func resolvedCapabilities(
@@ -206,8 +234,14 @@ private actor Session {
                     options: effectiveOptions
                 )
             }
-            guard result.termination != .maximumTokens else {
-                throw BoneLlamaAdapterError.outputTruncated
+            try validateTermination(
+                result.termination,
+                control: prepared.control,
+                requiresCompleteEnvelope: prepared.envelope != nil || prepared.control.constraint != nil
+            )
+            try validateConstrainedOutput(result.text, constraint: prepared.control.constraint)
+            guard !Self.containsReasoningMarker(result.text) else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
             }
             let response = try decode(
                 result.text,
@@ -262,6 +296,62 @@ private actor Session {
             )
             return (rendered.prompt, control, toolEnvelope)
         }
+    }
+
+    private func validateTermination(
+        _ termination: BoneLlamaGenerationTermination,
+        control: BoneLlamaGenerationControl,
+        requiresCompleteEnvelope: Bool
+    ) throws {
+        if termination == .maximumTokens {
+            throw BoneLlamaAdapterError.outputTruncated
+        }
+        guard requiresCompleteEnvelope else { return }
+        switch termination {
+        case .eog:
+            return
+        case .stopToken:
+            guard !control.stopTokenIDs.isEmpty else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
+            }
+        case .stopString:
+            guard !control.stopStrings.isEmpty else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
+            }
+        case .maximumTokens:
+            throw BoneLlamaAdapterError.outputTruncated
+        case .runtimeCompleted:
+            throw BoneLlamaAdapterError.invalidToolCallingResponse
+        }
+    }
+
+    private func validateConstrainedOutput(
+        _ output: String,
+        constraint: BoneLlamaGenerationConstraint?
+    ) throws {
+        guard let constraint else { return }
+        do {
+            switch constraint {
+            case let .enumChoice(choices):
+                guard choices.contains(output) else {
+                    throw BoneLlamaAdapterError.invalidToolCallingResponse
+                }
+            case let .jsonSchema(schema):
+                try BoneToolSchemaValidator.validate(
+                    arguments: Data(output.utf8),
+                    against: schema
+                )
+            }
+        } catch let error as BoneLlamaAdapterError {
+            throw error
+        } catch {
+            throw BoneLlamaAdapterError.invalidToolCallingResponse
+        }
+    }
+
+    private static func containsReasoningMarker(_ output: String) -> Bool {
+        let lowercased = output.lowercased()
+        return lowercased.contains("<think>") || lowercased.contains("</think>")
     }
 
     private func decode(

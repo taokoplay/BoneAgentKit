@@ -40,9 +40,7 @@ public struct BoneLiveConstraintSmokeReport: Codable, Equatable, Sendable {
         durationMilliseconds: Int,
         verifiedAt: String
     ) throws {
-        guard !modelID.isEmpty,
-              modelID.count <= 128,
-              modelID.unicodeScalars.allSatisfy({ $0.value >= 0x21 && $0.value <= 0x7E }),
+        guard Self.isValidModelID(modelID),
               provider == identity.providerKind,
               modelID == identity.modelID,
               invocation == identity.invocation,
@@ -100,6 +98,16 @@ public struct BoneLiveConstraintSmokeReport: Codable, Equatable, Sendable {
                 debugDescription: "Invalid smoke report"
             )
         }
+    }
+
+    private static func isValidModelID(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 128,
+              value.range(of: "^[A-Za-z0-9][A-Za-z0-9._/-]*$", options: .regularExpression) != nil,
+              !value.contains("://"),
+              !value.contains("//") else {
+            return false
+        }
+        return true
     }
 
     private static func isValidDate(_ value: String) -> Bool {

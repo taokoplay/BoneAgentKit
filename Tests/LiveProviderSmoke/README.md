@@ -17,6 +17,12 @@ swift run --package-path Frameworks/BoneAgentKit BoneAgentLiveProviderSmoke --dr
 
 ## 真实联网 Smoke
 
-当前 executable 故意不实现真实联网模式。真实 Smoke 会产生外部请求和潜在费用，必须由签发负责人在隔离环境明确授权，并使用低权限、低额度凭据。输出不得包含 Prompt、响应、Header、URL query 或凭据。
+真实 Smoke 会产生外部请求和潜在费用，必须由签发负责人在隔离环境明确授权，并使用低权限、低额度凭据。Runner 仅接受严格参数集合；`--live`、`--confirm-network-and-costs`、Provider、精确模型、次数和调用模式均须显式提供，不能与 `--dry-run` 混用。
 
-发布前需分别验证 OpenAI、Anthropic、Gemini 的最小非流式和流式请求；证据只保存 provider、model、status、latency、时间与签发提交 SHA。
+```bash
+swift run BoneAgentLiveProviderSmoke --live --confirm-network-and-costs \
+  --provider openai --model '<exact-model-id>' --iterations 100 \
+  --invocation non-streaming
+```
+
+输出不得包含 Prompt、响应、Header、完整 URL 或凭据。发布前需分别验证 OpenAI、Anthropic、Gemini 的非流式和流式请求。脱敏报告保存 provider、精确 model、稳定执行身份、调用模式、次数、固定失败分类、聚合耗时和 UTC 日期；签发流程在报告外绑定被审核的提交 SHA。真实报告仍只是候选证据，经审核并达到阈值后才能更新 bundled Profile。

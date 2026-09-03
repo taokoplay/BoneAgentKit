@@ -85,7 +85,7 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
 
-模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `providerSmoke` / `hostVerified` 证据来源及验证日期。本地 Runtime Smoke 对 Tool Calling 或受约束输出必须绑定 `BoneCapabilityVerificationIdentity`：Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Control、Tool Envelope、Constraint Decoder 和 Context/Batch 任一变化，历史证据即不匹配。云 Provider Smoke 使用独立的 `BoneProviderCapabilityVerificationIdentity`，绑定 Provider kind、协议方言、Endpoint 身份摘要、API 版本、精确模型、Mapper/Decoder、Constraint 方言和 Streaming 模式；任一字段变化同样使证据失效。两类身份互不替代，也都不保存 Prompt、Schema、输出、凭据或完整路径/URL。
+模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `providerSmoke` / `hostVerified` 证据来源及验证日期。本地 Runtime Smoke 对 Tool Calling 或受约束输出必须绑定 `BoneCapabilityVerificationIdentity`，Engine 构造时还必须提供当前执行身份并与 Profile 精确匹配；未提供或不匹配即撤销高级能力。Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Prompt、Generation Control、Tool Envelope、Constraint Decoder、Context/Batch 或 Smoke 输出容量任一变化，历史证据即不匹配。云 Provider Smoke 使用独立的 `BoneProviderCapabilityVerificationIdentity`，绑定 Provider kind、协议方言、Endpoint 身份摘要、API 版本、精确模型、Mapper/Decoder、Constraint 方言和 Streaming 模式；任一字段变化同样使证据失效。两类身份互不替代，也都不保存 Prompt、Schema、输出、凭据或完整路径/URL。
 
 Profile 为 nil 表示 unknown，为兼容既有 Host，普通能力继续采用 Engine 级实现；但云端 `.constrainedOutput` 是更严格的例外：OpenAI、Gemini 和 Anthropic Engine 会先移除该能力，只有官方 Provider kind、当前 Constraint 方言可编译且匹配 `.providerSmoke` 身份时才为本次请求加回。`official` 文档证据和兼容协议名称不能单独授权。`BoneAgent` 在发布 `runStarted` 前使用请求级 resolved snapshot 预检。
 

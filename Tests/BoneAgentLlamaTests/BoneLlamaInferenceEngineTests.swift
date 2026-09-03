@@ -59,6 +59,59 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertTrue(snapshot.lastPrompt?.contains("\"name\":\"echo\"") == true)
     }
 
+    func testAdvancedRuntimeSmokeCapabilityRequiresExactCurrentIdentity() throws {
+        let verifiedIdentity = try Self.verificationIdentity(templateDigest: String(repeating: "a", count: 64))
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text, .toolCalling],
+            source: .runtimeSmoke,
+            verifiedAt: "2026-09-03",
+            verificationIdentity: verifiedIdentity
+        )
+        let matching = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+            verifiedCapabilityProfile: profile,
+            currentVerificationIdentity: verifiedIdentity,
+            runtimeFactory: { EngineRuntimeFixture(result: "ok") }
+        )
+        XCTAssertEqual(matching.nonImageCapabilities, [.text, .toolCalling])
+
+        let changedIdentity = try Self.verificationIdentity(templateDigest: String(repeating: "b", count: 64))
+        let mismatching = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+            verifiedCapabilityProfile: profile,
+            currentVerificationIdentity: changedIdentity,
+            runtimeFactory: { EngineRuntimeFixture(result: "ok") }
+        )
+        XCTAssertEqual(mismatching.nonImageCapabilities, [.text])
+    }
+
+    func testAdvancedProfileWithoutCurrentIdentityFailsClosed() throws {
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text, .toolCalling],
+            source: .runtimeSmoke,
+            verifiedAt: "2026-09-03",
+            verificationIdentity: Self.verificationIdentity(templateDigest: String(repeating: "a", count: 64))
+        )
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+            verifiedCapabilityProfile: profile,
+            runtimeFactory: { EngineRuntimeFixture(result: "ok") }
+        )
+        XCTAssertEqual(engine.nonImageCapabilities, [.text])
+    }
+
     func testCanonicalPipelineRendersToolConversationExactlyOnce() async throws {
         let runtime = EngineRuntimeFixture(result: "Answer")
         let engine = BoneLlamaInferenceEngine(
@@ -120,6 +173,33 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         }
         let snapshot = await runtime.snapshot()
         XCTAssertEqual(snapshot.generateCount, 0)
+    }
+
+    func testCanonicalToolPipelineRejectsAmbiguousCompletionBeforeDecode() async {
+        let validEnvelope = #"{"type":"final","content":"done"}"#
+        for termination in [
+            BoneLlamaGenerationTermination.runtimeCompleted,
+            .stopToken,
+            .stopString,
+        ] {
+            let runtime = EngineRuntimeFixture(result: validEnvelope, termination: termination)
+            let engine = BoneLlamaInferenceEngine(
+                modelID: "model",
+                modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+                plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+                conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+                toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
+                runtimeFactory: { runtime }
+            )
+
+            await XCTAssertThrowsErrorAsync(try await engine.infer(request: .init(
+                modelID: "model",
+                messages: [.init(role: .user, content: "Hello")],
+                availableTools: [Self.tool]
+            ))) { error in
+                XCTAssertEqual(error as? BoneLlamaAdapterError, .invalidToolCallingResponse)
+            }
+        }
     }
 
     func testCanonicalToolPipelineRejectsTruncatedOutputBeforeDecode() async {
@@ -283,6 +363,31 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         XCTAssertEqual(secondFailure, firstFailure)
     }
 
+    private static func verificationIdentity(
+        templateDigest: String
+    ) throws -> BoneCapabilityVerificationIdentity {
+        try .init(
+            artifactSHA256: String(repeating: "c", count: 64),
+            runtimeID: "llama.cpp",
+            runtimeVersion: 1,
+            tokenizerID: "gguf",
+            tokenizerVersion: "1",
+            templateDigest: templateDigest,
+            rendererID: "bone.chatml",
+            rendererVersion: "1",
+            reasoningMode: "disabled",
+            generationControlDigest: String(repeating: "d", count: 64),
+            toolEnvelopeID: "bone.json-tool-envelope",
+            toolEnvelopeVersion: "1",
+            constraintDecoderID: nil,
+            constraintDecoderVersion: nil,
+            contextTokens: 512,
+            batchTokens: 32,
+            addGenerationPrompt: true,
+            maximumOutputTokens: 64
+        )
+    }
+
     private static let tool = BoneAgentToolDefinition(
         id: "test.echo",
         version: "1",
@@ -390,7 +495,7 @@ private struct ControlledRendererFixture: BoneLlamaConversationRendering {
             prompt: "rendered",
             templateIdentity: .init(
                 source: .sdk,
-                templateDigest: "fixture",
+                templateDigest: String(repeating: "f", count: 64),
                 rendererID: "fixture",
                 rendererVersion: "1",
                 reasoningMode: .disabled,
@@ -415,7 +520,7 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
 
     init(
         result: String,
-        termination: BoneLlamaGenerationTermination = .runtimeCompleted,
+        termination: BoneLlamaGenerationTermination = .eog,
         tokenCount: Int? = nil
     ) {
         self.result = result

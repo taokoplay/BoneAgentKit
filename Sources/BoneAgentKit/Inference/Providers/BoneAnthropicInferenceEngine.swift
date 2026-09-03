@@ -120,7 +120,10 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceSt
                     )
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
-                        for mapped in try mapper.consume(event) { continuation.yield(mapped) }
+                        let mappedEvents = try mapper.consume(event)
+                        if request.outputConstraint == nil {
+                            for mapped in mappedEvents { continuation.yield(mapped) }
+                        }
                     }
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {

@@ -2,14 +2,26 @@ import Foundation
 
 /// 聚合 OpenAI-compatible 完整响应和 SSE 事件，不保留原始载荷。
 public enum BoneOpenAIResponseAggregator {
-    public static func nonStreamingText(from json: [String: Any]) throws -> String {
+    public static func nonStreamingText(
+        from json: [String: Any],
+        requiringSingleCompletedChoice: Bool = false
+    ) throws -> String {
         guard let choices = json["choices"] as? [[String: Any]],
               let choice = choices.first,
               let message = choice["message"] as? [String: Any]
         else {
             throw BoneInferenceTransportError.invalidResponse
         }
-        if choice["finish_reason"] as? String == "length" {
+        if requiringSingleCompletedChoice {
+            guard choices.count == 1,
+                  (choice["index"] == nil || choice["index"] as? Int == 0),
+                  choice["finish_reason"] as? String == "stop" else {
+                if choice["finish_reason"] as? String == "length" {
+                    throw BoneInferenceTransportError.outputTruncated
+                }
+                throw BoneInferenceTransportError.invalidResponse
+            }
+        } else if choice["finish_reason"] as? String == "length" {
             throw BoneInferenceTransportError.outputTruncated
         }
         if let content = message["content"] as? String, !content.isEmpty {
@@ -28,10 +40,12 @@ public enum BoneOpenAIResponseAggregator {
     }
 
     public static func streamingText(
-        from events: [BoneInferenceEventStreamEvent]
+        from events: [BoneInferenceEventStreamEvent],
+        requiringSingleCompletedChoice: Bool = false
     ) throws -> String {
         var text = ""
         var completed = false
+        var sawStop = false
         for event in events {
             if event.data == "[DONE]" {
                 guard !completed else { throw BoneInferenceTransportError.invalidResponse }
@@ -47,9 +61,25 @@ public enum BoneOpenAIResponseAggregator {
                 throw BoneInferenceTransportError.invalidResponse
             }
             let choices = json["choices"] as? [[String: Any]] ?? []
+            if requiringSingleCompletedChoice, choices.count > 1 {
+                throw BoneInferenceTransportError.invalidResponse
+            }
             for choice in choices {
-                if choice["finish_reason"] as? String == "length" {
-                    throw BoneInferenceTransportError.outputTruncated
+                if requiringSingleCompletedChoice,
+                   let index = choice["index"] as? Int,
+                   index != 0 {
+                    throw BoneInferenceTransportError.invalidResponse
+                }
+                if let finishReason = choice["finish_reason"] as? String {
+                    if finishReason == "length" {
+                        throw BoneInferenceTransportError.outputTruncated
+                    }
+                    if requiringSingleCompletedChoice {
+                        guard finishReason == "stop", !sawStop else {
+                            throw BoneInferenceTransportError.invalidResponse
+                        }
+                        sawStop = true
+                    }
                 }
                 let delta = choice["delta"] as? [String: Any]
                 if let content = delta?["content"] as? String {
@@ -57,7 +87,8 @@ public enum BoneOpenAIResponseAggregator {
                 }
             }
         }
-        guard completed, !text.isEmpty else {
+        guard completed, !text.isEmpty,
+              !requiringSingleCompletedChoice || sawStop else {
             throw BoneInferenceTransportError.invalidResponse
         }
         return text

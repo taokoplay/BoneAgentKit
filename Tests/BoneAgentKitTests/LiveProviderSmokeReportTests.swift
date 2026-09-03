@@ -4,7 +4,6 @@ import XCTest
 
 final class LiveProviderSmokeReportTests: XCTestCase {
     func testReportContainsOnlyAllowlistedAggregateFields() throws {
-        let canary = "PRIVATE-CANARY-7f1d"
         let identity = try Self.identity()
         let report = try BoneLiveConstraintSmokeReport(
             provider: .openAI,
@@ -20,11 +19,47 @@ final class LiveProviderSmokeReportTests: XCTestCase {
         let data = try JSONEncoder().encode(report)
         let text = String(decoding: data, as: UTF8.self)
 
-        XCTAssertFalse(text.contains(canary))
         for forbidden in ["prompt", "schemaBody", "outputBody", "apiKey", "header", "https://"] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains(forbidden), forbidden)
         }
         XCTAssertEqual(try JSONDecoder().decode(BoneLiveConstraintSmokeReport.self, from: data), report)
+    }
+
+    func testReportRejectsSensitiveOrURLShapedModelIDs() throws {
+        for modelID in [
+            "https://example.invalid/private",
+            "model?apiKey=PRIVATE-CANARY-7f1d",
+            "Authorization:Bearer-secret",
+            "model name",
+        ] {
+            XCTAssertThrowsError(try BoneLiveConstraintSmokeReport(
+                provider: .openAI,
+                modelID: modelID,
+                invocation: .nonStreaming,
+                identity: Self.identity(modelID: modelID),
+                attemptedCount: 1,
+                succeededCount: 1,
+                failureCounts: [:],
+                durationMilliseconds: 1,
+                verifiedAt: "2026-09-03"
+            ))
+        }
+    }
+
+    func testReportAcceptsRepresentativeProviderModelIDs() throws {
+        for modelID in ["gpt-4.1-mini", "claude-sonnet-4-5", "models/gemini-2.5-flash"] {
+            XCTAssertNoThrow(try BoneLiveConstraintSmokeReport(
+                provider: .openAI,
+                modelID: modelID,
+                invocation: .nonStreaming,
+                identity: Self.identity(modelID: modelID),
+                attemptedCount: 1,
+                succeededCount: 1,
+                failureCounts: [:],
+                durationMilliseconds: 1,
+                verifiedAt: "2026-09-03"
+            ))
+        }
     }
 
     func testReportDecodeCannotBypassCountValidation() throws {
@@ -55,13 +90,15 @@ final class LiveProviderSmokeReportTests: XCTestCase {
         XCTAssertEqual(report.failureCounts, [.outputTruncated: 1])
     }
 
-    private static func identity() throws -> BoneProviderCapabilityVerificationIdentity {
+    private static func identity(
+        modelID: String = "gpt-4.1-mini"
+    ) throws -> BoneProviderCapabilityVerificationIdentity {
         try .init(
             providerKind: .openAI,
             protocolVariant: .openAI,
             endpointIdentityDigest: String(repeating: "a", count: 64),
             apiVersion: "v1",
-            modelID: "gpt-4.1-mini",
+            modelID: modelID,
             requestMapperID: "bone.openai.chat-completions",
             requestMapperVersion: "1",
             responseDecoderID: "bone.openai.chat-completions",

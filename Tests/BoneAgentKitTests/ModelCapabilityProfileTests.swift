@@ -36,6 +36,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
         XCTAssertFalse(identity.matches(try Self.identity(templateDigest: String(repeating: "d", count: 64))))
         XCTAssertFalse(identity.matches(try Self.identity(batchTokens: 128)))
         XCTAssertFalse(identity.matches(try Self.identity(toolEnvelopeVersion: "3")))
+        XCTAssertFalse(identity.matches(try Self.identity(addGenerationPrompt: false)))
+        XCTAssertFalse(identity.matches(try Self.identity(maximumOutputTokens: 128)))
     }
 
     func testIdentityValidatesDigestsAndPairedOptionalComponents() {
@@ -64,7 +66,9 @@ final class ModelCapabilityProfileTests: XCTestCase {
         artifactSHA256: String = String(repeating: "a", count: 64),
         templateDigest: String = String(repeating: "b", count: 64),
         batchTokens: Int = 256,
-        toolEnvelopeVersion: String? = "2"
+        toolEnvelopeVersion: String? = "2",
+        addGenerationPrompt: Bool? = true,
+        maximumOutputTokens: Int? = 256
     ) throws -> BoneCapabilityVerificationIdentity {
         try .init(
             artifactSHA256: artifactSHA256,
@@ -82,7 +86,9 @@ final class ModelCapabilityProfileTests: XCTestCase {
             constraintDecoderID: "llama-grammar",
             constraintDecoderVersion: "1",
             contextTokens: 4096,
-            batchTokens: batchTokens
+            batchTokens: batchTokens,
+            addGenerationPrompt: addGenerationPrompt,
+            maximumOutputTokens: maximumOutputTokens
         )
     }
 }

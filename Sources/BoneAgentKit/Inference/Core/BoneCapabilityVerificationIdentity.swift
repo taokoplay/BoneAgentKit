@@ -22,6 +22,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
     public let constraintDecoderVersion: String?
     public let contextTokens: Int
     public let batchTokens: Int
+    public let addGenerationPrompt: Bool?
+    public let maximumOutputTokens: Int?
 
     public init(
         artifactSHA256: String,
@@ -39,7 +41,9 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         constraintDecoderID: String?,
         constraintDecoderVersion: String?,
         contextTokens: Int,
-        batchTokens: Int
+        batchTokens: Int,
+        addGenerationPrompt: Bool? = nil,
+        maximumOutputTokens: Int? = nil
     ) throws {
         guard Self.isSHA256(artifactSHA256),
               Self.isSHA256(templateDigest),
@@ -55,7 +59,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
               Self.isValidPair(constraintDecoderID, constraintDecoderVersion),
               contextTokens > 0,
               batchTokens > 0,
-              batchTokens <= contextTokens else {
+              batchTokens <= contextTokens,
+              maximumOutputTokens.map({ $0 > 0 && $0 < contextTokens }) ?? true else {
             throw ValidationError.invalidIdentity
         }
         self.artifactSHA256 = artifactSHA256.lowercased()
@@ -74,6 +79,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         self.constraintDecoderVersion = constraintDecoderVersion
         self.contextTokens = contextTokens
         self.batchTokens = batchTokens
+        self.addGenerationPrompt = addGenerationPrompt
+        self.maximumOutputTokens = maximumOutputTokens
     }
 
     public func matches(_ current: Self) -> Bool { self == current }

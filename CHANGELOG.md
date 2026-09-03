@@ -16,7 +16,9 @@
 ### Changed
 
 - `BoneLlamaInferenceEngine` 新增 canonical `Build → Render → Tokenize → Plan → Generate → Decode` 路线；alpha.6 的 Prompt Encoder/Tool Calling 初始化入口继续兼容。
-- Llama Runtime Probe 可执行受约束 Tool Call 与 Tool Result 续轮 Smoke；截断、reasoning 标记、缺少受控 Runtime 或验证身份均失败关闭。
+- Llama Runtime Probe 可执行受约束 Tool Call 与 Tool Result 续轮 Smoke；截断、模糊终止原因、reasoning 标记、缺少受控 Runtime 或验证身份均失败关闭。Engine 只有在当前 Runtime 身份与 Profile 精确匹配时才保留高级本地能力。
+- ChatML Renderer 使用稳定模板 SHA-256，并拒绝消息正文中的保留模板 Token；云端受约束事件流在完整复验前不发布 tentative 正文。
+- Live Provider Smoke CLI 改为严格互斥参数解析、精确单变量凭据读取和安全模型 ID 白名单；Provider 身份同时绑定认证模式与脱敏后的语义 Header 配置。
 - `.runtimeSmoke` 若要证明 `.toolCalling` 或 `.constrainedOutput`，必须携带完整本地 Runtime 验证身份；`.providerSmoke` 若要证明云端 `.constrainedOutput`，必须携带匹配的 Provider 验证身份。
 - `outputConstraint` 首版不能与 structured `responseFormat` 或非空 Tool Catalog 混用；Enum 逐字节精确匹配，JSON Schema 结果不做裁剪、提取或修复。
 - 云 Provider 只有官方 kind、受支持方言和精确 Smoke 身份同时匹配时才动态授予 `.constrainedOutput`；兼容端点、仅官方文档证据、流式模式或执行身份漂移均在联网前失败。Bundled Catalog 尚未写入真实 Provider Smoke 身份，因此默认能力不自动启用。

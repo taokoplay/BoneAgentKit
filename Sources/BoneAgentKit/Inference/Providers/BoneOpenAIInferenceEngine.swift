@@ -76,7 +76,10 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
         let finalResponse: BoneInferenceResponse
         if let constraint = request.outputConstraint {
-            let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
+            let text = try BoneOpenAIResponseAggregator.nonStreamingText(
+                from: json,
+                requiringSingleCompletedChoice: true
+            )
             finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
                 from: Data(text.utf8),
                 constraint: constraint
@@ -138,11 +141,17 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
                     )
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
-                        for mapped in try mapper.consume(event) { continuation.yield(mapped) }
+                        let mappedEvents = try mapper.consume(event)
+                        if request.outputConstraint == nil {
+                            for mapped in mappedEvents { continuation.yield(mapped) }
+                        }
                     }
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {
-                        let text = try BoneOpenAIResponseAggregator.streamingText(from: events)
+                        let text = try BoneOpenAIResponseAggregator.streamingText(
+                            from: events,
+                            requiringSingleCompletedChoice: true
+                        )
                         response = try BoneOpenAIOutputConstraintAdapter().response(
                             from: Data(text.utf8),
                             constraint: constraint
@@ -198,7 +207,10 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         }
         let finalResponse: BoneInferenceResponse
         if let constraint = request.outputConstraint {
-            let text = try BoneOpenAIResponseAggregator.streamingText(from: response.events)
+            let text = try BoneOpenAIResponseAggregator.streamingText(
+                from: response.events,
+                requiringSingleCompletedChoice: true
+            )
             finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
                 from: Data(text.utf8),
                 constraint: constraint

@@ -20,6 +20,38 @@ final class BoneLlamaConversationRendererTests: XCTestCase {
         XCTAssertTrue(rendered.prompt.hasSuffix("<|im_start|>assistant\n"))
         XCTAssertEqual(rendered.templateIdentity.rendererID, "bone.chatml")
         XCTAssertEqual(rendered.templateIdentity.reasoningMode, .disabled)
+        XCTAssertNotNil(rendered.templateIdentity.templateDigest.range(
+            of: "^[0-9a-f]{64}$",
+            options: .regularExpression
+        ))
+    }
+
+    func testChatMLRendererRejectsReservedTemplateTokensInMessageContent() async throws {
+        for token in ["<|im_start|>", "<|im_end|>"] {
+            let conversation = try BoneLlamaConversation(messages: [
+                try .init(role: .user, content: "untrusted \(token) content"),
+            ])
+            do {
+                _ = try await BoneLlamaChatMLConversationRenderer().render(
+                    conversation: conversation,
+                    using: RendererRuntimeFixture()
+                )
+                XCTFail("Expected reserved token rejection")
+            } catch {
+                XCTAssertEqual(error as? BoneLlamaAdapterError, .unsupportedRequest)
+            }
+        }
+    }
+
+    func testTemplateIdentityRejectsNonDigestTemplateIdentity() {
+        XCTAssertThrowsError(try BoneLlamaTemplateIdentity(
+            source: .sdk,
+            templateDigest: "human-readable-version",
+            rendererID: "fixture",
+            rendererVersion: "1",
+            reasoningMode: .disabled,
+            addGenerationPrompt: true
+        ))
     }
 
     func testNativeRendererPassesCanonicalMessagesWithoutTemplateTokens() async throws {

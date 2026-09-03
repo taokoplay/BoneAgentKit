@@ -25,7 +25,10 @@ public struct BoneLlamaTemplateIdentity: Codable, Equatable, Hashable, Sendable 
         reasoningMode: BoneLlamaReasoningMode,
         addGenerationPrompt: Bool
     ) throws {
-        guard !templateDigest.isEmpty,
+        guard templateDigest.range(
+            of: "^[0-9a-fA-F]{64}$",
+            options: .regularExpression
+        ) != nil,
               !rendererID.isEmpty,
               !rendererVersion.isEmpty else {
             throw BoneLlamaAdapterError.invalidConfiguration

@@ -127,9 +127,9 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             runtime: runtime,
             plan: plan
         )
-        guard first.termination != .maximumTokens,
-              case let .assistantTurn(turn, reason, _, refusal, _) = try envelope.decode(
-                  output: first.text,
+        try Self.validateEnvelopeTermination(first.result.termination, control: first.control)
+        guard case let .assistantTurn(turn, reason, _, refusal, _) = try envelope.decode(
+                  output: first.result.text,
                   availableTools: [Self.syntheticTool]
               ), reason == .toolCalls, refusal == nil, turn.toolCalls.count == 1,
               let call = turn.toolCalls.first else {
@@ -158,9 +158,9 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             runtime: runtime,
             plan: plan
         )
-        guard second.termination != .maximumTokens,
-              case let .finish(finish) = try envelope.decode(
-                  output: second.text,
+        try Self.validateEnvelopeTermination(second.result.termination, control: second.control)
+        guard case let .finish(finish) = try envelope.decode(
+                  output: second.result.text,
                   availableTools: [Self.syntheticTool]
               ), !finish.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !Self.containsReasoningMarker(finish.text) else {
@@ -175,7 +175,10 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         envelope: any BoneLlamaToolEnvelopeCoding,
         runtime: any BoneLlamaRuntime,
         plan: BoneLocalRuntimePlan
-    ) async throws -> BoneLlamaGenerationResult {
+    ) async throws -> (
+        result: BoneLlamaGenerationResult,
+        control: BoneLlamaGenerationControl
+    ) {
         let conversation = try BoneLlamaConversationBuilder.build(
             request: request,
             toolEnvelope: envelope
@@ -207,18 +210,40 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             guard let controlled = runtime as? any BoneLlamaControlledGenerationRuntime else {
                 throw BoneLlamaAdapterError.unsupportedGenerationControl
             }
-            return try await controlled.generate(
+            let result = try await controlled.generate(
                 prompt: rendered.prompt,
                 executionPlan: executionPlan,
                 options: effectiveOptions,
                 control: control
             )
+            return (result, control)
         }
-        return try await runtime.generate(
+        let result = try await runtime.generate(
             prompt: rendered.prompt,
             executionPlan: executionPlan,
             options: effectiveOptions
         )
+        return (result, control)
+    }
+
+    private static func validateEnvelopeTermination(
+        _ termination: BoneLlamaGenerationTermination,
+        control: BoneLlamaGenerationControl
+    ) throws {
+        switch termination {
+        case .eog:
+            return
+        case .stopToken:
+            guard !control.stopTokenIDs.isEmpty else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
+            }
+        case .stopString:
+            guard !control.stopStrings.isEmpty else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
+            }
+        case .maximumTokens, .runtimeCompleted:
+            throw BoneLlamaAdapterError.invalidToolCallingResponse
+        }
     }
 
     private func verificationIdentity(
@@ -253,7 +278,9 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             constraintDecoderID: components.constraintDecoderID,
             constraintDecoderVersion: components.constraintDecoderVersion,
             contextTokens: plan.contextTokens,
-            batchTokens: plan.batchTokens
+            batchTokens: plan.batchTokens,
+            addGenerationPrompt: rendered.templateIdentity.addGenerationPrompt,
+            maximumOutputTokens: min(256, plan.maximumOutputTokens)
         )
     }
 
