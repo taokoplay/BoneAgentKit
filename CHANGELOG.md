@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增请求级 `BoneInferenceOutputConstraint` 与 `.constrainedOutput` 能力门禁；未实现约束输出的 Engine 必须在 Provider/Runtime 调用前拒绝，不能静默忽略。
+- 新增模板无关的 Llama Conversation、唯一 Renderer、GGUF Native Template Runtime seam，以及显式 Stop/EOG、生成约束和终止原因契约。
+- 新增严格判别联合的 `BoneLlamaConstrainedJSONToolEnvelopeCodec`，动态约束当前 Tool Catalog，并在生成后继续执行 Tool、参数 Schema 和调用 ID 校验。
+- 新增绑定 Artifact、Runtime、Tokenizer、Template、Generation Control、Tool Envelope、Constraint Decoder 与 Context/Batch 的 `BoneCapabilityVerificationIdentity`。
+
+### Changed
+
+- `BoneLlamaInferenceEngine` 新增 canonical `Build → Render → Tokenize → Plan → Generate → Decode` 路线；alpha.6 的 Prompt Encoder/Tool Calling 初始化入口继续兼容。
+- Llama Runtime Probe 可执行受约束 Tool Call 与 Tool Result 续轮 Smoke；截断、reasoning 标记、缺少受控 Runtime 或验证身份均失败关闭。
+- `.runtimeSmoke` 若要证明 `.toolCalling` 或 `.constrainedOutput`，必须携带完整验证身份；旧无身份证据最多继续证明 `.text`。
+
 ## [0.2.0-alpha.6] - 2026-09-02
 
 ### Added

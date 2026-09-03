@@ -94,7 +94,7 @@ let result = try await agent.run(
 - 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
 - 云端与本地目录共用带证据来源的可选模型能力 Profile，已知能力与 Engine/Runtime 实现取交集，unknown 保持兼容且不冒充模型级验证；
 - OpenAI、Anthropic、Gemini 请求和事件聚合；
-- 请求级 Capability 推导，联网前 fail closed；
+- 请求级 Capability 推导与 Output Constraint，未实现能力在联网或本地生成前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
 - 默认串行、显式只读并行的确定性调度。
 
@@ -110,7 +110,8 @@ let result = try await agent.run(
 
 - 版本化 Catalog、可信下载源、SHA-256 和原子安装；
 - 设备环境快照、确定性运行预算和两阶段 Probe；
-- text-only llama Adapter 协议，不让 llama.cpp 污染 Core；
+- 不链接 llama.cpp 的 Runtime seam、真实 Token 容量规划、模板无关 Conversation 与 GGUF Native Template Renderer seam；
+- Tool Envelope 与会话模板解耦，并提供受约束的严格 JSON Tool Envelope；
 - 当前状态快照与 `AsyncStream` 实时通知。
 
 ## 执行模型
@@ -174,7 +175,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
 - App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
-- `BoneAgentLlama` 默认只承诺文本能力；Tool Calling 需显式注入并通过具体模型模板 smoke 验证，暂不提供 Token Streaming 或可靠加载百分比；
+- `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke，暂不提供 Token Streaming 或可靠加载百分比；
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测。
 
 ## 许可证

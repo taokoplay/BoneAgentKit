@@ -18,6 +18,26 @@ let message = try BoneInferenceMessage.toolResult(
 
 旧调用方升级时必须显式处理 `BoneInferenceError.invalidToolResult` 与 `.toolResultTooLarge`。这是有意的源码破坏性收紧：无法通过校验的数据不得伪装成 Tool 成功历史，也不得以 `try!` 终止宿主 App。
 
+## 本地模板与 Tool Envelope
+
+本地 Llama 的模型会话模板与 Tool wire envelope 是两个独立职责：`BoneLlamaConversationBuilder` 先建立不含 ChatML、Qwen 或 Hermes 标记的规范化消息，随后由且仅由一个 `BoneLlamaConversationRendering` 渲染最终 Prompt。调用方必须在 `BoneLlamaChatMLConversationRenderer` 与 `BoneLlamaNativeTemplateRenderer` 中选择一条路径；Native 路线要求具体 Runtime 实现 `BoneLlamaNativeTemplateRenderingRuntime`，缺失时失败关闭，不静默套用 ChatML。
+
+`BoneLlamaToolEnvelopeCoding` 只负责 Tool 指令、Assistant Tool Call 历史、Tool Result、生成约束和严格输出解码，不渲染会话模板。`BoneLlamaConstrainedJSONToolEnvelopeCodec` 使用可被 Grammar 约束的判别联合：
+
+```json
+{"type":"final","content":"Answer"}
+```
+
+或：
+
+```json
+{"type":"tool_calls","tool_calls":[{"id":"call-1","name":"echo","arguments":{"value":"hello"}}]}
+```
+
+约束生成只提高结构合法性，不替代 Registry、Tool Schema、Impact Policy、授权和预算校验。`.maximumTokens` 终止不会进入 Envelope Decoder，避免交付半截 JSON。`reasoningDisclosure` 对本地 Llama 仍只允许 `.hidden`。
+
+alpha.6 的 `BoneLlamaToolCalling` / `BoneLlamaJSONToolCallingCodec` 组合入口继续兼容，但它已经包含完整 ChatML 模板，不能再与 Native Renderer 叠加。新接入应使用独立 Renderer + Envelope。
+
 ## Provider wire
 
 - OpenAI：完整 Assistant `tool_calls` 历史，随后按 call ID 回传多条 `role=tool`；

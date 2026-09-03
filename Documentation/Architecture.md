@@ -79,19 +79,20 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 ## Capability 与实现事实
 
-`text`、`structuredOutput`、`toolCalling`、`streaming` 已从声明性 metadata 升级为 **Engine / Provider 级联网前运行时契约**。`BoneInferenceRequirements` 从 `BoneInferenceRequest` 自动推导需求，`BoneInferenceCapabilityValidator` 在 Provider Transport 前校验；`BoneAgent` 还会在发布 `runStarted` 前预检 Text 与 Tool Calling。明确不支持的请求不会发送 Prompt、执行 Tool 或产生 Provider 调用。
+`text`、`structuredOutput`、`constrainedOutput`、`toolCalling`、`streaming` 已从声明性 metadata 升级为 **Engine / Provider 级调用前运行时契约**。`BoneInferenceRequirements` 从 `BoneInferenceRequest` 自动推导需求，`BoneInferenceCapabilityValidator` 在 Provider Transport 或本地 Runtime 生成前校验；`BoneAgent` 还会在发布 `runStarted` 前预检并在后续轮次保留 Output Constraint。明确不支持的请求不会发送 Prompt、执行 Tool 或产生 Provider/Runtime 调用。
 
 结构化输出采用显式协商：`requireNative` 必须具备原生 `.structuredOutput`；`nativeOrToolCall` 在原生能力不可用但 `.toolCalling` 可用时允许内部强制 Tool fallback。两种能力都不可用时联网前失败。Streaming 调用额外强制 `.streaming`，不静默退化为非流式。
 
 图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
 
-模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `hostVerified` 证据来源及验证日期。Profile 为 nil 表示 unknown，为兼容既有 Host 继续采用 Engine 级能力；Profile 存在时，`resolvedCapabilities` 必须将模型证据与 Engine/Runtime 实现取交集，不按 Model ID、模型 family 或协议名称猜测能力。`BoneAgent` 在发布 `runStarted` 前使用该请求级 resolved snapshot 预检。
+模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `hostVerified` 证据来源及验证日期。Runtime Smoke 对 Tool Calling 或受约束输出还必须绑定 `BoneCapabilityVerificationIdentity`：Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Control、Tool Envelope、Constraint Decoder 和 Context/Batch 任一变化，历史证据即不匹配。Profile 为 nil 表示 unknown，为兼容既有 Host 继续采用 Engine 级能力；Profile 存在时，`resolvedCapabilities` 必须将模型证据与 Engine/Runtime 实现取交集，不按 Model ID、模型 family 或协议名称猜测能力。`BoneAgent` 在发布 `runStarted` 前使用该请求级 resolved snapshot 预检。
 
 | 能力 | Capability 状态 | 当前执行事实 |
 | --- | --- | --- |
 | 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
 | 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
-| Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由模板 Codec 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
+| 受约束输出 | 请求级强制 | `outputConstraint` 要求 `.constrainedOutput`；Engine 必须原生实现或调用前拒绝，Prompt 指令不算受约束能力 |
+| Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由唯一模板 Renderer、Tool Envelope 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
 | Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |
 | 图片编辑 | 后续 | 当前没有 Capability、请求 DTO 或 Runtime API，不得假设已实现 |

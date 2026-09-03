@@ -76,6 +76,30 @@ func generate(
 
 `BoneLlamaRuntimeStateObserving` 仍然是可选协议；它与上述必须迁移的 `BoneLlamaRuntime` Token 容量契约是两个不同层级。
 
+## 从 alpha.6 迁移到下一预发布开发线
+
+alpha.6 的 `promptEncoder` / `toolCalling` 初始化方式继续作为兼容入口，已渲染的 ChatML Prompt 不会再套用 Native Template。新接入应把会话模板与 Tool Envelope 分开：
+
+```swift
+let engine = BoneLlamaInferenceEngine(
+    modelID: model.id,
+    modelURL: installedURL,
+    plan: plan,
+    conversationRenderer: BoneLlamaNativeTemplateRenderer(),
+    toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+    verifiedCapabilityProfile: profile,
+    runtimeFactory: runtimeFactory
+)
+```
+
+具体 Runtime 按需实现三项独立能力：
+
+- `BoneLlamaNativeTemplateRenderingRuntime`：从 GGUF metadata 对规范化 Conversation 应用且只应用一次模板；
+- `BoneLlamaControlledGenerationRuntime`：执行 Stop Token、Stop String 与由受信任 Adapter 产生的 Schema Constraint，并返回稳定 termination；
+- `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer 与 Constraint Decoder 的稳定身份供 Smoke 绑定。
+
+`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断，不能将输出交给 Tool Envelope 解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Control、Envelope、Constraint Decoder、Context 或 Batch 任一变化，都必须重新执行 Smoke。
+
 ## 示例
 
 ```swift

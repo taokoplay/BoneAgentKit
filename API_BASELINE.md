@@ -11,14 +11,14 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 212 个顶层 public 类型声明。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 308 个顶层 public 类型声明（按 `Sources` 中四个公开 Product 的 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
 - `BoneAgent`、`BoneAgentKit`、`BoneAgentConfiguration`、`BoneAgentKitVersion`
 - `BoneInferenceEngine`、`BoneInferenceStreaming`
-- `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`
-- `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`
+- `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`、`BoneInferenceOutputConstraint`
+- `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`、`BoneCapabilityVerificationIdentity`
 - `BoneAgentTool`、`BoneAgentToolDefinition`、`BoneAgentToolRegistry`
 - `BoneWorkflowPlan`、`BoneRunCheckpoint`、`BoneAgentPersistence`
 - `BoneOpenAIInferenceEngine`、`BoneAnthropicInferenceEngine`、`BoneGeminiInferenceEngine`
@@ -27,7 +27,9 @@
 - `BoneLocalModelArtifactInspector`、`BoneLocalRuntimeProbeCoordinator`、`BoneLocalRuntimeAdapterProbing`
 - `BoneLlamaRuntime`、`BoneLlamaRuntimeStateObserving`、`BoneLlamaRuntimeState`、`BoneLlamaModelState`
 - `BoneLlamaPromptTokenization`、`BoneLlamaPromptExecutionPlan`、`BoneLlamaPromptExecutionPlanner`
-- `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaPromptEncoding`、`BoneLlamaToolCalling`、`BoneLlamaJSONToolCallingCodec`、`BoneLlamaInferenceEngine`
+- `BoneLlamaConversation`、`BoneLlamaConversationRendering`、`BoneLlamaChatMLConversationRenderer`、`BoneLlamaNativeTemplateRenderer`
+- `BoneLlamaGenerationControl`、`BoneLlamaControlledGenerationRuntime`、`BoneLlamaGenerationTermination`
+- `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
 
 ## 兼容承诺
 
