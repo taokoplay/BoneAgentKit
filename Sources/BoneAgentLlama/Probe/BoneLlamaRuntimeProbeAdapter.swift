@@ -181,7 +181,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         case .insufficientResources:
             return .temporarilyUnavailable
         case .contextCreationFailed, .tokenizationFailed, .promptTooLong,
-             .generationFailed, .loadFailed, .cancelled:
+             .nativeTemplateUnavailable, .generationFailed, .loadFailed, .cancelled:
             return .failed
         }
     }

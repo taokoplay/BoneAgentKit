@@ -23,4 +23,13 @@ public protocol BoneLlamaRuntime: Sendable {
     func unload() async
 }
 
+/// 可选的 GGUF 原生模板渲染能力；结构化消息不得预先套用其他模型模板。
+public protocol BoneLlamaNativeTemplateRenderingRuntime: BoneLlamaRuntime {
+    func renderNativeTemplate(
+        conversation: BoneLlamaConversation,
+        addGenerationPrompt: Bool,
+        reasoningMode: BoneLlamaReasoningMode
+    ) async throws -> BoneLlamaRenderedPrompt
+}
+
 public typealias BoneLlamaRuntimeFactory = @Sendable () -> any BoneLlamaRuntime

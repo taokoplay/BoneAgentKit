@@ -132,12 +132,14 @@ public enum BoneLlamaRuntimeError: Error, Equatable, Sendable {
     case contextCreationFailed
     case tokenizationFailed
     case promptTooLong
+    case nativeTemplateUnavailable
     case generationFailed
     case cancelled
 }
 
 public enum BoneLlamaAdapterError: Error, Equatable, Sendable {
     case modelMismatch
+    case invalidConfiguration
     case invalidGenerationOptions
     case unsupportedRequest
     case invalidToolCallingResponse

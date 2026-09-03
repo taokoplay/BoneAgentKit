@@ -4,7 +4,6 @@ import BoneAgentKit
 ///
 /// New integrations should compose `BoneLlamaJSONToolEnvelopeCodec` with one conversation
 /// renderer so the model template is applied exactly once.
-@available(*, deprecated, message: "Use BoneLlamaJSONToolEnvelopeCodec with a conversation renderer")
 public struct BoneLlamaJSONToolCallingCodec: BoneLlamaToolCalling, Sendable {
     private let envelope = BoneLlamaJSONToolEnvelopeCodec()
 
