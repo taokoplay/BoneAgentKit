@@ -11,6 +11,10 @@ public struct BoneInferenceRequirements: Equatable, Sendable {
         if !request.availableTools.isEmpty {
             required.insert(.toolCalling)
         }
+        if let outputConstraint = request.outputConstraint {
+            _ = try outputConstraint.validated()
+            required.insert(.constrainedOutput)
+        }
         requiredCapabilities = required
         structuredOutputFallback = format.fallbackPolicy
     }

@@ -4,6 +4,7 @@ import Foundation
 public enum BoneInferenceCapability: String, Codable, CaseIterable, Hashable, Sendable {
     case text
     case structuredOutput
+    case constrainedOutput
     case toolCalling
     case streaming
     case imageGeneration
@@ -30,6 +31,7 @@ public struct BoneResolvedInferenceCapabilities: Equatable, Sendable {
 public enum BoneInferenceError: Error, Equatable, Sendable {
     case unsupportedCapability(BoneInferenceCapability)
     case invalidGenerationOptions
+    case invalidOutputConstraint
     case invalidStructuredOutputContract
     case unsupportedStructuredOutput
     case invalidMessage

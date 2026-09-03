@@ -268,13 +268,14 @@ public struct BoneInferenceGenerationOptions: Codable, Equatable, Sendable {
 public struct BoneInferenceRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case modelID, messages, availableTools, generationOptions, responseFormat
-        case providerContinuation, reasoningDisclosure
+        case outputConstraint, providerContinuation, reasoningDisclosure
     }
     public let modelID: String
     public let messages: [BoneInferenceMessage]
     public let availableTools: [BoneAgentToolDefinition]
     public let generationOptions: BoneInferenceGenerationOptions
     public let responseFormat: BoneInferenceResponseFormat
+    public let outputConstraint: BoneInferenceOutputConstraint?
     public let providerContinuation: BoneInferenceProviderContinuation?
     public let reasoningDisclosure: BoneInferenceReasoningDisclosure
 
@@ -284,6 +285,7 @@ public struct BoneInferenceRequest: Codable, Equatable, Sendable {
         availableTools: [BoneAgentToolDefinition] = [],
         generationOptions: BoneInferenceGenerationOptions = .init(),
         responseFormat: BoneInferenceResponseFormat = .text,
+        outputConstraint: BoneInferenceOutputConstraint? = nil,
         providerContinuation: BoneInferenceProviderContinuation? = nil,
         reasoningDisclosure: BoneInferenceReasoningDisclosure = .hidden
     ) {
@@ -292,6 +294,7 @@ public struct BoneInferenceRequest: Codable, Equatable, Sendable {
         self.availableTools = availableTools
         self.generationOptions = generationOptions
         self.responseFormat = responseFormat
+        self.outputConstraint = outputConstraint
         self.providerContinuation = providerContinuation
         self.reasoningDisclosure = reasoningDisclosure
     }
@@ -312,6 +315,10 @@ public struct BoneInferenceRequest: Codable, Equatable, Sendable {
             BoneInferenceResponseFormat.self,
             forKey: .responseFormat
         ) ?? .text
+        outputConstraint = try container.decodeIfPresent(
+            BoneInferenceOutputConstraint.self,
+            forKey: .outputConstraint
+        )
         providerContinuation = try container.decodeIfPresent(
             BoneInferenceProviderContinuation.self,
             forKey: .providerContinuation

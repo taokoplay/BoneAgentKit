@@ -59,6 +59,37 @@ final class CapabilityEnforcementTests: XCTestCase {
         }
     }
 
+    func testRequirementsInferConstrainedOutputFromRequest() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            outputConstraint: .enumChoice(["yes", "no"])
+        )
+
+        let requirements = try BoneInferenceRequirements(request: request)
+
+        XCTAssertEqual(requirements.requiredCapabilities, [.text, .constrainedOutput])
+    }
+
+    func testValidatorRejectsMissingConstrainedOutputBeforeExecution() throws {
+        let request = BoneInferenceRequest(
+            modelID: "model",
+            messages: [.init(role: .user, content: "private-prompt")],
+            outputConstraint: .enumChoice(["yes", "no"])
+        )
+
+        XCTAssertThrowsError(
+            try BoneInferenceCapabilityValidator.validate(
+                request: request,
+                capabilities: [.text],
+                invocation: .nonStreaming
+            )
+        ) { error in
+            XCTAssertEqual(error as? BoneInferenceError, .unsupportedCapability(.constrainedOutput))
+            XCTAssertFalse(String(describing: error).contains("private-prompt"))
+        }
+    }
+
     func testValidatorRejectsStreamingWithoutStreamingCapability() throws {
         let request = BoneInferenceRequest(
             modelID: "model",
