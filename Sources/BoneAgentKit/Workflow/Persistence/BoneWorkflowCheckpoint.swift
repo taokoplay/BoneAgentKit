@@ -20,7 +20,7 @@ public enum BoneCheckpointRetention: String, Codable, Equatable, Sendable {
     case untilExplicitCleanup
 }
 
-public struct BoneRunCheckpoint: Codable, Equatable, Sendable {
+public struct BoneWorkflowCheckpoint: Codable, Equatable, Sendable {
     public static let maximumPayloadByteCount = 4 * 1_048_576
 
     public let descriptor: BoneWorkflowCheckpointDescriptor

@@ -138,7 +138,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
 
     public func resolvedCapabilities(
         for request: BoneInferenceRequest,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         guard request.modelID == modelID else { throw BoneLlamaAdapterError.modelMismatch }
         _ = try session.validateSynchronously(request)

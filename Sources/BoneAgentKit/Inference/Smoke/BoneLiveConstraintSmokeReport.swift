@@ -21,7 +21,7 @@ public struct BoneLiveConstraintSmokeReport: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public let provider: BoneInferenceProviderKind
     public let modelID: String
-    public let invocation: BoneInferenceInvocationIdentity
+    public let invocation: BoneInferenceInvocationMode
     public let identity: BoneProviderCapabilityVerificationIdentity
     public let attemptedCount: Int
     public let succeededCount: Int
@@ -32,7 +32,7 @@ public struct BoneLiveConstraintSmokeReport: Codable, Equatable, Sendable {
     public init(
         provider: BoneInferenceProviderKind,
         modelID: String,
-        invocation: BoneInferenceInvocationIdentity,
+        invocation: BoneInferenceInvocationMode,
         identity: BoneProviderCapabilityVerificationIdentity,
         attemptedCount: Int,
         succeededCount: Int,
@@ -83,7 +83,7 @@ public struct BoneLiveConstraintSmokeReport: Codable, Equatable, Sendable {
             try self.init(
                 provider: container.decode(BoneInferenceProviderKind.self, forKey: .provider),
                 modelID: container.decode(String.self, forKey: .modelID),
-                invocation: container.decode(BoneInferenceInvocationIdentity.self, forKey: .invocation),
+                invocation: container.decode(BoneInferenceInvocationMode.self, forKey: .invocation),
                 identity: container.decode(BoneProviderCapabilityVerificationIdentity.self, forKey: .identity),
                 attemptedCount: container.decode(Int.self, forKey: .attemptedCount),
                 succeededCount: container.decode(Int.self, forKey: .succeededCount),

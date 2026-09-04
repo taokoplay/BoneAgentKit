@@ -53,12 +53,12 @@ enum MinimalWorkflowHost {
             steps: [.init(id: stepID, kind: "agent", revision: 1)]
         )
         let payload = Data("{\"phase\":\"created\"}".utf8)
-        let checkpoint = try BoneRunCheckpoint(
+        let checkpoint = try BoneWorkflowCheckpoint(
             descriptor: .init(formatVersion: 1, workflowIdentity: plan.identity, workflowRevision: plan.revision),
             payload: payload,
             dataClassification: .safeState
         )
-        let persistence = BoneInMemoryAgentPersistence()
+        let persistence = BoneInMemoryWorkflowPersistence()
         let created = try await persistence.create(
             run: .init(id: runID, plan: plan, state: .running, revision: 0, leaseGeneration: 0),
             checkpoint: checkpoint

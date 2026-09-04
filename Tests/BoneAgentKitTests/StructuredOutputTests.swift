@@ -78,7 +78,7 @@ final class StructuredOutputTests: XCTestCase {
             let engine = BoneOpenAIInferenceEngine(configuration: configuration(kind: .openAI), transport: transport)
 
             await assertInvalidStructuredResponse {
-                try await engine.streamInference(request: request(format: .jsonSchema(schema, fallback: .requireNative)), options: .init())
+                try await engine.inferUsingStream(request: request(format: .jsonSchema(schema, fallback: .requireNative)), options: .init())
             }
         }
     }
@@ -129,7 +129,7 @@ final class StructuredOutputTests: XCTestCase {
             let engine = BoneGeminiInferenceEngine(configuration: configuration(kind: .google, authentication: .googleAPIKey), transport: transport)
 
             await assertInvalidStructuredResponse {
-                try await engine.streamInference(request: request(format: .jsonSchema(schema, fallback: .requireNative)), options: .init())
+                try await engine.inferUsingStream(request: request(format: .jsonSchema(schema, fallback: .requireNative)), options: .init())
             }
         }
     }
@@ -181,7 +181,7 @@ final class StructuredOutputTests: XCTestCase {
         let transport = CapturingTransport(events: Self.openAIStreamEvents(text: #"{"characters":[]}"#))
         let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport)
         do {
-            _ = try await engine.streamInference(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)), options: .init())
+            _ = try await engine.inferUsingStream(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)), options: .init())
             XCTFail("MiniMax 流式结构化请求必须在联网前失败")
         } catch let error as BoneInferenceError {
             XCTAssertEqual(error, .unsupportedStructuredOutput)

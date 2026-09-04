@@ -18,6 +18,3 @@ public typealias BoneInferenceTokenBudgetError = BoneContextWindowError
 
 @available(*, deprecated, renamed: "BoneModelContextLimitsError")
 public typealias BoneInferenceModelTokenLimitsError = BoneModelContextLimitsError
-
-@available(*, deprecated, renamed: "BoneAgentKit")
-public typealias BoneHarnessAgentKit = BoneAgentKit

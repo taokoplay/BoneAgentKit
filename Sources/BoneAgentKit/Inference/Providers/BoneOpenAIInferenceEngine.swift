@@ -4,8 +4,8 @@ import FoundationNetworking
 #endif
 
 /// OpenAI Chat Completions 及兼容协议的通用推理实现。
-public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedStreaming, BoneInferenceEventStreaming {
+public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
@@ -27,7 +27,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
 
     public func resolvedCapabilities(
         for request: BoneInferenceRequest,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         var resolved = capabilities
         // 兼容网关只承诺 OpenAI wire shape，不据此承诺官方原生约束。
@@ -112,11 +112,11 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         )
     }
 
-    public func streamInference(
+    public func inferUsingStream(
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceResponse {
-        try await streamInferenceDetailed(request: request, options: options).response
+        try await inferDetailedUsingStream(request: request, options: options).response
     }
 
     public func inferenceEvents(
@@ -181,7 +181,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         }
     }
 
-    public func streamInferenceDetailed(
+    public func inferDetailedUsingStream(
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceDetailedResult {
@@ -374,7 +374,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
     /// 返回当前官方 OpenAI Constraint 执行组合的稳定验证身份；不包含凭据或完整 Endpoint。
     public func constraintVerificationIdentity(
         modelID: String,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneProviderCapabilityVerificationIdentity {
         let adapter = BoneOpenAIOutputConstraintAdapter()
         return try BoneProviderVerificationIdentitySupport.identity(

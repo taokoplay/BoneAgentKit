@@ -45,11 +45,11 @@ public struct BoneAgentProgressSink: Sendable {
     }
 }
 
-public enum BoneAgentWorkflowStepTerminalState: String, Codable, Equatable, Sendable {
+public enum BoneWorkflowAgentStepTerminalState: String, Codable, Equatable, Sendable {
     case succeeded, failed, cancelled
 }
 
-public struct BoneAgentWorkflowStepCheckpoint: Codable, Equatable, Sendable {
+public struct BoneWorkflowAgentStepCheckpoint: Codable, Equatable, Sendable {
     public let runID: BoneRunID
     public let stepID: BoneStepID
     public let attemptID: BoneAttemptID
@@ -58,7 +58,7 @@ public struct BoneAgentWorkflowStepCheckpoint: Codable, Equatable, Sendable {
     public let toolResultCount: Int
     public let pendingAuthorizationTicketID: BoneAuthorizationTicketID?
     public let cancellationPersisted: Bool
-    public let terminalState: BoneAgentWorkflowStepTerminalState?
+    public let terminalState: BoneWorkflowAgentStepTerminalState?
     public let persistenceRevision: UInt64
     public let leaseGeneration: UInt64
 
@@ -71,7 +71,7 @@ public struct BoneAgentWorkflowStepCheckpoint: Codable, Equatable, Sendable {
         toolResultCount: Int = 0,
         pendingAuthorizationTicketID: BoneAuthorizationTicketID? = nil,
         cancellationPersisted: Bool = false,
-        terminalState: BoneAgentWorkflowStepTerminalState? = nil,
+        terminalState: BoneWorkflowAgentStepTerminalState? = nil,
         persistenceRevision: UInt64 = 0,
         leaseGeneration: UInt64 = 0
     ) {
@@ -89,31 +89,31 @@ public struct BoneAgentWorkflowStepCheckpoint: Codable, Equatable, Sendable {
     }
 }
 
-public struct BoneAgentWorkflowStepPersistence: Sendable {
+public struct BoneWorkflowAgentStepCheckpointStore: Sendable {
     private let commitClosure: @Sendable (
-        BoneAgentWorkflowStepCheckpoint,
+        BoneWorkflowAgentStepCheckpoint,
         UInt64,
         UInt64
-    ) async throws -> BoneAgentWorkflowStepCheckpoint
+    ) async throws -> BoneWorkflowAgentStepCheckpoint
 
     public init(_ commit: @escaping @Sendable (
-        BoneAgentWorkflowStepCheckpoint,
+        BoneWorkflowAgentStepCheckpoint,
         UInt64,
         UInt64
-    ) async throws -> BoneAgentWorkflowStepCheckpoint) {
+    ) async throws -> BoneWorkflowAgentStepCheckpoint) {
         commitClosure = commit
     }
 
     public func commit(
-        _ checkpoint: BoneAgentWorkflowStepCheckpoint,
+        _ checkpoint: BoneWorkflowAgentStepCheckpoint,
         expectedRevision: UInt64,
         leaseGeneration: UInt64
-    ) async throws -> BoneAgentWorkflowStepCheckpoint {
+    ) async throws -> BoneWorkflowAgentStepCheckpoint {
         try await commitClosure(checkpoint, expectedRevision, leaseGeneration)
     }
 }
 
-public enum BoneAgentWorkflowStepEventKind: String, Codable, Equatable, Sendable {
+public enum BoneWorkflowAgentStepEventKind: String, Codable, Equatable, Sendable {
     case inferenceCheckpointed
     case toolResultCheckpointed
     case waitingForAuthorization
@@ -124,40 +124,40 @@ public enum BoneAgentWorkflowStepEventKind: String, Codable, Equatable, Sendable
     case cancelled
 }
 
-public struct BoneAgentWorkflowStepEvent: Codable, Equatable, Sendable {
-    public let kind: BoneAgentWorkflowStepEventKind
-    public init(kind: BoneAgentWorkflowStepEventKind) { self.kind = kind }
+public struct BoneWorkflowAgentStepEvent: Codable, Equatable, Sendable {
+    public let kind: BoneWorkflowAgentStepEventKind
+    public init(kind: BoneWorkflowAgentStepEventKind) { self.kind = kind }
 }
 
-public struct BoneAgentWorkflowStepEventSink: Sendable {
-    private let receiveClosure: @Sendable (BoneAgentWorkflowStepEvent) async -> Void
+public struct BoneWorkflowAgentStepEventSink: Sendable {
+    private let receiveClosure: @Sendable (BoneWorkflowAgentStepEvent) async -> Void
 
-    public init(_ receive: @escaping @Sendable (BoneAgentWorkflowStepEvent) async -> Void = { _ in }) {
+    public init(_ receive: @escaping @Sendable (BoneWorkflowAgentStepEvent) async -> Void = { _ in }) {
         receiveClosure = receive
     }
 
-    public func receive(_ event: BoneAgentWorkflowStepEvent) async {
+    public func receive(_ event: BoneWorkflowAgentStepEvent) async {
         await receiveClosure(event)
     }
 }
 
-public enum BoneAgentWorkflowStepError: Error, Codable, Equatable, Sendable {
+public enum BoneWorkflowAgentStepError: Error, Codable, Equatable, Sendable {
     case terminalState
     case invalidState
     case authorizationTicketMismatch
 }
 
-public actor BoneAgentWorkflowStepController {
-    public private(set) var checkpoint: BoneAgentWorkflowStepCheckpoint
-    private let persistence: BoneAgentWorkflowStepPersistence
-    private let eventSink: BoneAgentWorkflowStepEventSink
+public actor BoneWorkflowAgentStepController {
+    public private(set) var checkpoint: BoneWorkflowAgentStepCheckpoint
+    private let persistence: BoneWorkflowAgentStepCheckpointStore
+    private let eventSink: BoneWorkflowAgentStepEventSink
 
     public init(
         runID: BoneRunID,
         stepID: BoneStepID,
         attemptID: BoneAttemptID,
-        persistence: BoneAgentWorkflowStepPersistence,
-        eventSink: BoneAgentWorkflowStepEventSink = .init()
+        persistence: BoneWorkflowAgentStepCheckpointStore,
+        eventSink: BoneWorkflowAgentStepEventSink = .init()
     ) throws {
         checkpoint = .init(runID: runID, stepID: stepID, attemptID: attemptID)
         self.persistence = persistence
@@ -165,9 +165,9 @@ public actor BoneAgentWorkflowStepController {
     }
 
     public init(
-        restoring checkpoint: BoneAgentWorkflowStepCheckpoint,
-        persistence: BoneAgentWorkflowStepPersistence,
-        eventSink: BoneAgentWorkflowStepEventSink = .init()
+        restoring checkpoint: BoneWorkflowAgentStepCheckpoint,
+        persistence: BoneWorkflowAgentStepCheckpointStore,
+        eventSink: BoneWorkflowAgentStepEventSink = .init()
     ) throws {
         try Self.validate(checkpoint)
         self.checkpoint = checkpoint
@@ -177,21 +177,21 @@ public actor BoneAgentWorkflowStepController {
 
     public func receive(_ progress: BoneAgentProgress) async throws {
         try ensureMutableRunning()
-        let next: BoneAgentWorkflowStepCheckpoint
-        let event: BoneAgentWorkflowStepEventKind
+        let next: BoneWorkflowAgentStepCheckpoint
+        let event: BoneWorkflowAgentStepEventKind
         switch progress {
         case .inferenceFailed, .inferenceProtocolShapeFailed, .toolExecutionPrepared, .toolArgumentsRejected:
             // 推理/预执行诊断不是可恢复业务检查点，不写持久状态。
             return
         case let .inferenceResponsePrepared(step, _):
             guard step > 0, step >= checkpoint.inferenceResponseCount else {
-                throw BoneAgentWorkflowStepError.invalidState
+                throw BoneWorkflowAgentStepError.invalidState
             }
             next = copy(inferenceResponseCount: checkpoint.inferenceResponseCount + 1)
             event = .inferenceCheckpointed
         case let .toolResultPrepared(step, ordinal):
             guard step > 0, ordinal >= 0, checkpoint.inferenceResponseCount > 0 else {
-                throw BoneAgentWorkflowStepError.invalidState
+                throw BoneWorkflowAgentStepError.invalidState
             }
             next = copy(toolResultCount: checkpoint.toolResultCount + 1)
             event = .toolResultCheckpointed
@@ -208,7 +208,7 @@ public actor BoneAgentWorkflowStepController {
         try ensureNotTerminal()
         guard checkpoint.state == .waiting,
               checkpoint.pendingAuthorizationTicketID == ticketID else {
-            throw BoneAgentWorkflowStepError.authorizationTicketMismatch
+            throw BoneWorkflowAgentStepError.authorizationTicketMismatch
         }
         try await commit(copy(state: .running, clearAuthorizationTicket: true), event: .resumed)
     }
@@ -220,7 +220,7 @@ public actor BoneAgentWorkflowStepController {
 
     public func resume() async throws {
         try ensureNotTerminal()
-        guard checkpoint.state == .paused else { throw BoneAgentWorkflowStepError.invalidState }
+        guard checkpoint.state == .paused else { throw BoneWorkflowAgentStepError.invalidState }
         try await commit(copy(state: .running), event: .resumed)
     }
 
@@ -229,10 +229,10 @@ public actor BoneAgentWorkflowStepController {
         try await commit(copy(state: .cancelled, cancellationPersisted: true, terminalState: .cancelled), event: .cancelled)
     }
 
-    public func finish(_ terminalState: BoneAgentWorkflowStepTerminalState) async throws {
+    public func finish(_ terminalState: BoneWorkflowAgentStepTerminalState) async throws {
         try ensureNotTerminal()
         let state: BoneWorkflowStepState
-        let event: BoneAgentWorkflowStepEventKind
+        let event: BoneWorkflowAgentStepEventKind
         switch terminalState {
         case .succeeded: state = .succeeded; event = .succeeded
         case .failed: state = .failed; event = .failed
@@ -248,7 +248,7 @@ public actor BoneAgentWorkflowStepController {
         }
     }
 
-    private func commit(_ next: BoneAgentWorkflowStepCheckpoint, event: BoneAgentWorkflowStepEventKind) async throws {
+    private func commit(_ next: BoneWorkflowAgentStepCheckpoint, event: BoneWorkflowAgentStepEventKind) async throws {
         let stored = try await persistence.commit(
             next,
             expectedRevision: checkpoint.persistenceRevision,
@@ -266,18 +266,18 @@ public actor BoneAgentWorkflowStepController {
               stored.terminalState == next.terminalState,
               stored.leaseGeneration == checkpoint.leaseGeneration,
               stored.persistenceRevision == checkpoint.persistenceRevision + 1 else {
-            throw BoneAgentWorkflowStepError.invalidState
+            throw BoneWorkflowAgentStepError.invalidState
         }
         checkpoint = stored
         await eventSink.receive(.init(kind: event))
     }
 
-    private static func validate(_ checkpoint: BoneAgentWorkflowStepCheckpoint) throws {
+    private static func validate(_ checkpoint: BoneWorkflowAgentStepCheckpoint) throws {
         guard checkpoint.inferenceResponseCount >= 0,
               checkpoint.toolResultCount >= 0 else {
-            throw BoneAgentWorkflowStepError.invalidState
+            throw BoneWorkflowAgentStepError.invalidState
         }
-        let expectedTerminal: BoneAgentWorkflowStepTerminalState?
+        let expectedTerminal: BoneWorkflowAgentStepTerminalState?
         switch checkpoint.state {
         case .succeeded: expectedTerminal = .succeeded
         case .failed: expectedTerminal = .failed
@@ -291,19 +291,19 @@ public actor BoneAgentWorkflowStepController {
         guard checkpoint.terminalState == expectedTerminal,
               checkpoint.cancellationPersisted == (checkpoint.state == .cancelled),
               (checkpoint.state == .waiting) == (checkpoint.pendingAuthorizationTicketID != nil) else {
-            throw BoneAgentWorkflowStepError.invalidState
+            throw BoneWorkflowAgentStepError.invalidState
         }
     }
 
     private func ensureMutableRunning() throws {
         try ensureNotTerminal()
-        guard checkpoint.state == .running else { throw BoneAgentWorkflowStepError.invalidState }
+        guard checkpoint.state == .running else { throw BoneWorkflowAgentStepError.invalidState }
     }
 
     private func ensureNotTerminal() throws {
         guard checkpoint.terminalState == nil,
               checkpoint.state != .commitUncertain else {
-            throw BoneAgentWorkflowStepError.terminalState
+            throw BoneWorkflowAgentStepError.terminalState
         }
     }
 
@@ -314,8 +314,8 @@ public actor BoneAgentWorkflowStepController {
         pendingAuthorizationTicketID: BoneAuthorizationTicketID? = nil,
         clearAuthorizationTicket: Bool = false,
         cancellationPersisted: Bool? = nil,
-        terminalState: BoneAgentWorkflowStepTerminalState? = nil
-    ) -> BoneAgentWorkflowStepCheckpoint {
+        terminalState: BoneWorkflowAgentStepTerminalState? = nil
+    ) -> BoneWorkflowAgentStepCheckpoint {
         .init(
             runID: checkpoint.runID,
             stepID: checkpoint.stepID,

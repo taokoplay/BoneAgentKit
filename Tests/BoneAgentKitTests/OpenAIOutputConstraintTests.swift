@@ -143,7 +143,7 @@ final class OpenAIOutputConstraintTests: XCTestCase {
     private func profile(
         configuration: BoneInferenceProviderConfiguration,
         providerKind: BoneInferenceProviderKind = .openAI,
-        invocation: BoneInferenceInvocation = .nonStreaming
+        invocation: BoneInferenceInvocationMode = .nonStreaming
     ) throws -> BoneModelCapabilityProfile {
         let adapter = BoneOpenAIOutputConstraintAdapter()
         let identity = try BoneProviderVerificationIdentitySupport.identity(

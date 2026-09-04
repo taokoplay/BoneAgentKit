@@ -13,7 +13,7 @@ enum BoneProviderVerificationIdentitySupport {
         responseDecoderVersion: String,
         constraintDialectID: String,
         constraintDialectVersion: String,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneProviderCapabilityVerificationIdentity {
         let safeHeaders: [(name: String, value: String)] = configuration.customHeaders.compactMap {
             guard !Self.isSensitiveHeader($0.key) else { return nil }

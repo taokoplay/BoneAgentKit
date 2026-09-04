@@ -1,6 +1,6 @@
 import Foundation
 
-public struct BoneStoredRun: Codable, Equatable, Sendable {
+public struct BoneWorkflowRunRecord: Codable, Equatable, Sendable {
     public let id: BoneRunID
     public let plan: BoneWorkflowPlan
     public let state: BoneWorkflowRunState
@@ -20,11 +20,11 @@ public struct BoneStoredRun: Codable, Equatable, Sendable {
     }
 }
 
-public struct BoneStoredRunSnapshot: Codable, Equatable, Sendable {
-    public let run: BoneStoredRun
-    public let checkpoint: BoneRunCheckpoint
+public struct BoneWorkflowRunSnapshot: Codable, Equatable, Sendable {
+    public let run: BoneWorkflowRunRecord
+    public let checkpoint: BoneWorkflowCheckpoint
 
-    public init(run: BoneStoredRun, checkpoint: BoneRunCheckpoint) {
+    public init(run: BoneWorkflowRunRecord, checkpoint: BoneWorkflowCheckpoint) {
         self.run = run
         self.checkpoint = checkpoint
     }

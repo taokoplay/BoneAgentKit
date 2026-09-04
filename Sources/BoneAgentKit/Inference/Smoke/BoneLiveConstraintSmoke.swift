@@ -6,7 +6,7 @@ public enum BoneLiveConstraintSmoke {
     public static func run(
         provider: BoneInferenceProviderKind,
         modelID: String,
-        invocation: BoneInferenceInvocationIdentity,
+        invocation: BoneInferenceInvocationMode,
         engine: any BoneInferenceEngine,
         identity: BoneProviderCapabilityVerificationIdentity,
         iterations: Int
@@ -32,10 +32,10 @@ public enum BoneLiveConstraintSmoke {
                 case .nonStreaming:
                     response = try await engine.infer(request: request)
                 case .streaming:
-                    guard let streaming = engine as? any BoneInferenceStreaming else {
+                    guard let streaming = engine as? any BoneInferenceBufferedStreaming else {
                         throw BoneInferenceError.unsupportedCapability(.streaming)
                     }
-                    response = try await streaming.streamInference(request: request, options: .init())
+                    response = try await streaming.inferUsingStream(request: request, options: .init())
                 }
                 guard case let .finish(value) = response,
                       ["pass", "fail"].contains(value.text) else {

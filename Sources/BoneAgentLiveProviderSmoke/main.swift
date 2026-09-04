@@ -36,7 +36,7 @@ private struct LiveArguments {
     let provider: LiveProvider
     let modelID: String
     let iterations: Int
-    let invocation: BoneInferenceInvocationIdentity
+    let invocation: BoneInferenceInvocationMode
 
     init(arguments: [String]) throws {
         let flagOptions: Set<String> = ["--live", "--confirm-network-and-costs"]
@@ -188,27 +188,26 @@ enum BoneAgentLiveProviderSmokeMain {
         provider: LiveProvider,
         modelID: String,
         apiKey: String,
-        invocation: BoneInferenceInvocationIdentity,
+        invocation: BoneInferenceInvocationMode,
         transport: any BoneInferenceHTTPTransport
     ) throws -> (any BoneInferenceEngine, BoneProviderCapabilityVerificationIdentity) {
-        let coreInvocation: BoneInferenceInvocation = invocation == .streaming ? .streaming : .nonStreaming
         switch provider {
         case .openai:
             let config = configuration(kind: .openAI, apiKey: apiKey, baseURL: "https://api.openai.com")
             let base = BoneOpenAIInferenceEngine(configuration: config, transport: transport)
-            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: invocation)
             let profile = try verifiedProfile(identity: identity)
             return (BoneOpenAIInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
         case .anthropic:
             let config = configuration(kind: .anthropic, apiKey: apiKey, baseURL: "https://api.anthropic.com", authentication: .anthropicDual)
             let base = BoneAnthropicInferenceEngine(configuration: config, transport: transport)
-            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: invocation)
             let profile = try verifiedProfile(identity: identity)
             return (BoneAnthropicInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
         case .gemini:
             let config = configuration(kind: .google, apiKey: apiKey, baseURL: "https://generativelanguage.googleapis.com", authentication: .googleAPIKey)
             let base = BoneGeminiInferenceEngine(configuration: config, transport: transport)
-            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: coreInvocation)
+            let identity = try base.constraintVerificationIdentity(modelID: modelID, invocation: invocation)
             let profile = try verifiedProfile(identity: identity)
             return (BoneGeminiInferenceEngine(configuration: config, transport: transport, modelCapabilityProfiles: [modelID: profile]), identity)
         }

@@ -1,11 +1,5 @@
 import Foundation
 
-/// 云 Provider 能力 Smoke 所绑定的调用方式。
-public enum BoneInferenceInvocationIdentity: String, Codable, Equatable, Hashable, Sendable {
-    case nonStreaming
-    case streaming
-}
-
 /// 绑定云模型能力证据的完整 Provider 执行组合。
 ///
 /// 仅保存稳定 ID、版本和 Endpoint 身份摘要；不得保存凭据、Header、Prompt、Schema、输出或完整 URL。
@@ -25,7 +19,7 @@ public struct BoneProviderCapabilityVerificationIdentity: Codable, Equatable, Ha
     public let responseDecoderVersion: String
     public let constraintDialectID: String
     public let constraintDialectVersion: String
-    public let invocation: BoneInferenceInvocationIdentity
+    public let invocation: BoneInferenceInvocationMode
 
     public init(
         providerKind: BoneInferenceProviderKind,
@@ -39,7 +33,7 @@ public struct BoneProviderCapabilityVerificationIdentity: Codable, Equatable, Ha
         responseDecoderVersion: String,
         constraintDialectID: String,
         constraintDialectVersion: String,
-        invocation: BoneInferenceInvocationIdentity
+        invocation: BoneInferenceInvocationMode
     ) throws {
         let components = [
             apiVersion, modelID, requestMapperID, requestMapperVersion,

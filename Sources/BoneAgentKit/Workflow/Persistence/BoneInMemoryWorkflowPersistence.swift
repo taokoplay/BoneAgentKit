@@ -1,14 +1,14 @@
 import Foundation
 
-public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
-    private var snapshots: [BoneRunID: BoneStoredRunSnapshot] = [:]
+public actor BoneInMemoryWorkflowPersistence: BoneWorkflowPersistence {
+    private var snapshots: [BoneRunID: BoneWorkflowRunSnapshot] = [:]
 
     public init() {}
 
     public func create(
-        run: BoneStoredRun,
-        checkpoint: BoneRunCheckpoint
-    ) throws -> BoneStoredRunSnapshot {
+        run: BoneWorkflowRunRecord,
+        checkpoint: BoneWorkflowCheckpoint
+    ) throws -> BoneWorkflowRunSnapshot {
         guard snapshots[run.id] == nil,
               run.revision == 0,
               checkpoint.revision == 0,
@@ -16,7 +16,7 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
               checkpoint.descriptor.workflowRevision == run.plan.revision else {
             throw BoneWorkflowFailure.revisionConflict
         }
-        let snapshot = try BoneStoredRunSnapshot(
+        let snapshot = try BoneWorkflowRunSnapshot(
             run: run.stored(revision: 1),
             checkpoint: checkpoint.stored(revision: 1)
         )
@@ -24,7 +24,7 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
         return snapshot
     }
 
-    public func load(runID: BoneRunID) throws -> BoneStoredRunSnapshot {
+    public func load(runID: BoneRunID) throws -> BoneWorkflowRunSnapshot {
         guard let snapshot = snapshots[runID] else {
             throw BoneWorkflowFailure.corruptedCheckpoint
         }
@@ -32,11 +32,11 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
     }
 
     public func commit(
-        run: BoneStoredRun,
-        checkpoint: BoneRunCheckpoint,
+        run: BoneWorkflowRunRecord,
+        checkpoint: BoneWorkflowCheckpoint,
         expectedRevision: UInt64,
         leaseGeneration: UInt64
-    ) throws -> BoneStoredRunSnapshot {
+    ) throws -> BoneWorkflowRunSnapshot {
         guard let current = snapshots[run.id],
               current.run.revision == expectedRevision,
               current.checkpoint.revision == expectedRevision,
@@ -58,7 +58,7 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
         }
         let (next, overflow) = expectedRevision.addingReportingOverflow(1)
         guard !overflow else { throw BoneWorkflowFailure.revisionConflict }
-        let snapshot = try BoneStoredRunSnapshot(
+        let snapshot = try BoneWorkflowRunSnapshot(
             run: run.stored(revision: next),
             checkpoint: checkpoint.stored(revision: next)
         )
@@ -69,7 +69,7 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
     public func acquireLease(
         runID: BoneRunID,
         expectedRevision: UInt64
-    ) throws -> BoneStoredRunSnapshot {
+    ) throws -> BoneWorkflowRunSnapshot {
         guard let current = snapshots[runID],
               current.run.revision == expectedRevision,
               current.checkpoint.revision == expectedRevision else {
@@ -80,7 +80,7 @@ public actor BoneInMemoryAgentPersistence: BoneAgentPersistence {
         guard !revisionOverflow, !generationOverflow else {
             throw BoneWorkflowFailure.revisionConflict
         }
-        let snapshot = try BoneStoredRunSnapshot(
+        let snapshot = try BoneWorkflowRunSnapshot(
             run: current.run.stored(revision: revision, leaseGeneration: generation),
             checkpoint: current.checkpoint.stored(revision: revision)
         )

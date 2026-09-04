@@ -4,8 +4,8 @@ import FoundationNetworking
 #endif
 
 /// Gemini GenerateContent 协议的通用推理实现。
-public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedStreaming, BoneInferenceEventStreaming {
+public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
@@ -27,7 +27,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
 
     public func resolvedCapabilities(
         for request: BoneInferenceRequest,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         var resolved = modelCapabilityProfiles[request.modelID]?
             .resolved(engineCapabilities: capabilities) ?? capabilities
@@ -88,11 +88,11 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         )
     }
 
-    public func streamInference(
+    public func inferUsingStream(
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceResponse {
-        try await streamInferenceDetailed(request: request, options: options).response
+        try await inferDetailedUsingStream(request: request, options: options).response
     }
 
     public func inferenceEvents(
@@ -156,7 +156,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
         }
     }
 
-    public func streamInferenceDetailed(
+    public func inferDetailedUsingStream(
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceDetailedResult {
@@ -328,7 +328,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceStrea
     /// 返回当前官方 Gemini Constraint 执行组合的稳定验证身份；不包含凭据或完整 Endpoint。
     public func constraintVerificationIdentity(
         modelID: String,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneProviderCapabilityVerificationIdentity {
         let adapter = BoneGeminiOutputConstraintAdapter()
         return try BoneProviderVerificationIdentitySupport.identity(

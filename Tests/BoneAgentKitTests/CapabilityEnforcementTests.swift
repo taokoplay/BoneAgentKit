@@ -135,7 +135,7 @@ final class CapabilityEnforcementTests: XCTestCase {
         )
 
         do {
-            _ = try await engine.streamInference(request: request, options: .init())
+            _ = try await engine.inferUsingStream(request: request, options: .init())
             XCTFail("缺少 Streaming 能力时必须失败")
         } catch let error as BoneInferenceError {
             XCTAssertEqual(error, .unsupportedCapability(.streaming))
@@ -474,7 +474,7 @@ private actor CapabilityCapturingTransport: BoneInferenceHTTPTransport {
     func sendCount() -> Int { sends }
 }
 
-private struct CapabilityGuardedEngine: BoneInferenceEngine, BoneInferenceStreaming {
+private struct CapabilityGuardedEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming {
     let nonImageCapabilities: Set<BoneInferenceCapability>
     let imageGenerator: (any BoneInferenceImageGenerating)? = nil
     let transport: CapabilityCapturingTransport
@@ -494,7 +494,7 @@ private struct CapabilityGuardedEngine: BoneInferenceEngine, BoneInferenceStream
         return .finish(.init(text: "unexpected"))
     }
 
-    func streamInference(
+    func inferUsingStream(
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceResponse {
@@ -544,7 +544,7 @@ private actor ResolvedRecordingEngine: BoneInferenceEngine {
 
     nonisolated func resolvedCapabilities(
         for request: BoneInferenceRequest,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
