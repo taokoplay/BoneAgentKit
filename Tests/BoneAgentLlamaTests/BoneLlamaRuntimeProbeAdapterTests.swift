@@ -94,7 +94,7 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(result.verificationIdentity?.artifactSHA256, String(repeating: "a", count: 64))
         XCTAssertEqual(result.verificationIdentity?.constraintCompilerID, "bone.gbnf")
         XCTAssertEqual(result.verificationIdentity?.constraintDialect, "bone-gbnf-v1")
-        XCTAssertEqual(result.verificationIdentity?.grammarRuntimeID, "fixture-gbnf-sampler")
+        XCTAssertEqual(result.verificationIdentity?.grammarSamplerID, "fixture-gbnf-sampler")
         XCTAssertEqual(result.verificationIdentity?.stopMatcherID, "fixture-stop")
         XCTAssertEqual(result.verificationIdentity?.terminationContractVersion, 1)
         XCTAssertTrue(result.verificationIdentity?.hasConstraintRuntimeIdentity == true)
@@ -219,7 +219,7 @@ private struct ProbeRendererFixture: BoneLlamaConversationRendering {
     }
 }
 
-private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaCompiledConstraintRuntime, BoneLlamaRuntimeVerificationIdentifying {
+private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaConstraintGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
     nonisolated let runtimeVersion = 2
     private var outputs: [(String, BoneLlamaGenerationTermination)]
     private var directConstraintOutputs: [(String, BoneLlamaGenerationTermination)]
@@ -258,7 +258,7 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
         prompt: String,
         executionPlan: BoneLlamaPromptExecutionPlan,
         options: BoneLlamaGenerationOptions,
-        control: BoneLlamaCompiledGenerationControl
+        control: BoneLlamaResolvedGenerationControl
     ) async throws -> BoneLlamaGenerationResult {
         recordedControls.append(try .init(
             stopTokenIDs: control.stopTokenIDs,
@@ -278,10 +278,10 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
         .init(
             tokenizerID: "fixture-tokenizer",
             tokenizerVersion: "1",
-            constraintDecoderID: "fixture-grammar",
-            constraintDecoderVersion: "1",
-            grammarRuntimeID: "fixture-gbnf-sampler",
-            grammarRuntimeVersion: "1",
+            grammarParserID: "fixture-grammar",
+            grammarParserVersion: "1",
+            grammarSamplerID: "fixture-gbnf-sampler",
+            grammarSamplerVersion: "1",
             stopMatcherID: "fixture-stop",
             stopMatcherVersion: "1"
         )

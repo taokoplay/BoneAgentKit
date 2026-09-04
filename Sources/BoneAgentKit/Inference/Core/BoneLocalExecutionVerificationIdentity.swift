@@ -1,7 +1,7 @@
 import Foundation
 
-/// 绑定模型能力 Smoke 的完整执行组合；只保存稳定 ID、版本与摘要，不保存 Prompt 或模板正文。
-public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, Sendable {
+/// 绑定本地模型能力 Smoke 的完整执行组合；只保存稳定 ID、版本与摘要，不保存 Prompt 或模板正文。
+public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashable, Sendable {
     public enum ValidationError: Error, Equatable, Sendable {
         case invalidIdentity
     }
@@ -18,8 +18,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
     public let generationControlDigest: String
     public let toolEnvelopeID: String?
     public let toolEnvelopeVersion: String?
-    public let constraintDecoderID: String?
-    public let constraintDecoderVersion: String?
+    public let grammarParserID: String?
+    public let grammarParserVersion: String?
     public let contextTokens: Int
     public let batchTokens: Int
     public let addGenerationPrompt: Bool?
@@ -30,8 +30,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
     public let schemaCanonicalFormatVersion: Int?
     public let controlCanonicalFormatVersion: Int?
     public let compiledConstraintDigest: String?
-    public let grammarRuntimeID: String?
-    public let grammarRuntimeVersion: String?
+    public let grammarSamplerID: String?
+    public let grammarSamplerVersion: String?
     public let stopMatcherID: String?
     public let stopMatcherVersion: String?
     public let terminationContractVersion: Int?
@@ -49,8 +49,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         generationControlDigest: String,
         toolEnvelopeID: String?,
         toolEnvelopeVersion: String?,
-        constraintDecoderID: String?,
-        constraintDecoderVersion: String?,
+        grammarParserID: String?,
+        grammarParserVersion: String?,
         contextTokens: Int,
         batchTokens: Int,
         addGenerationPrompt: Bool? = nil,
@@ -61,8 +61,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         schemaCanonicalFormatVersion: Int? = nil,
         controlCanonicalFormatVersion: Int? = nil,
         compiledConstraintDigest: String? = nil,
-        grammarRuntimeID: String? = nil,
-        grammarRuntimeVersion: String? = nil,
+        grammarSamplerID: String? = nil,
+        grammarSamplerVersion: String? = nil,
         stopMatcherID: String? = nil,
         stopMatcherVersion: String? = nil,
         terminationContractVersion: Int? = nil
@@ -78,20 +78,21 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
               Self.isValidComponent(rendererVersion),
               Self.isValidComponent(reasoningMode),
               Self.isValidPair(toolEnvelopeID, toolEnvelopeVersion),
-              Self.isValidPair(constraintDecoderID, constraintDecoderVersion),
+              Self.isValidPair(grammarParserID, grammarParserVersion),
               contextTokens > 0,
               batchTokens > 0,
               batchTokens <= contextTokens,
               maximumOutputTokens.map({ $0 > 0 && $0 < contextTokens }) ?? true,
               Self.isValidTriple(constraintCompilerID, constraintCompilerVersion, constraintDialect),
-              Self.isValidPair(grammarRuntimeID, grammarRuntimeVersion),
+              Self.isValidPair(grammarSamplerID, grammarSamplerVersion),
               Self.isValidPair(stopMatcherID, stopMatcherVersion),
               Self.isValidConstraintIdentityGroup(
                   compilerID: constraintCompilerID,
                   schemaVersion: schemaCanonicalFormatVersion,
                   controlVersion: controlCanonicalFormatVersion,
                   digest: compiledConstraintDigest,
-                  grammarRuntimeID: grammarRuntimeID,
+                  grammarParserID: grammarParserID,
+                  grammarSamplerID: grammarSamplerID,
                   stopMatcherID: stopMatcherID,
                   terminationVersion: terminationContractVersion
               ) else {
@@ -109,8 +110,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         self.generationControlDigest = generationControlDigest.lowercased()
         self.toolEnvelopeID = toolEnvelopeID
         self.toolEnvelopeVersion = toolEnvelopeVersion
-        self.constraintDecoderID = constraintDecoderID
-        self.constraintDecoderVersion = constraintDecoderVersion
+        self.grammarParserID = grammarParserID
+        self.grammarParserVersion = grammarParserVersion
         self.contextTokens = contextTokens
         self.batchTokens = batchTokens
         self.addGenerationPrompt = addGenerationPrompt
@@ -121,8 +122,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         self.schemaCanonicalFormatVersion = schemaCanonicalFormatVersion
         self.controlCanonicalFormatVersion = controlCanonicalFormatVersion
         self.compiledConstraintDigest = compiledConstraintDigest?.lowercased()
-        self.grammarRuntimeID = grammarRuntimeID
-        self.grammarRuntimeVersion = grammarRuntimeVersion
+        self.grammarSamplerID = grammarSamplerID
+        self.grammarSamplerVersion = grammarSamplerVersion
         self.stopMatcherID = stopMatcherID
         self.stopMatcherVersion = stopMatcherVersion
         self.terminationContractVersion = terminationContractVersion
@@ -130,13 +131,14 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
 
     public func matches(_ current: Self) -> Bool { self == current }
 
-    /// Alpha.8 本地 constrained output 所需的完整执行身份。
+    /// 本地 constrained output 所需的完整执行身份。
     public var hasConstraintRuntimeIdentity: Bool {
         constraintCompilerID != nil
             && schemaCanonicalFormatVersion != nil
             && controlCanonicalFormatVersion != nil
             && compiledConstraintDigest != nil
-            && grammarRuntimeID != nil
+            && grammarParserID != nil
+            && grammarSamplerID != nil
             && stopMatcherID != nil
             && terminationContractVersion != nil
     }
@@ -165,7 +167,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         schemaVersion: Int?,
         controlVersion: Int?,
         digest: String?,
-        grammarRuntimeID: String?,
+        grammarParserID: String?,
+        grammarSamplerID: String?,
         stopMatcherID: String?,
         terminationVersion: Int?
     ) -> Bool {
@@ -173,14 +176,16 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
             return schemaVersion == nil
                 && controlVersion == nil
                 && digest == nil
-                && grammarRuntimeID == nil
+                && grammarParserID == nil
+                && grammarSamplerID == nil
                 && stopMatcherID == nil
                 && terminationVersion == nil
         }
         return schemaVersion.map({ $0 > 0 }) == true
             && controlVersion.map({ $0 > 0 }) == true
             && digest.map(isSHA256) == true
-            && grammarRuntimeID != nil
+            && grammarParserID != nil
+            && grammarSamplerID != nil
             && stopMatcherID != nil
             && terminationVersion.map({ $0 > 0 }) == true
     }

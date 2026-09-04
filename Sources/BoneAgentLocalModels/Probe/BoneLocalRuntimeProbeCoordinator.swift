@@ -92,7 +92,7 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
         depth: BoneLocalRuntimeProbeDepth,
         checks: [BoneLocalRuntimeProbeCheck],
         verifiedCapabilities: Set<BoneInferenceCapability> = [],
-        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
+        verificationIdentity: BoneLocalExecutionVerificationIdentity? = nil
     ) -> BoneLocalRuntimeProbeReport {
         BoneLocalRuntimeProbeReport(
             modelID: model.id,

@@ -365,7 +365,7 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
 
     private static func verificationIdentity(
         templateDigest: String
-    ) throws -> BoneCapabilityVerificationIdentity {
+    ) throws -> BoneLocalExecutionVerificationIdentity {
         try .init(
             artifactSHA256: String(repeating: "c", count: 64),
             runtimeID: "llama.cpp",
@@ -379,8 +379,8 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
             generationControlDigest: String(repeating: "d", count: 64),
             toolEnvelopeID: "bone.json-tool-envelope",
             toolEnvelopeVersion: "1",
-            constraintDecoderID: nil,
-            constraintDecoderVersion: nil,
+            grammarParserID: nil,
+            grammarParserVersion: nil,
             contextTokens: 512,
             batchTokens: 32,
             addGenerationPrompt: true,

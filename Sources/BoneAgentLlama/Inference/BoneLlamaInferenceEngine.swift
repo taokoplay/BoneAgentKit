@@ -17,7 +17,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         promptEncoder: any BoneLlamaPromptEncoding = BoneLlamaChatMLPromptEncoder(),
         toolCalling: (any BoneLlamaToolCalling)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
-        currentVerificationIdentity: BoneCapabilityVerificationIdentity? = nil,
+        currentVerificationIdentity: BoneLocalExecutionVerificationIdentity? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         self.modelID = modelID
@@ -51,7 +51,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         conversationRenderer: any BoneLlamaConversationRendering,
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
-        currentVerificationIdentity: BoneCapabilityVerificationIdentity? = nil,
+        currentVerificationIdentity: BoneLocalExecutionVerificationIdentity? = nil,
         constraintCompiler: (any BoneLlamaConstraintCompiling)? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
@@ -86,7 +86,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
     private static func resolvedCapabilities(
         implemented: Set<BoneInferenceCapability>,
         profile: BoneModelCapabilityProfile?,
-        currentIdentity: BoneCapabilityVerificationIdentity?,
+        currentIdentity: BoneLocalExecutionVerificationIdentity?,
         runtimeVersion: Int,
         toolEnvelopeIdentity: BoneLlamaToolEnvelopeIdentity?,
         constraintCompilerIdentity: BoneLlamaConstraintCompilerIdentity?
@@ -121,7 +121,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
 
     private static func matches(
         _ actual: BoneLlamaToolEnvelopeIdentity?,
-        currentIdentity: BoneCapabilityVerificationIdentity
+        currentIdentity: BoneLocalExecutionVerificationIdentity
     ) -> Bool {
         actual?.id == currentIdentity.toolEnvelopeID
             && actual?.version == currentIdentity.toolEnvelopeVersion
@@ -129,7 +129,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
 
     private static func matches(
         _ actual: BoneLlamaConstraintCompilerIdentity?,
-        currentIdentity: BoneCapabilityVerificationIdentity
+        currentIdentity: BoneLocalExecutionVerificationIdentity
     ) -> Bool {
         actual?.id == currentIdentity.constraintCompilerID
             && actual?.version == currentIdentity.constraintCompilerVersion
@@ -185,7 +185,7 @@ private actor Session {
     let plan: BoneLocalRuntimePlan
     let pipeline: BoneLlamaInferencePipeline
     let runtime: any BoneLlamaRuntime
-    let expectedIdentity: BoneCapabilityVerificationIdentity?
+    let expectedIdentity: BoneLocalExecutionVerificationIdentity?
     var isLoaded = false
 
     private var revision: UInt64 = 0
@@ -198,7 +198,7 @@ private actor Session {
         plan: BoneLocalRuntimePlan,
         pipeline: BoneLlamaInferencePipeline,
         runtime: any BoneLlamaRuntime,
-        expectedIdentity: BoneCapabilityVerificationIdentity?
+        expectedIdentity: BoneLocalExecutionVerificationIdentity?
     ) {
         self.modelID = modelID
         self.modelURL = modelURL
@@ -279,14 +279,14 @@ private actor Session {
             publish(.generating, configuration: configuration)
             let result: BoneLlamaGenerationResult
             if prepared.control.constraint != nil {
-                guard let compiled = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+                guard let compiled = runtime as? any BoneLlamaConstraintGenerationRuntime else {
                     throw BoneLlamaAdapterError.unsupportedGenerationControl
                 }
                 result = try await compiled.generate(
                     prompt: prompt,
                     executionPlan: executionPlan,
                     options: effectiveOptions,
-                    control: try BoneLlamaCompiledGenerationControl(
+                    control: try BoneLlamaResolvedGenerationControl(
                         control: prepared.control,
                         compiler: prepared.constraintCompiler
                     )
@@ -344,10 +344,10 @@ private actor Session {
         let components = try await identifying.verificationComponents()
         guard components.tokenizerID == expectedIdentity.tokenizerID,
               components.tokenizerVersion == expectedIdentity.tokenizerVersion,
-              components.constraintDecoderID == expectedIdentity.constraintDecoderID,
-              components.constraintDecoderVersion == expectedIdentity.constraintDecoderVersion,
-              components.grammarRuntimeID == expectedIdentity.grammarRuntimeID,
-              components.grammarRuntimeVersion == expectedIdentity.grammarRuntimeVersion,
+              components.grammarParserID == expectedIdentity.grammarParserID,
+              components.grammarParserVersion == expectedIdentity.grammarParserVersion,
+              components.grammarSamplerID == expectedIdentity.grammarSamplerID,
+              components.grammarSamplerVersion == expectedIdentity.grammarSamplerVersion,
               components.stopMatcherID == expectedIdentity.stopMatcherID,
               components.stopMatcherVersion == expectedIdentity.stopMatcherVersion else {
             throw BoneLlamaAdapterError.invalidConfiguration

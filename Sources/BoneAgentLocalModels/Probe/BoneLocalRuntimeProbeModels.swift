@@ -87,7 +87,7 @@ public struct BoneLocalRuntimeProbeReport: Equatable, Sendable {
     public let depth: BoneLocalRuntimeProbeDepth
     public let checks: [BoneLocalRuntimeProbeCheck]
     public let verifiedCapabilities: Set<BoneInferenceCapability>
-    public let verificationIdentity: BoneCapabilityVerificationIdentity?
+    public let verificationIdentity: BoneLocalExecutionVerificationIdentity?
     public let status: BoneLocalRuntimeProbeStatus
 
     public init(
@@ -96,7 +96,7 @@ public struct BoneLocalRuntimeProbeReport: Equatable, Sendable {
         depth: BoneLocalRuntimeProbeDepth,
         checks: [BoneLocalRuntimeProbeCheck],
         verifiedCapabilities: Set<BoneInferenceCapability> = [],
-        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
+        verificationIdentity: BoneLocalExecutionVerificationIdentity? = nil
     ) {
         self.modelID = modelID
         self.adapterID = adapterID
@@ -123,12 +123,12 @@ public struct BoneLocalModelBackendProbeResult: Equatable, Sendable {
     public let check: BoneLocalRuntimeProbeCheck
     /// 本次 Probe 实际验证通过的推理能力；load/metadata Probe 通常为空。
     public let verifiedCapabilities: Set<BoneInferenceCapability>
-    public let verificationIdentity: BoneCapabilityVerificationIdentity?
+    public let verificationIdentity: BoneLocalExecutionVerificationIdentity?
 
     public init(
         check: BoneLocalRuntimeProbeCheck,
         verifiedCapabilities: Set<BoneInferenceCapability> = [],
-        verificationIdentity: BoneCapabilityVerificationIdentity? = nil
+        verificationIdentity: BoneLocalExecutionVerificationIdentity? = nil
     ) {
         self.check = check
         self.verifiedCapabilities = verifiedCapabilities

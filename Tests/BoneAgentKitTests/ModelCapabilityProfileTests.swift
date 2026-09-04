@@ -39,14 +39,15 @@ final class ModelCapabilityProfileTests: XCTestCase {
         XCTAssertFalse(identity.matches(try Self.identity(addGenerationPrompt: false)))
         XCTAssertFalse(identity.matches(try Self.identity(maximumOutputTokens: 128)))
         XCTAssertFalse(identity.matches(try Self.identity(constraintCompilerVersion: "2")))
-        XCTAssertFalse(identity.matches(try Self.identity(grammarRuntimeVersion: "2")))
+        XCTAssertFalse(identity.matches(try Self.identity(grammarParserVersion: "2")))
+        XCTAssertFalse(identity.matches(try Self.identity(grammarSamplerVersion: "2")))
         XCTAssertFalse(identity.matches(try Self.identity(stopMatcherVersion: "2")))
         XCTAssertFalse(identity.matches(try Self.identity(terminationContractVersion: 2)))
     }
 
     func testIdentityValidatesDigestsAndPairedOptionalComponents() {
         XCTAssertThrowsError(try Self.identity(artifactSHA256: "not-a-digest"))
-        XCTAssertThrowsError(try BoneCapabilityVerificationIdentity(
+        XCTAssertThrowsError(try BoneLocalExecutionVerificationIdentity(
             artifactSHA256: String(repeating: "a", count: 64),
             runtimeID: "llama.cpp",
             runtimeVersion: 1,
@@ -59,12 +60,12 @@ final class ModelCapabilityProfileTests: XCTestCase {
             generationControlDigest: String(repeating: "c", count: 64),
             toolEnvelopeID: "envelope",
             toolEnvelopeVersion: nil,
-            constraintDecoderID: nil,
-            constraintDecoderVersion: nil,
+            grammarParserID: nil,
+            grammarParserVersion: nil,
             contextTokens: 4096,
             batchTokens: 256
         ))
-        XCTAssertThrowsError(try BoneCapabilityVerificationIdentity(
+        XCTAssertThrowsError(try BoneLocalExecutionVerificationIdentity(
             artifactSHA256: String(repeating: "a", count: 64),
             runtimeID: "llama.cpp",
             runtimeVersion: 1,
@@ -77,8 +78,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             generationControlDigest: String(repeating: "c", count: 64),
             toolEnvelopeID: nil,
             toolEnvelopeVersion: nil,
-            constraintDecoderID: "llama-grammar",
-            constraintDecoderVersion: "1",
+            grammarParserID: "llama-grammar",
+            grammarParserVersion: "1",
             contextTokens: 4096,
             batchTokens: 256,
             constraintCompilerID: "bone.gbnf",
@@ -87,8 +88,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             schemaCanonicalFormatVersion: 1,
             controlCanonicalFormatVersion: 1,
             compiledConstraintDigest: String(repeating: "e", count: 64),
-            grammarRuntimeID: nil,
-            grammarRuntimeVersion: nil,
+            grammarSamplerID: nil,
+            grammarSamplerVersion: nil,
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: "1",
             terminationContractVersion: 1
@@ -103,10 +104,11 @@ final class ModelCapabilityProfileTests: XCTestCase {
         addGenerationPrompt: Bool? = true,
         maximumOutputTokens: Int? = 256,
         constraintCompilerVersion: String? = "1",
-        grammarRuntimeVersion: String? = "1",
+        grammarParserVersion: String? = "1",
+        grammarSamplerVersion: String? = "1",
         stopMatcherVersion: String? = "1",
         terminationContractVersion: Int? = 1
-    ) throws -> BoneCapabilityVerificationIdentity {
+    ) throws -> BoneLocalExecutionVerificationIdentity {
         try .init(
             artifactSHA256: artifactSHA256,
             runtimeID: "llama.cpp",
@@ -120,8 +122,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             generationControlDigest: String(repeating: "c", count: 64),
             toolEnvelopeID: "envelope",
             toolEnvelopeVersion: toolEnvelopeVersion,
-            constraintDecoderID: "llama-grammar",
-            constraintDecoderVersion: "1",
+            grammarParserID: "llama-grammar-parser",
+            grammarParserVersion: grammarParserVersion,
             contextTokens: 4096,
             batchTokens: batchTokens,
             addGenerationPrompt: addGenerationPrompt,
@@ -132,8 +134,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             schemaCanonicalFormatVersion: 1,
             controlCanonicalFormatVersion: 1,
             compiledConstraintDigest: String(repeating: "e", count: 64),
-            grammarRuntimeID: "llama-grammar",
-            grammarRuntimeVersion: grammarRuntimeVersion,
+            grammarSamplerID: "llama-grammar-sampler",
+            grammarSamplerVersion: grammarSamplerVersion,
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: stopMatcherVersion,
             terminationContractVersion: terminationContractVersion

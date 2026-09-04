@@ -182,7 +182,7 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
         threadCount: 2
     )
 
-    private static func identity() throws -> BoneCapabilityVerificationIdentity {
+    private static func identity() throws -> BoneLocalExecutionVerificationIdentity {
         try .init(
             artifactSHA256: String(repeating: "a", count: 64),
             runtimeID: "llama.cpp",
@@ -196,8 +196,8 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             generationControlDigest: String(repeating: "c", count: 64),
             toolEnvelopeID: nil,
             toolEnvelopeVersion: nil,
-            constraintDecoderID: "fixture.gbnf",
-            constraintDecoderVersion: "1",
+            grammarParserID: "fixture.gbnf",
+            grammarParserVersion: "1",
             contextTokens: 512,
             batchTokens: 32,
             addGenerationPrompt: true,
@@ -208,8 +208,8 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             schemaCanonicalFormatVersion: 1,
             controlCanonicalFormatVersion: 1,
             compiledConstraintDigest: String(repeating: "d", count: 64),
-            grammarRuntimeID: "fixture.gbnf",
-            grammarRuntimeVersion: "1",
+            grammarSamplerID: "fixture.gbnf",
+            grammarSamplerVersion: "1",
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: "1",
             terminationContractVersion: 1
@@ -217,11 +217,11 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
     }
 }
 
-private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime, BoneLlamaRuntimeVerificationIdentifying {
+private actor ConstraintRuntimeFixture: BoneLlamaConstraintGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
     nonisolated let runtimeVersion = 3
     let result: String
     let termination: BoneLlamaGenerationTermination
-    var control: BoneLlamaCompiledGenerationControl?
+    var control: BoneLlamaResolvedGenerationControl?
     var loads = 0
 
     init(result: String, termination: BoneLlamaGenerationTermination) {
@@ -234,7 +234,7 @@ private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime, Bone
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
         throw BoneLlamaRuntimeError.generationFailed
     }
-    func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions, control: BoneLlamaCompiledGenerationControl) async throws -> BoneLlamaGenerationResult {
+    func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions, control: BoneLlamaResolvedGenerationControl) async throws -> BoneLlamaGenerationResult {
         self.control = control
         return .init(text: result, termination: termination)
     }
@@ -242,10 +242,10 @@ private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime, Bone
         .init(
             tokenizerID: "fixture",
             tokenizerVersion: "1",
-            constraintDecoderID: "fixture.gbnf",
-            constraintDecoderVersion: "1",
-            grammarRuntimeID: "fixture.gbnf",
-            grammarRuntimeVersion: "1",
+            grammarParserID: "fixture.gbnf",
+            grammarParserVersion: "1",
+            grammarSamplerID: "fixture.gbnf",
+            grammarSamplerVersion: "1",
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: "1"
         )
@@ -253,7 +253,7 @@ private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime, Bone
     func smokeTest() async throws {}
     func cancel() async {}
     func unload() async {}
-    func recordedControl() -> BoneLlamaCompiledGenerationControl? { control }
+    func recordedControl() -> BoneLlamaResolvedGenerationControl? { control }
     func loadCount() -> Int { loads }
 }
 

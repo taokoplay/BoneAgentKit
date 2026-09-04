@@ -21,14 +21,14 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
     public let capabilities: Set<BoneInferenceCapability>
     public let source: BoneModelCapabilityEvidenceSource
     public let verifiedAt: String
-    public let verificationIdentity: BoneCapabilityVerificationIdentity?
+    public let verificationIdentity: BoneLocalExecutionVerificationIdentity?
     public let providerVerificationIdentities: [BoneProviderCapabilityVerificationIdentity]
 
     public init(
         capabilities: Set<BoneInferenceCapability>,
         source: BoneModelCapabilityEvidenceSource,
         verifiedAt: String,
-        verificationIdentity: BoneCapabilityVerificationIdentity? = nil,
+        verificationIdentity: BoneLocalExecutionVerificationIdentity? = nil,
         providerVerificationIdentities: [BoneProviderCapabilityVerificationIdentity] = []
     ) throws {
         guard !capabilities.isEmpty else { throw ValidationError.emptyCapabilities }
@@ -75,7 +75,7 @@ public struct BoneModelCapabilityProfile: Codable, Equatable, Sendable {
         let source = try container.decode(BoneModelCapabilityEvidenceSource.self, forKey: .source)
         let verifiedAt = try container.decode(String.self, forKey: .verifiedAt)
         let verificationIdentity = try container.decodeIfPresent(
-            BoneCapabilityVerificationIdentity.self,
+            BoneLocalExecutionVerificationIdentity.self,
             forKey: .verificationIdentity
         )
         let providerVerificationIdentities = try container.decodeIfPresent(

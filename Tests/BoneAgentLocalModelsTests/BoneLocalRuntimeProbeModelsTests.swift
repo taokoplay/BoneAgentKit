@@ -42,7 +42,7 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
     }
 
     func testProbeResultCarriesVerificationIdentityWithoutPayloadContent() throws {
-        let identity = try BoneCapabilityVerificationIdentity(
+        let identity = try BoneLocalExecutionVerificationIdentity(
             artifactSHA256: String(repeating: "a", count: 64),
             runtimeID: "llama.cpp",
             runtimeVersion: 2,
@@ -55,8 +55,8 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
             generationControlDigest: String(repeating: "c", count: 64),
             toolEnvelopeID: nil,
             toolEnvelopeVersion: nil,
-            constraintDecoderID: nil,
-            constraintDecoderVersion: nil,
+            grammarParserID: nil,
+            grammarParserVersion: nil,
             contextTokens: 4096,
             batchTokens: 256
         )

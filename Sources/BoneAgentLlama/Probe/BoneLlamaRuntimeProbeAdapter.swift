@@ -62,7 +62,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         do {
             try await runtime.load(modelURL: artifactURL, configuration: .init(plan: plan))
             var verified: Set<BoneInferenceCapability> = []
-            var identity: BoneCapabilityVerificationIdentity?
+            var identity: BoneLocalExecutionVerificationIdentity?
             if depth == .smoke {
                 try await runtime.smokeTest()
                 verified.insert(.text)
@@ -237,14 +237,14 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             temperature: options.temperature
         )
         if control.constraint != nil {
-            guard let compiled = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+            guard let compiled = runtime as? any BoneLlamaConstraintGenerationRuntime else {
                 throw BoneLlamaAdapterError.unsupportedGenerationControl
             }
             let result = try await compiled.generate(
                 prompt: rendered.prompt,
                 executionPlan: executionPlan,
                 options: effectiveOptions,
-                control: try BoneLlamaCompiledGenerationControl(
+                control: try BoneLlamaResolvedGenerationControl(
                     control: control,
                     compiler: constraintCompiler
                 )
@@ -329,7 +329,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         modelID: String,
         plan: BoneLocalRuntimePlan
     ) async throws -> BoneLlamaGenerationResult {
-        guard let compiledRuntime = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+        guard let compiledRuntime = runtime as? any BoneLlamaConstraintGenerationRuntime else {
             throw BoneLlamaAdapterError.unsupportedGenerationControl
         }
         let conversation = try BoneLlamaConversationBuilder.build(request: .init(
@@ -365,7 +365,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         envelope: any BoneLlamaToolEnvelopeCoding,
         runtime: any BoneLlamaRuntime,
         plan: BoneLocalRuntimePlan
-    ) async throws -> BoneCapabilityVerificationIdentity {
+    ) async throws -> BoneLocalExecutionVerificationIdentity {
         guard let identifying = runtime as? any BoneLlamaRuntimeVerificationIdentifying else {
             throw BoneLlamaAdapterError.invalidConfiguration
         }
@@ -394,8 +394,8 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             generationControlDigest: try Self.controlDigest(rendered.generationControl, constraint),
             toolEnvelopeID: envelope.identity.id,
             toolEnvelopeVersion: envelope.identity.version,
-            constraintDecoderID: components.constraintDecoderID,
-            constraintDecoderVersion: components.constraintDecoderVersion,
+            grammarParserID: components.grammarParserID,
+            grammarParserVersion: components.grammarParserVersion,
             contextTokens: plan.contextTokens,
             batchTokens: plan.batchTokens,
             addGenerationPrompt: rendered.templateIdentity.addGenerationPrompt,
@@ -406,8 +406,8 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             schemaCanonicalFormatVersion: compiledDigest == nil ? nil : BoneToolSchemaCanonicalEncoder.formatVersion,
             controlCanonicalFormatVersion: compiledDigest == nil ? nil : BoneLlamaGenerationControlCanonicalizer.formatVersion,
             compiledConstraintDigest: compiledDigest,
-            grammarRuntimeID: compiledDigest == nil ? nil : components.grammarRuntimeID,
-            grammarRuntimeVersion: compiledDigest == nil ? nil : components.grammarRuntimeVersion,
+            grammarSamplerID: compiledDigest == nil ? nil : components.grammarSamplerID,
+            grammarSamplerVersion: compiledDigest == nil ? nil : components.grammarSamplerVersion,
             stopMatcherID: compiledDigest == nil ? nil : components.stopMatcherID,
             stopMatcherVersion: compiledDigest == nil ? nil : components.stopMatcherVersion,
             terminationContractVersion: compiledDigest == nil ? nil : 1

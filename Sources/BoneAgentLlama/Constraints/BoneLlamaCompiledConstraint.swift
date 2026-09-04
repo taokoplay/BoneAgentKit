@@ -92,7 +92,8 @@ enum BoneLlamaCompiledConstraintDigest {
     }
 }
 
-public struct BoneLlamaCompiledGenerationControl: Equatable, Sendable {
+/// 已完成声明合并与 Constraint 编译、可直接交给 Runtime 执行的 Generation Control。
+public struct BoneLlamaResolvedGenerationControl: Equatable, Sendable {
     public let stopTokenIDs: [Int32]
     public let stopStrings: [String]
     public let sourceConstraint: BoneLlamaGenerationConstraint?

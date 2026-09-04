@@ -12,7 +12,7 @@ final class BoneLlamaCompiledConstraintTests: XCTestCase {
         )
         let compiler = ConstraintCompilerFixture()
 
-        let compiled = try BoneLlamaCompiledGenerationControl(
+        let compiled = try BoneLlamaResolvedGenerationControl(
             control: control,
             compiler: compiler
         )
@@ -28,7 +28,7 @@ final class BoneLlamaCompiledConstraintTests: XCTestCase {
         let control = try BoneLlamaGenerationControl(constraint: .enumChoice(["ready"]))
 
         XCTAssertThrowsError(
-            try BoneLlamaCompiledGenerationControl(control: control, compiler: nil)
+            try BoneLlamaResolvedGenerationControl(control: control, compiler: nil)
         ) { error in
             XCTAssertEqual(error as? BoneLlamaAdapterError, .unsupportedGenerationControl)
         }
@@ -36,7 +36,7 @@ final class BoneLlamaCompiledConstraintTests: XCTestCase {
 
     func testStopOnlyControlDoesNotRequireCompiler() throws {
         let control = try BoneLlamaGenerationControl(stopStrings: ["<eog>"])
-        let compiled = try BoneLlamaCompiledGenerationControl(control: control, compiler: nil)
+        let compiled = try BoneLlamaResolvedGenerationControl(control: control, compiler: nil)
 
         XCTAssertEqual(compiled.stopStrings, ["<eog>"])
         XCTAssertNil(compiled.compiledConstraint)
