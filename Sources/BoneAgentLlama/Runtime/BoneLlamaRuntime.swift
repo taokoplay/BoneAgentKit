@@ -56,4 +56,15 @@ public protocol BoneLlamaRuntimeVerificationIdentifying: BoneLlamaRuntime {
     func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents
 }
 
+/// 支持将 SDK 受信任 Compiler 产物接入真实 grammar sampler 的 Runtime。
+/// Constraint 请求只能走此协议；旧 Controlled Runtime 仅兼容 Stop-only 请求。
+public protocol BoneLlamaCompiledConstraintRuntime: BoneLlamaRuntime {
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions,
+        control: BoneLlamaCompiledGenerationControl
+    ) async throws -> BoneLlamaGenerationResult
+}
+
 public typealias BoneLlamaRuntimeFactory = @Sendable () -> any BoneLlamaRuntime
