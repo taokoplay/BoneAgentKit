@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// 真实 Provider Constraint Smoke 的执行器。场景使用固定、无副作用输入，报告不包含模型正文。
@@ -13,8 +14,7 @@ public enum BoneLiveConstraintSmoke {
         guard (1...1_000).contains(iterations) else {
             throw BoneInferenceError.invalidGenerationOptions
         }
-        let clock = ContinuousClock()
-        let start = clock.now
+        let startNanoseconds = DispatchTime.now().uptimeNanoseconds
         var succeeded = 0
         var failures: [BoneLiveConstraintSmokeFailure: Int] = [:]
 
@@ -46,9 +46,11 @@ public enum BoneLiveConstraintSmoke {
             }
         }
 
-        let elapsed = start.duration(to: clock.now)
-        let milliseconds = max(0, Int(elapsed.components.seconds * 1_000)
-            + Int(elapsed.components.attoseconds / 1_000_000_000_000_000))
+        let endNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let elapsedNanoseconds = endNanoseconds >= startNanoseconds
+            ? endNanoseconds - startNanoseconds
+            : 0
+        let milliseconds = Int(min(elapsedNanoseconds / 1_000_000, UInt64(Int.max)))
         return try .init(
             provider: provider,
             modelID: modelID,
