@@ -30,6 +30,70 @@ final class ModelCapabilityProfileTests: XCTestCase {
         ))
     }
 
+    func testAlpha9VerificationIdentityRoundTripsWithExplicitSchemaVersion() throws {
+        let identity = try Self.identity()
+        let data = try JSONEncoder().encode(identity)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["schemaVersion"] as? Int, BoneLocalExecutionVerificationIdentity.currentSchemaVersion)
+        XCTAssertEqual(try JSONDecoder().decode(BoneLocalExecutionVerificationIdentity.self, from: data), identity)
+    }
+
+    func testRejectsMissingOrUnsupportedIdentitySchemaVersion() throws {
+        let encoded = try JSONEncoder().encode(Self.identity())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        object.removeValue(forKey: "schemaVersion")
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            BoneLocalExecutionVerificationIdentity.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        ))
+
+        object["schemaVersion"] = 1
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            BoneLocalExecutionVerificationIdentity.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        ))
+    }
+
+    func testRejectsAlpha8ToolOnlyAndConstrainedIdentityFields() throws {
+        let encoded = try JSONEncoder().encode(Self.identity())
+        let current = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        var toolOnly = current
+        toolOnly.removeValue(forKey: "schemaVersion")
+        for key in [
+            "grammarParserID", "grammarParserVersion", "constraintCompilerID",
+            "constraintCompilerVersion", "constraintDialect", "schemaCanonicalFormatVersion",
+            "controlCanonicalFormatVersion", "compiledConstraintDigest", "grammarSamplerID",
+            "grammarSamplerVersion", "stopMatcherID", "stopMatcherVersion",
+            "terminationContractVersion"
+        ] {
+            toolOnly.removeValue(forKey: key)
+        }
+        toolOnly["constraintDecoderID"] = "llama.cpp.gbnf-decoder"
+        toolOnly["constraintDecoderVersion"] = "binary-v1"
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            BoneLocalExecutionVerificationIdentity.self,
+            from: try JSONSerialization.data(withJSONObject: toolOnly)
+        ))
+
+        var constrained = current
+        constrained.removeValue(forKey: "schemaVersion")
+        constrained.removeValue(forKey: "grammarParserID")
+        constrained.removeValue(forKey: "grammarParserVersion")
+        constrained.removeValue(forKey: "grammarSamplerID")
+        constrained.removeValue(forKey: "grammarSamplerVersion")
+        constrained["constraintDecoderID"] = "llama.cpp.gbnf-decoder"
+        constrained["constraintDecoderVersion"] = "binary-v1"
+        constrained["grammarRuntimeID"] = "llama.cpp.gbnf-sampler"
+        constrained["grammarRuntimeVersion"] = "binary-v1"
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            BoneLocalExecutionVerificationIdentity.self,
+            from: try JSONSerialization.data(withJSONObject: constrained)
+        ))
+    }
+
     func testVerificationIdentityMatchesOnlyIdenticalExecutionConfiguration() throws {
         let identity = try Self.identity()
         XCTAssertTrue(identity.matches(identity))

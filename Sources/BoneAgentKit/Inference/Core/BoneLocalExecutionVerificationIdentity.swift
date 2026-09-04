@@ -2,10 +2,13 @@ import Foundation
 
 /// 绑定本地模型能力 Smoke 的完整执行组合；只保存稳定 ID、版本与摘要，不保存 Prompt 或模板正文。
 public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashable, Sendable {
+    public static let currentSchemaVersion = 2
+
     public enum ValidationError: Error, Equatable, Sendable {
         case invalidIdentity
     }
 
+    public let schemaVersion: Int
     public let artifactSHA256: String
     public let runtimeID: String
     public let runtimeVersion: Int
@@ -98,6 +101,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
               ) else {
             throw ValidationError.invalidIdentity
         }
+        schemaVersion = Self.currentSchemaVersion
         self.artifactSHA256 = artifactSHA256.lowercased()
         self.runtimeID = runtimeID
         self.runtimeVersion = runtimeVersion
@@ -127,6 +131,143 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
         self.stopMatcherID = stopMatcherID
         self.stopMatcherVersion = stopMatcherVersion
         self.terminationContractVersion = terminationContractVersion
+    }
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion
+        case artifactSHA256
+        case runtimeID
+        case runtimeVersion
+        case tokenizerID
+        case tokenizerVersion
+        case templateDigest
+        case rendererID
+        case rendererVersion
+        case reasoningMode
+        case generationControlDigest
+        case toolEnvelopeID
+        case toolEnvelopeVersion
+        case grammarParserID
+        case grammarParserVersion
+        case contextTokens
+        case batchTokens
+        case addGenerationPrompt
+        case maximumOutputTokens
+        case constraintCompilerID
+        case constraintCompilerVersion
+        case constraintDialect
+        case schemaCanonicalFormatVersion
+        case controlCanonicalFormatVersion
+        case compiledConstraintDigest
+        case grammarSamplerID
+        case grammarSamplerVersion
+        case stopMatcherID
+        case stopMatcherVersion
+        case terminationContractVersion
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey, CaseIterable {
+        case constraintDecoderID
+        case constraintDecoderVersion
+        case grammarRuntimeID
+        case grammarRuntimeVersion
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        guard !LegacyCodingKeys.allCases.contains(where: legacy.contains) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .constraintDecoderID,
+                in: legacy,
+                debugDescription: "Legacy local execution identity schema is unsupported"
+            )
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Unsupported local execution identity schema version"
+            )
+        }
+
+        do {
+            try self.init(
+                artifactSHA256: container.decode(String.self, forKey: .artifactSHA256),
+                runtimeID: container.decode(String.self, forKey: .runtimeID),
+                runtimeVersion: container.decode(Int.self, forKey: .runtimeVersion),
+                tokenizerID: container.decode(String.self, forKey: .tokenizerID),
+                tokenizerVersion: container.decode(String.self, forKey: .tokenizerVersion),
+                templateDigest: container.decode(String.self, forKey: .templateDigest),
+                rendererID: container.decode(String.self, forKey: .rendererID),
+                rendererVersion: container.decode(String.self, forKey: .rendererVersion),
+                reasoningMode: container.decode(String.self, forKey: .reasoningMode),
+                generationControlDigest: container.decode(String.self, forKey: .generationControlDigest),
+                toolEnvelopeID: container.decodeIfPresent(String.self, forKey: .toolEnvelopeID),
+                toolEnvelopeVersion: container.decodeIfPresent(String.self, forKey: .toolEnvelopeVersion),
+                grammarParserID: container.decodeIfPresent(String.self, forKey: .grammarParserID),
+                grammarParserVersion: container.decodeIfPresent(String.self, forKey: .grammarParserVersion),
+                contextTokens: container.decode(Int.self, forKey: .contextTokens),
+                batchTokens: container.decode(Int.self, forKey: .batchTokens),
+                addGenerationPrompt: container.decodeIfPresent(Bool.self, forKey: .addGenerationPrompt),
+                maximumOutputTokens: container.decodeIfPresent(Int.self, forKey: .maximumOutputTokens),
+                constraintCompilerID: container.decodeIfPresent(String.self, forKey: .constraintCompilerID),
+                constraintCompilerVersion: container.decodeIfPresent(String.self, forKey: .constraintCompilerVersion),
+                constraintDialect: container.decodeIfPresent(String.self, forKey: .constraintDialect),
+                schemaCanonicalFormatVersion: container.decodeIfPresent(Int.self, forKey: .schemaCanonicalFormatVersion),
+                controlCanonicalFormatVersion: container.decodeIfPresent(Int.self, forKey: .controlCanonicalFormatVersion),
+                compiledConstraintDigest: container.decodeIfPresent(String.self, forKey: .compiledConstraintDigest),
+                grammarSamplerID: container.decodeIfPresent(String.self, forKey: .grammarSamplerID),
+                grammarSamplerVersion: container.decodeIfPresent(String.self, forKey: .grammarSamplerVersion),
+                stopMatcherID: container.decodeIfPresent(String.self, forKey: .stopMatcherID),
+                stopMatcherVersion: container.decodeIfPresent(String.self, forKey: .stopMatcherVersion),
+                terminationContractVersion: container.decodeIfPresent(Int.self, forKey: .terminationContractVersion)
+            )
+        } catch let error as DecodingError {
+            throw error
+        } catch {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Invalid local execution verification identity"
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(artifactSHA256, forKey: .artifactSHA256)
+        try container.encode(runtimeID, forKey: .runtimeID)
+        try container.encode(runtimeVersion, forKey: .runtimeVersion)
+        try container.encode(tokenizerID, forKey: .tokenizerID)
+        try container.encode(tokenizerVersion, forKey: .tokenizerVersion)
+        try container.encode(templateDigest, forKey: .templateDigest)
+        try container.encode(rendererID, forKey: .rendererID)
+        try container.encode(rendererVersion, forKey: .rendererVersion)
+        try container.encode(reasoningMode, forKey: .reasoningMode)
+        try container.encode(generationControlDigest, forKey: .generationControlDigest)
+        try container.encodeIfPresent(toolEnvelopeID, forKey: .toolEnvelopeID)
+        try container.encodeIfPresent(toolEnvelopeVersion, forKey: .toolEnvelopeVersion)
+        try container.encodeIfPresent(grammarParserID, forKey: .grammarParserID)
+        try container.encodeIfPresent(grammarParserVersion, forKey: .grammarParserVersion)
+        try container.encode(contextTokens, forKey: .contextTokens)
+        try container.encode(batchTokens, forKey: .batchTokens)
+        try container.encodeIfPresent(addGenerationPrompt, forKey: .addGenerationPrompt)
+        try container.encodeIfPresent(maximumOutputTokens, forKey: .maximumOutputTokens)
+        try container.encodeIfPresent(constraintCompilerID, forKey: .constraintCompilerID)
+        try container.encodeIfPresent(constraintCompilerVersion, forKey: .constraintCompilerVersion)
+        try container.encodeIfPresent(constraintDialect, forKey: .constraintDialect)
+        try container.encodeIfPresent(schemaCanonicalFormatVersion, forKey: .schemaCanonicalFormatVersion)
+        try container.encodeIfPresent(controlCanonicalFormatVersion, forKey: .controlCanonicalFormatVersion)
+        try container.encodeIfPresent(compiledConstraintDigest, forKey: .compiledConstraintDigest)
+        try container.encodeIfPresent(grammarSamplerID, forKey: .grammarSamplerID)
+        try container.encodeIfPresent(grammarSamplerVersion, forKey: .grammarSamplerVersion)
+        try container.encodeIfPresent(stopMatcherID, forKey: .stopMatcherID)
+        try container.encodeIfPresent(stopMatcherVersion, forKey: .stopMatcherVersion)
+        try container.encodeIfPresent(terminationContractVersion, forKey: .terminationContractVersion)
     }
 
     public func matches(_ current: Self) -> Bool { self == current }
