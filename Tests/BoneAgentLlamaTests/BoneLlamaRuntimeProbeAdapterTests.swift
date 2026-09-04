@@ -99,10 +99,39 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(result.verificationIdentity?.terminationContractVersion, 1)
         XCTAssertTrue(result.verificationIdentity?.hasConstraintRuntimeIdentity == true)
         let controls = await runtime.controls()
-        XCTAssertEqual(controls.count, 2)
+        XCTAssertEqual(controls.count, 4)
         XCTAssertTrue(controls.allSatisfy { $0.constraint != nil })
         let sawMultipleRanges = await runtime.sawMultiplePrefillRanges()
         XCTAssertTrue(sawMultipleRanges)
+    }
+
+    func testConstrainedSmokeFailsClosedWhenDirectConstraintOutputIsInvalid() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(
+            outputs: [
+                (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
+                (#"{"type":"final","content":"Capability verified."}"#, .eog),
+            ],
+            directConstraintOutputs: [("READY", .eog)]
+        )
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: ProbeRendererFixture(),
+            toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .failed)
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
+        XCTAssertNil(result.verificationIdentity)
     }
 
     func testConstrainedSmokeFailsClosedOnInvalidTermination() async throws {
@@ -190,13 +219,23 @@ private struct ProbeRendererFixture: BoneLlamaConversationRendering {
     }
 }
 
-private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
+private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaCompiledConstraintRuntime, BoneLlamaRuntimeVerificationIdentifying {
     nonisolated let runtimeVersion = 2
     private var outputs: [(String, BoneLlamaGenerationTermination)]
+    private var directConstraintOutputs: [(String, BoneLlamaGenerationTermination)]
     private var recordedControls: [BoneLlamaGenerationControl] = []
     private var multiplePrefillRanges = false
 
-    init(outputs: [(String, BoneLlamaGenerationTermination)]) { self.outputs = outputs }
+    init(
+        outputs: [(String, BoneLlamaGenerationTermination)],
+        directConstraintOutputs: [(String, BoneLlamaGenerationTermination)] = [
+            ("ready", .eog),
+            (#"{"ok":true}"#, .eog),
+        ]
+    ) {
+        self.outputs = outputs
+        self.directConstraintOutputs = directConstraintOutputs
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 96) }
@@ -213,6 +252,26 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
         multiplePrefillRanges = multiplePrefillRanges || executionPlan.prefillRanges.count > 1
         guard !outputs.isEmpty else { throw BoneLlamaRuntimeError.generationFailed }
         let next = outputs.removeFirst()
+        return .init(text: next.0, termination: next.1)
+    }
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions,
+        control: BoneLlamaCompiledGenerationControl
+    ) async throws -> BoneLlamaGenerationResult {
+        recordedControls.append(try .init(
+            stopTokenIDs: control.stopTokenIDs,
+            stopStrings: control.stopStrings,
+            constraint: control.sourceConstraint
+        ))
+        multiplePrefillRanges = multiplePrefillRanges || executionPlan.prefillRanges.count > 1
+        if !outputs.isEmpty {
+            let next = outputs.removeFirst()
+            return .init(text: next.0, termination: next.1)
+        }
+        guard !directConstraintOutputs.isEmpty else { throw BoneLlamaRuntimeError.generationFailed }
+        let next = directConstraintOutputs.removeFirst()
         return .init(text: next.0, termination: next.1)
     }
     func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents {

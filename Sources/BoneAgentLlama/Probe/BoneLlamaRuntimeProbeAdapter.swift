@@ -7,6 +7,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
     private let legacyToolCalling: (any BoneLlamaToolCalling)?
     private let conversationRenderer: (any BoneLlamaConversationRendering)?
     private let toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
+    private let constraintCompiler: (any BoneLlamaConstraintCompiling)?
     private let runtimeFactory: BoneLlamaRuntimeFactory
 
     public init(
@@ -24,6 +25,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         legacyToolCalling = toolCalling
         conversationRenderer = nil
         toolEnvelope = nil
+        constraintCompiler = nil
         self.runtimeFactory = runtimeFactory
     }
 
@@ -37,12 +39,14 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         ),
         conversationRenderer: any BoneLlamaConversationRendering,
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
+        constraintCompiler: (any BoneLlamaConstraintCompiling)? = BoneLlamaGBNFCompiler(),
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         descriptor = Self.descriptor(runtimeVersion, runtimeConstraints)
         legacyToolCalling = nil
         self.conversationRenderer = conversationRenderer
         self.toolEnvelope = toolEnvelope
+        self.constraintCompiler = constraintCompiler
         self.runtimeFactory = runtimeFactory
     }
 
@@ -72,7 +76,15 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
                             plan: plan
                         )
                         verified.insert(.toolCalling)
-                        if constrained { verified.insert(.constrainedOutput) }
+                        if constrained {
+                            try await verifyDirectConstraints(
+                                renderer: renderer,
+                                runtime: runtime,
+                                modelID: model.id,
+                                plan: plan
+                            )
+                            verified.insert(.constrainedOutput)
+                        }
                         identity = try await verificationIdentity(
                             model: model,
                             renderer: renderer,
@@ -213,6 +225,21 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             maximumOutputTokens: executionPlan.maximumOutputTokens,
             temperature: options.temperature
         )
+        if control.constraint != nil {
+            guard let compiled = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+                throw BoneLlamaAdapterError.unsupportedGenerationControl
+            }
+            let result = try await compiled.generate(
+                prompt: rendered.prompt,
+                executionPlan: executionPlan,
+                options: effectiveOptions,
+                control: try BoneLlamaCompiledGenerationControl(
+                    control: control,
+                    compiler: constraintCompiler
+                )
+            )
+            return (result, control)
+        }
         if control.requiresControlledRuntime {
             guard let controlled = runtime as? any BoneLlamaControlledGenerationRuntime else {
                 throw BoneLlamaAdapterError.unsupportedGenerationControl
@@ -233,6 +260,94 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         return (result, control)
     }
 
+    private func verifyDirectConstraints(
+        renderer: any BoneLlamaConversationRendering,
+        runtime: any BoneLlamaRuntime,
+        modelID: String,
+        plan: BoneLocalRuntimePlan
+    ) async throws {
+        let enumConstraint = BoneLlamaGenerationConstraint.enumChoice(["ready", "not-ready"])
+        let enumResult = try await directConstraintGenerate(
+            constraint: enumConstraint,
+            renderer: renderer,
+            runtime: runtime,
+            modelID: modelID,
+            plan: plan
+        )
+        try BoneLlamaTerminationValidator.validate(
+            enumResult.termination,
+            control: try .init(constraint: enumConstraint),
+            requiresCompleteOutput: true
+        )
+        guard enumResult.text == "ready" else {
+            throw BoneLlamaAdapterError.invalidToolCallingResponse
+        }
+
+        let schema = BoneToolSchema.object(
+            properties: ["ok": .boolean],
+            required: ["ok"],
+            additionalProperties: false
+        )
+        let schemaConstraint = BoneLlamaGenerationConstraint.jsonSchema(schema)
+        let schemaResult = try await directConstraintGenerate(
+            constraint: schemaConstraint,
+            renderer: renderer,
+            runtime: runtime,
+            modelID: modelID,
+            plan: plan
+        )
+        try BoneLlamaTerminationValidator.validate(
+            schemaResult.termination,
+            control: try .init(constraint: schemaConstraint),
+            requiresCompleteOutput: true
+        )
+        do {
+            try BoneToolSchemaValidator.validate(
+                arguments: Data(schemaResult.text.utf8),
+                against: schema
+            )
+        } catch {
+            throw BoneLlamaAdapterError.invalidToolCallingResponse
+        }
+    }
+
+    private func directConstraintGenerate(
+        constraint: BoneLlamaGenerationConstraint,
+        renderer: any BoneLlamaConversationRendering,
+        runtime: any BoneLlamaRuntime,
+        modelID: String,
+        plan: BoneLocalRuntimePlan
+    ) async throws -> BoneLlamaGenerationResult {
+        guard let compiledRuntime = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+            throw BoneLlamaAdapterError.unsupportedGenerationControl
+        }
+        let conversation = try BoneLlamaConversationBuilder.build(request: .init(
+            modelID: modelID,
+            messages: [.init(role: .user, content: "Return the synthetic constraint value.")]
+        ))
+        let rendered = try await renderer.render(conversation: conversation, using: runtime)
+        guard rendered.generationControl.constraint == nil else {
+            throw BoneLlamaAdapterError.invalidGenerationControl
+        }
+        let control = try BoneLlamaGenerationControl(
+            stopTokenIDs: rendered.generationControl.stopTokenIDs,
+            stopStrings: rendered.generationControl.stopStrings,
+            constraint: constraint
+        )
+        let options = try BoneLlamaGenerationOptions(maximumOutputTokens: min(256, plan.maximumOutputTokens), temperature: 0)
+        let executionPlan = try BoneLlamaPromptExecutionPlanner.plan(
+            tokenization: try await runtime.tokenize(prompt: rendered.prompt),
+            configuration: .init(plan: plan),
+            requestedMaximumOutputTokens: options.maximumOutputTokens
+        )
+        return try await compiledRuntime.generate(
+            prompt: rendered.prompt,
+            executionPlan: executionPlan,
+            options: try .init(maximumOutputTokens: executionPlan.maximumOutputTokens, temperature: 0),
+            control: try .init(control: control, compiler: constraintCompiler)
+        )
+    }
+
     private func verificationIdentity(
         model: BoneLocalModelDescriptor,
         renderer: any BoneLlamaConversationRendering,
@@ -250,8 +365,8 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         let rendered = try await renderer.render(conversation: sample, using: runtime)
         let constraint = try envelope.generationConstraint(tools: [Self.syntheticTool])
         let compiledDigest: String?
-        if let constraint {
-            compiledDigest = try BoneLlamaGBNFCompiler().compile(constraint).sourceDigest
+        if let constraint, let constraintCompiler {
+            compiledDigest = try constraintCompiler.compile(constraint).sourceDigest
         } else {
             compiledDigest = nil
         }
@@ -274,9 +389,9 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             batchTokens: plan.batchTokens,
             addGenerationPrompt: rendered.templateIdentity.addGenerationPrompt,
             maximumOutputTokens: min(256, plan.maximumOutputTokens),
-            constraintCompilerID: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.id,
-            constraintCompilerVersion: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.version,
-            constraintDialect: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.dialect,
+            constraintCompilerID: compiledDigest == nil ? nil : constraintCompiler?.identity.id,
+            constraintCompilerVersion: compiledDigest == nil ? nil : constraintCompiler?.identity.version,
+            constraintDialect: compiledDigest == nil ? nil : constraintCompiler?.identity.dialect,
             schemaCanonicalFormatVersion: compiledDigest == nil ? nil : BoneToolSchemaCanonicalEncoder.formatVersion,
             controlCanonicalFormatVersion: compiledDigest == nil ? nil : BoneLlamaGenerationControlCanonicalizer.formatVersion,
             compiledConstraintDigest: compiledDigest,
