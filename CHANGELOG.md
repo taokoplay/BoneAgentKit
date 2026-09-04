@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增显式版本化的 `BoneToolSchemaCanonicalEncoder` 与 Llama Generation Control canonical identity，替代 `String(describing:)`，并避免在身份中保存 Stop、Schema、Grammar 或输出正文。
+- 新增受信任的 `BoneLlamaCompiledConstraint`、`BoneLlamaGBNFCompiler` 与 `BoneLlamaCompiledConstraintRuntime`；支持精确 Enum 以及 boolean、无范围 integer/number、无长度 string/enum、无界 array、required-only closed object 和受限 tagged union。
+- 新增 UTF-8 增量 Stop Matcher，支持跨 chunk、多字节字符、重叠与前缀 Stop；Generation termination 现在携带实际 Stop Token ID 或 Stop String index。
+- Canonical Llama Engine 现可将请求级 `outputConstraint` 编译后交给真实 Grammar Runtime，并在返回后再次执行逐字节 Enum 或完整 JSON Schema 验证。
+- Runtime Smoke 现覆盖 constrained Tool 两轮、直接 Enum 与 JSON 输出，并将 Compiler、Canonical 格式、Grammar Runtime、Stop Matcher 和 Termination contract 绑定到执行身份。
+- Native Template Runtime 新增 reasoning mode 与 add-generation-prompt 能力协商。
+
+### Changed
+
+- Llama constraint 请求不再允许旧 `BoneLlamaControlledGenerationRuntime` 解释 Schema；必须实现 `BoneLlamaCompiledConstraintRuntime`。Stop-only 请求仍可沿用旧协议。
+- `BoneLlamaGenerationTermination.stopToken` / `.stopString` 改为带证据的 `stopToken(id:)` / `stopString(index:)`。Constraint 和 Tool Envelope 继续拒绝截断或模糊的 `runtimeCompleted`。
+- Alpha.8 GBNF 首版对 optional properties、开放 `additionalProperties`、字符串/数组长度和数值范围前置拒绝，不做 prompt-only 或宽松降级。
+
 ## [0.2.0-alpha.7] - 2026-09-03
 
 ### Added

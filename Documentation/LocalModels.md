@@ -92,13 +92,18 @@ let engine = BoneLlamaInferenceEngine(
 )
 ```
 
-具体 Runtime 按需实现三项独立能力：
+具体 Runtime 按需实现四项独立能力：
 
-- `BoneLlamaNativeTemplateRenderingRuntime`：从 GGUF metadata 对规范化 Conversation 应用且只应用一次模板；
-- `BoneLlamaControlledGenerationRuntime`：执行 Stop Token、Stop String 与由受信任 Adapter 产生的 Schema Constraint，并返回稳定 termination；
-- `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer 与 Constraint Decoder 的稳定身份供 Smoke 绑定。
+- `BoneLlamaNativeTemplateRenderingRuntime`：先声明支持的 reasoning mode 与 add-generation-prompt，再从 GGUF metadata 对规范化 Conversation 应用且只应用一次模板；
+- `BoneLlamaControlledGenerationRuntime`：仅用于 Stop-only 兼容请求；
+- `BoneLlamaCompiledConstraintRuntime`：把 SDK 受信任 Compiler 产生的 `BoneLlamaCompiledGenerationControl` 接入真实 Grammar Sampler；Constraint 请求不得交给旧协议宽松解释；
+- `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer、Constraint Decoder 与 Grammar Runtime 的稳定身份供 Smoke 绑定。
 
-`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`，而 `stopToken` / `stopString` 只有在本次 Control 实际配置对应 Stop 时才可进入解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Generation Prompt、Control、Envelope、Constraint Decoder、Context、Batch 或 Smoke 输出容量任一变化，都必须重新执行 Smoke。Engine 必须显式获得当前 `BoneCapabilityVerificationIdentity` 并精确匹配 Profile；缺失或漂移时撤销 Tool Calling 与 Constrained Output。
+请求级 `outputConstraint` 只允许 canonical pipeline、文本 `responseFormat` 和空 Tool Catalog。`BoneLlamaGBNFCompiler` 首版支持精确 Enum、boolean、无范围 integer/number、无长度 string/string enum、无界 array、所有属性均 required 的 closed object，以及满足相同限制的 tagged union；optional properties、`additionalProperties == true`、字符串/数组长度与数值范围会在生成前失败。Object Grammar 使用 UTF-8 排序后的 canonical key order，因此可比 Validator 的 JSON 无序语义更窄，但不得更宽。Grammar 成功不替代 SDK 后验复验。
+
+`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`。Runtime 返回 `stopToken(id:)` 或 `stopString(index:)` 时，ID/index 必须匹配本次 Control。Stop String 应通过 `BoneLlamaStopMatcher` 按 UTF-8 bytes 增量处理，支持跨 token/chunk、多字节字符、重叠与互为前缀的 Stop，且未决前缀不能提前交付。
+
+模板正文、Stop String、Prompt、Grammar 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Generation Prompt、Control、Envelope、Compiler、Grammar Runtime、Stop Matcher、Termination contract、Context、Batch 或 Smoke 输出容量任一变化，都必须重新执行 Smoke。Engine 必须显式获得当前 `BoneCapabilityVerificationIdentity` 并精确匹配 Profile；缺失或漂移时撤销 Tool Calling 与 Constrained Output。
 
 云端验证身份与这里的本地 Runtime 身份是两套独立证据。`BoneProviderCapabilityVerificationIdentity` 绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式，不包含 GGUF Artifact、Tokenizer、Template、Prefill 或 Context/Batch；`BoneCapabilityVerificationIdentity` 也不能替云 Provider 背书。任一侧通过 Smoke 都不会自动授予另一侧能力。
 

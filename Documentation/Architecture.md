@@ -93,7 +93,7 @@ Profile 为 nil 表示 unknown，为兼容既有 Host，普通能力继续采用
 | --- | --- | --- |
 | 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
 | 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
-| 受约束输出 | 请求级强制 + 执行身份 | `outputConstraint` 要求 `.constrainedOutput`；云端映射官方 JSON Schema 协议，本地映射受信任 Runtime Constraint；首版禁止与 structured `responseFormat` 或 Tools 混用，Prompt 指令不算能力 |
+| 受约束输出 | 请求级强制 + 执行身份 | `outputConstraint` 要求 `.constrainedOutput`；云端映射官方 JSON Schema 协议，本地由受信任 Compiler 生成 GBNF 并要求 `BoneLlamaCompiledConstraintRuntime` 接入真实 Sampler，返回后继续本地复验；首版禁止与 structured `responseFormat` 或 Tools 混用，Prompt 指令不算能力 |
 | Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由唯一模板 Renderer、Tool Envelope 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
 | Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |
