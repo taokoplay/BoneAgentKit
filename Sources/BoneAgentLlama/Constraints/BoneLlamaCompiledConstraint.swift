@@ -63,7 +63,7 @@ public struct BoneLlamaCompiledConstraint: Equatable, Sendable {
     }
 
     private static func digest(_ source: String) -> String {
-        SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+        (try? BoneLlamaCompiledConstraintDigest.digest(source)) ?? ""
     }
 
     private static func isValidDigest(_ value: String) -> Bool {
@@ -83,6 +83,12 @@ public struct BoneLlamaCompiledConstraint: Equatable, Sendable {
 
     private static func isASCIIDigit(_ byte: UInt8) -> Bool {
         (0x30...0x39).contains(byte)
+    }
+}
+
+enum BoneLlamaCompiledConstraintDigest {
+    static func digest(_ source: String) throws -> String {
+        SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 
