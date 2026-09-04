@@ -1,6 +1,6 @@
 import CryptoKit
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneLocalRuntimeProbeCoordinatorTests: XCTestCase {
     func testMetadataProbeDoesNotInvokeAdapterAndReturnsCompatibleReport() async throws {
@@ -74,11 +74,11 @@ final class BoneLocalRuntimeProbeCoordinatorTests: XCTestCase {
         }
     }
 
-    private static func passed() -> BoneLocalRuntimeAdapterProbeResult {
+    private static func passed() -> BoneLocalModelBackendProbeResult {
         .init(check: .init(kind: .modelLoad, status: .passed))
     }
 
-    private func passed() -> BoneLocalRuntimeAdapterProbeResult { Self.passed() }
+    private func passed() -> BoneLocalModelBackendProbeResult { Self.passed() }
 
     private func makeContext() throws -> (
         root: URL,
@@ -120,16 +120,16 @@ final class BoneLocalRuntimeProbeCoordinatorTests: XCTestCase {
     }
 }
 
-private actor ProbeAdapterFixture: BoneLocalRuntimeAdapterProbing {
-    nonisolated let descriptor: BoneLocalRuntimeAdapterDescriptor
-    private let result: BoneLocalRuntimeAdapterProbeResult
+private actor ProbeAdapterFixture: BoneLocalModelBackendProbing {
+    nonisolated let descriptor: BoneLocalModelBackendDescriptor
+    private let result: BoneLocalModelBackendProbeResult
     private var count = 0
 
     init(
         runtimeVersion: Int = 1,
         supportedFormats: Set<BoneLocalModelFormat> = [.gguf],
         maximumDepth: BoneLocalRuntimeProbeDepth = .load,
-        result: BoneLocalRuntimeAdapterProbeResult
+        result: BoneLocalModelBackendProbeResult
     ) {
         descriptor = .init(
             id: "adapter", runtimeVersion: runtimeVersion,
@@ -149,7 +149,7 @@ private actor ProbeAdapterFixture: BoneLocalRuntimeAdapterProbing {
         environment: BoneLocalRuntimeEnvironment,
         plan: BoneLocalRuntimePlan,
         depth: BoneLocalRuntimeProbeDepth
-    ) async -> BoneLocalRuntimeAdapterProbeResult {
+    ) async -> BoneLocalModelBackendProbeResult {
         count += 1
         return result
     }

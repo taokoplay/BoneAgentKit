@@ -1,9 +1,9 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import Foundation
 
-public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Sendable {
-    public let descriptor: BoneLocalRuntimeAdapterDescriptor
+public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendable {
+    public let descriptor: BoneLocalModelBackendDescriptor
     private let legacyToolCalling: (any BoneLlamaToolCalling)?
     private let conversationRenderer: (any BoneLlamaConversationRendering)?
     private let toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
@@ -56,7 +56,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         environment: BoneLocalRuntimeEnvironment,
         plan: BoneLocalRuntimePlan,
         depth: BoneLocalRuntimeProbeDepth
-    ) async -> BoneLocalRuntimeAdapterProbeResult {
+    ) async -> BoneLocalModelBackendProbeResult {
         let kind: BoneLocalRuntimeProbeCheckKind = depth == .smoke ? .smoke : .modelLoad
         let runtime = runtimeFactory()
         do {
@@ -491,7 +491,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
     private static func descriptor(
         _ version: Int,
         _ constraints: BoneLocalRuntimeConstraints
-    ) -> BoneLocalRuntimeAdapterDescriptor {
+    ) -> BoneLocalModelBackendDescriptor {
         .init(
             id: "llama.cpp",
             runtimeVersion: version,

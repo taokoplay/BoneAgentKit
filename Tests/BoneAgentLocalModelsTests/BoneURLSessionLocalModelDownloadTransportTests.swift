@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneURLSessionLocalModelDownloadTransportTests: XCTestCase {
     func testDownloadsResponseToRequestedDestination() async throws {

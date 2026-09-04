@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import Foundation
 
 public struct BoneLlamaRuntimeConfiguration: Equatable, Sendable {

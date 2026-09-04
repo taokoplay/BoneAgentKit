@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import Foundation
 
 public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sendable {

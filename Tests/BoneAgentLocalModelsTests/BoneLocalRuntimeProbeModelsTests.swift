@@ -1,13 +1,13 @@
 import BoneAgentKit
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
     func testProbeDepthOrderingAndAdapterSupport() {
         XCTAssertLessThan(BoneLocalRuntimeProbeDepth.metadata, .load)
         XCTAssertLessThan(BoneLocalRuntimeProbeDepth.load, .smoke)
 
-        let adapter = BoneLocalRuntimeAdapterDescriptor(
+        let adapter = BoneLocalModelBackendDescriptor(
             id: "llama",
             runtimeVersion: 2,
             supportedFormats: [.gguf],
@@ -60,7 +60,7 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
             contextTokens: 4096,
             batchTokens: 256
         )
-        let result = BoneLocalRuntimeAdapterProbeResult(
+        let result = BoneLocalModelBackendProbeResult(
             check: .init(kind: .smoke, status: .passed),
             verifiedCapabilities: [.text],
             verificationIdentity: identity

@@ -1,6 +1,6 @@
 import BoneAgentKit
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneLocalRuntimePlannerTests: XCTestCase {
     func testPlannerClampsModelRuntimeAndHostLimits() throws {

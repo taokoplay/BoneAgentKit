@@ -1,5 +1,5 @@
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneLocalModelDownloadSecurityPolicyTests: XCTestCase {
     func testAllowsExactAndWildcardHTTPSHosts() throws {

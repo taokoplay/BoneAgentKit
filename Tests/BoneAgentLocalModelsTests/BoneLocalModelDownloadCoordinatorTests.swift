@@ -1,6 +1,6 @@
 import CryptoKit
 import XCTest
-@testable import BoneAgentLocalRuntime
+@testable import BoneAgentLocalModels
 
 final class BoneLocalModelDownloadCoordinatorTests: XCTestCase {
     func testRejectsInsufficientDiskBeforeStartingTransport() async throws {

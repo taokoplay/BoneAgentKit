@@ -9,7 +9,7 @@ public enum BoneLocalRuntimeProbeDepth: Int, Codable, Comparable, Sendable {
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-public struct BoneLocalRuntimeAdapterDescriptor: Equatable, Sendable {
+public struct BoneLocalModelBackendDescriptor: Equatable, Sendable {
     public let id: String
     public let runtimeVersion: Int
     public let supportedFormats: Set<BoneLocalModelFormat>
@@ -119,7 +119,7 @@ public struct BoneLocalRuntimeProbeReport: Equatable, Sendable {
     }
 }
 
-public struct BoneLocalRuntimeAdapterProbeResult: Equatable, Sendable {
+public struct BoneLocalModelBackendProbeResult: Equatable, Sendable {
     public let check: BoneLocalRuntimeProbeCheck
     /// 本次 Probe 实际验证通过的推理能力；load/metadata Probe 通常为空。
     public let verifiedCapabilities: Set<BoneInferenceCapability>
@@ -136,8 +136,8 @@ public struct BoneLocalRuntimeAdapterProbeResult: Equatable, Sendable {
     }
 }
 
-public protocol BoneLocalRuntimeAdapterProbing: Sendable {
-    var descriptor: BoneLocalRuntimeAdapterDescriptor { get }
+public protocol BoneLocalModelBackendProbing: Sendable {
+    var descriptor: BoneLocalModelBackendDescriptor { get }
 
     func probe(
         model: BoneLocalModelDescriptor,
@@ -145,5 +145,5 @@ public protocol BoneLocalRuntimeAdapterProbing: Sendable {
         environment: BoneLocalRuntimeEnvironment,
         plan: BoneLocalRuntimePlan,
         depth: BoneLocalRuntimeProbeDepth
-    ) async -> BoneLocalRuntimeAdapterProbeResult
+    ) async -> BoneLocalModelBackendProbeResult
 }

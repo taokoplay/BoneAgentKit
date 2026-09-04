@@ -11,7 +11,7 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
     public func probe(
         model: BoneLocalModelDescriptor,
         environment: BoneLocalRuntimeEnvironment,
-        adapter: any BoneLocalRuntimeAdapterProbing,
+        adapter: any BoneLocalModelBackendProbing,
         depth: BoneLocalRuntimeProbeDepth,
         verifyChecksum: Bool
     ) async -> BoneLocalRuntimeProbeReport {
@@ -88,7 +88,7 @@ public struct BoneLocalRuntimeProbeCoordinator: Sendable {
 
     private func report(
         model: BoneLocalModelDescriptor,
-        adapter: any BoneLocalRuntimeAdapterProbing,
+        adapter: any BoneLocalModelBackendProbing,
         depth: BoneLocalRuntimeProbeDepth,
         checks: [BoneLocalRuntimeProbeCheck],
         verifiedCapabilities: Set<BoneInferenceCapability> = [],

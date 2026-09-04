@@ -1,4 +1,4 @@
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 

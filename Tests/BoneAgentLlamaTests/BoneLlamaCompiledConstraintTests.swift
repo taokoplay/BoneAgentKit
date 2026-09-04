@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import CryptoKit
 import XCTest
 @testable import BoneAgentLlama
