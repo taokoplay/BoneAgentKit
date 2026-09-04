@@ -1,6 +1,5 @@
 import BoneAgentKit
 import BoneAgentLocalRuntime
-import CryptoKit
 import Foundation
 
 public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Sendable {
@@ -272,7 +271,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             rendererID: rendered.templateIdentity.rendererID,
             rendererVersion: rendered.templateIdentity.rendererVersion,
             reasoningMode: rendered.templateIdentity.reasoningMode.rawValue,
-            generationControlDigest: Self.controlDigest(rendered.generationControl, constraint),
+            generationControlDigest: try Self.controlDigest(rendered.generationControl, constraint),
             toolEnvelopeID: envelope.identity.id,
             toolEnvelopeVersion: envelope.identity.version,
             constraintDecoderID: components.constraintDecoderID,
@@ -349,11 +348,13 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
     private static func controlDigest(
         _ control: BoneLlamaGenerationControl,
         _ constraint: BoneLlamaGenerationConstraint?
-    ) -> String {
-        var value = control.stopTokenIDs.map(String.init).joined(separator: ",")
-        value += "|" + control.stopStrings.joined(separator: "\u{1F}")
-        value += "|" + String(describing: constraint ?? control.constraint)
-        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    ) throws -> String {
+        let effective = try BoneLlamaGenerationControl(
+            stopTokenIDs: control.stopTokenIDs,
+            stopStrings: control.stopStrings,
+            constraint: constraint ?? control.constraint
+        )
+        return try BoneLlamaGenerationControlCanonicalizer.digest(effective)
     }
 
     private static func descriptor(
