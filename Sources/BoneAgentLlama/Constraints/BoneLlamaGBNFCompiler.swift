@@ -59,8 +59,15 @@ public struct BoneLlamaGBNFCompiler: BoneLlamaConstraintCompiling, Sendable {
             )
             return try makeCompiled(source: writer.source())
 
-        case .jsonSchema:
-            throw BoneLlamaConstraintCompilerError.unsupportedSchema
+        case let .jsonSchema(schema):
+            do {
+                try BoneToolSchemaValidator.validateDefinition(schema)
+            } catch {
+                throw BoneLlamaConstraintCompilerError.invalidConstraint
+            }
+            var builder = SchemaGrammarBuilder(limits: limits)
+            let source = try builder.compile(schema)
+            return try makeCompiled(source: source)
         }
     }
 
