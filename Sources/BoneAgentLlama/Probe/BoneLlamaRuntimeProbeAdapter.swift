@@ -249,6 +249,12 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
         ])
         let rendered = try await renderer.render(conversation: sample, using: runtime)
         let constraint = try envelope.generationConstraint(tools: [Self.syntheticTool])
+        let compiledDigest: String?
+        if let constraint {
+            compiledDigest = try BoneLlamaGBNFCompiler().compile(constraint).sourceDigest
+        } else {
+            compiledDigest = nil
+        }
         return try .init(
             artifactSHA256: model.artifact.sha256,
             runtimeID: descriptor.id,
@@ -267,7 +273,18 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             contextTokens: plan.contextTokens,
             batchTokens: plan.batchTokens,
             addGenerationPrompt: rendered.templateIdentity.addGenerationPrompt,
-            maximumOutputTokens: min(256, plan.maximumOutputTokens)
+            maximumOutputTokens: min(256, plan.maximumOutputTokens),
+            constraintCompilerID: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.id,
+            constraintCompilerVersion: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.version,
+            constraintDialect: compiledDigest == nil ? nil : BoneLlamaGBNFCompiler().identity.dialect,
+            schemaCanonicalFormatVersion: compiledDigest == nil ? nil : BoneToolSchemaCanonicalEncoder.formatVersion,
+            controlCanonicalFormatVersion: compiledDigest == nil ? nil : BoneLlamaGenerationControlCanonicalizer.formatVersion,
+            compiledConstraintDigest: compiledDigest,
+            grammarRuntimeID: compiledDigest == nil ? nil : components.grammarRuntimeID,
+            grammarRuntimeVersion: compiledDigest == nil ? nil : components.grammarRuntimeVersion,
+            stopMatcherID: compiledDigest == nil ? nil : "bone.utf8-stop",
+            stopMatcherVersion: compiledDigest == nil ? nil : "1",
+            terminationContractVersion: compiledDigest == nil ? nil : 1
         )
     }
 

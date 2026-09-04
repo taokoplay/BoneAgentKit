@@ -38,17 +38,23 @@ public struct BoneLlamaRuntimeVerificationComponents: Equatable, Sendable {
     public let tokenizerVersion: String
     public let constraintDecoderID: String?
     public let constraintDecoderVersion: String?
+    public let grammarRuntimeID: String?
+    public let grammarRuntimeVersion: String?
 
     public init(
         tokenizerID: String,
         tokenizerVersion: String,
         constraintDecoderID: String? = nil,
-        constraintDecoderVersion: String? = nil
+        constraintDecoderVersion: String? = nil,
+        grammarRuntimeID: String? = nil,
+        grammarRuntimeVersion: String? = nil
     ) {
         self.tokenizerID = tokenizerID
         self.tokenizerVersion = tokenizerVersion
         self.constraintDecoderID = constraintDecoderID
         self.constraintDecoderVersion = constraintDecoderVersion
+        self.grammarRuntimeID = grammarRuntimeID
+        self.grammarRuntimeVersion = grammarRuntimeVersion
     }
 }
 

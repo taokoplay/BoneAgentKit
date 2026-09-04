@@ -92,6 +92,12 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling, .constrainedOutput])
         XCTAssertEqual(result.verificationIdentity?.toolEnvelopeVersion, "2")
         XCTAssertEqual(result.verificationIdentity?.artifactSHA256, String(repeating: "a", count: 64))
+        XCTAssertEqual(result.verificationIdentity?.constraintCompilerID, "bone.gbnf")
+        XCTAssertEqual(result.verificationIdentity?.constraintDialect, "bone-gbnf-v1")
+        XCTAssertEqual(result.verificationIdentity?.grammarRuntimeID, "fixture-gbnf-sampler")
+        XCTAssertEqual(result.verificationIdentity?.stopMatcherID, "bone.utf8-stop")
+        XCTAssertEqual(result.verificationIdentity?.terminationContractVersion, 1)
+        XCTAssertTrue(result.verificationIdentity?.hasConstraintRuntimeIdentity == true)
         let controls = await runtime.controls()
         XCTAssertEqual(controls.count, 2)
         XCTAssertTrue(controls.allSatisfy { $0.constraint != nil })
@@ -214,7 +220,9 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
             tokenizerID: "fixture-tokenizer",
             tokenizerVersion: "1",
             constraintDecoderID: "fixture-grammar",
-            constraintDecoderVersion: "1"
+            constraintDecoderVersion: "1",
+            grammarRuntimeID: "fixture-gbnf-sampler",
+            grammarRuntimeVersion: "1"
         )
     }
     func smokeTest() async throws {}

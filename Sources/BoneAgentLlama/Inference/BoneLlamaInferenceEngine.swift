@@ -91,6 +91,10 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
                 resolved.subtract(advanced)
                 return resolved
             }
+            if resolved.contains(.constrainedOutput),
+               (!verifiedIdentity.hasConstraintRuntimeIdentity || !currentIdentity.hasConstraintRuntimeIdentity) {
+                resolved.remove(.constrainedOutput)
+            }
         }
         return resolved
     }

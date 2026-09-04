@@ -162,7 +162,18 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             contextTokens: 512,
             batchTokens: 32,
             addGenerationPrompt: true,
-            maximumOutputTokens: 64
+            maximumOutputTokens: 64,
+            constraintCompilerID: "bone.gbnf",
+            constraintCompilerVersion: "1",
+            constraintDialect: "bone-gbnf-v1",
+            schemaCanonicalFormatVersion: 1,
+            controlCanonicalFormatVersion: 1,
+            compiledConstraintDigest: String(repeating: "d", count: 64),
+            grammarRuntimeID: "fixture.gbnf",
+            grammarRuntimeVersion: "1",
+            stopMatcherID: "bone.utf8-stop",
+            stopMatcherVersion: "1",
+            terminationContractVersion: 1
         )
     }
 }

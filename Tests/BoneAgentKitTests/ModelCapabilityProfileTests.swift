@@ -38,6 +38,10 @@ final class ModelCapabilityProfileTests: XCTestCase {
         XCTAssertFalse(identity.matches(try Self.identity(toolEnvelopeVersion: "3")))
         XCTAssertFalse(identity.matches(try Self.identity(addGenerationPrompt: false)))
         XCTAssertFalse(identity.matches(try Self.identity(maximumOutputTokens: 128)))
+        XCTAssertFalse(identity.matches(try Self.identity(constraintCompilerVersion: "2")))
+        XCTAssertFalse(identity.matches(try Self.identity(grammarRuntimeVersion: "2")))
+        XCTAssertFalse(identity.matches(try Self.identity(stopMatcherVersion: "2")))
+        XCTAssertFalse(identity.matches(try Self.identity(terminationContractVersion: 2)))
     }
 
     func testIdentityValidatesDigestsAndPairedOptionalComponents() {
@@ -68,7 +72,11 @@ final class ModelCapabilityProfileTests: XCTestCase {
         batchTokens: Int = 256,
         toolEnvelopeVersion: String? = "2",
         addGenerationPrompt: Bool? = true,
-        maximumOutputTokens: Int? = 256
+        maximumOutputTokens: Int? = 256,
+        constraintCompilerVersion: String? = "1",
+        grammarRuntimeVersion: String? = "1",
+        stopMatcherVersion: String? = "1",
+        terminationContractVersion: Int? = 1
     ) throws -> BoneCapabilityVerificationIdentity {
         try .init(
             artifactSHA256: artifactSHA256,
@@ -88,7 +96,18 @@ final class ModelCapabilityProfileTests: XCTestCase {
             contextTokens: 4096,
             batchTokens: batchTokens,
             addGenerationPrompt: addGenerationPrompt,
-            maximumOutputTokens: maximumOutputTokens
+            maximumOutputTokens: maximumOutputTokens,
+            constraintCompilerID: "bone.gbnf",
+            constraintCompilerVersion: constraintCompilerVersion,
+            constraintDialect: "bone-gbnf-v1",
+            schemaCanonicalFormatVersion: 1,
+            controlCanonicalFormatVersion: 1,
+            compiledConstraintDigest: String(repeating: "e", count: 64),
+            grammarRuntimeID: "llama-grammar",
+            grammarRuntimeVersion: grammarRuntimeVersion,
+            stopMatcherID: "bone.utf8-stop",
+            stopMatcherVersion: stopMatcherVersion,
+            terminationContractVersion: terminationContractVersion
         )
     }
 }
