@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.8] - 2026-09-04
+
 ### Added
 
 - 新增显式版本化的 `BoneToolSchemaCanonicalEncoder` 与 Llama Generation Control canonical identity，替代 `String(describing:)`，并避免在身份中保存 Stop、Schema、Grammar 或输出正文。
