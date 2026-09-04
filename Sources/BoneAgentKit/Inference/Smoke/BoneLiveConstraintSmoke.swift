@@ -19,6 +19,7 @@ public enum BoneLiveConstraintSmoke {
         var failures: [BoneLiveConstraintSmokeFailure: Int] = [:]
 
         for _ in 0..<iterations {
+            try Task.checkCancellation()
             let request = BoneInferenceRequest(
                 modelID: modelID,
                 messages: [.init(role: .user, content: "Return the allowed decision value for this synthetic smoke test.")],
@@ -41,6 +42,8 @@ public enum BoneLiveConstraintSmoke {
                     throw BoneInferenceTransportError.invalidResponse
                 }
                 succeeded += 1
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 failures[classify(error), default: 0] += 1
             }
