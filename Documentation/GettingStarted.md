@@ -54,14 +54,14 @@ struct QuickStartExample {
         let registry = try BoneAgentToolRegistry(
             tools: [BoneAnyAgentTool(EchoTool())]
         )
-        let kit = BoneAgentKit(
+        let agent = BoneAgent(
             inferenceEngine: ExistingModelAdapter(),
             toolRegistry: registry,
             toolContext: BoneAgentEmptyContext(),
             configuration: try BoneAgentConfiguration(maximumSteps: 4)
         )
 
-        let result = try await kit.run(
+        let result = try await agent.run(
             modelID: "project-model-id",
             messages: [BoneInferenceMessage(role: .user, content: "Say hello")]
         )

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.9] - 2026-09-04
+
+### Changed
+
+- 删除与 module 同名的 `BoneAgentKit` Facade，`BoneAgent` 成为唯一 Agent 运行入口；Workflow 类型统一为 `BoneWorkflow*`。
+- 合并两套 Invocation 概念为 `BoneInferenceInvocationMode`，并用 `BufferedStreaming` 区分聚合式流传输与逐事件 Streaming。
+- Product/module/test target `BoneAgentLocalRuntime` 改为 `BoneAgentLocalModels`，Probe Adapter abstraction 改为 `BoneLocalModelBackend*`。
+- 本地能力证据改为 `BoneLocalExecutionVerificationIdentity`；Grammar Parser 与 Grammar Sampler 分别绑定身份，任一漂移都会撤销高级能力。
+- Llama Constraint seam 改为 `BoneLlamaConstraintGenerationRuntime` 与 `BoneLlamaResolvedGenerationControl`；删除旧 Prompt Encoder 和组合 Tool Calling 管线，只保留 canonical Conversation Renderer + Tool Envelope。
+- 测试术语改为 `BoneCrashBoundaryHarness` / `boundaryVisited`，基础 Runtime 检查改为 `verifyBasicGeneration()`。
+- 本次为 1.0 前 clean break，不保留旧 public typealias、Product/module 或 initializer；保持 Invocation 的 `nonStreaming` / `streaming` Codable raw values 不变。
+
 ## [0.2.0-alpha.8] - 2026-09-04
 
 ### Added

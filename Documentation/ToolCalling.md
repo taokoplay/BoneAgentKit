@@ -36,7 +36,7 @@ let message = try BoneInferenceMessage.toolResult(
 
 约束生成只提高结构合法性，不替代 Registry、Tool Schema、Impact Policy、授权和预算校验。`.maximumTokens` 终止不会进入 Envelope Decoder，避免交付半截 JSON。`reasoningDisclosure` 对本地 Llama 仍只允许 `.hidden`。
 
-alpha.6 的 `BoneLlamaToolCalling` / `BoneLlamaJSONToolCallingCodec` 组合入口继续兼容，但它已经包含完整 ChatML 模板，不能再与 Native Renderer 叠加。新接入应使用独立 Renderer + Envelope。
+Alpha.9 已删除同时承担 Prompt 模板与 Tool wire 的旧组合入口。所有接入统一使用独立 `BoneLlamaConversationRendering` + `BoneLlamaToolEnvelopeCoding`；编译错误即旧调用方的迁移清单。
 
 ## 云 Provider Output Constraint
 

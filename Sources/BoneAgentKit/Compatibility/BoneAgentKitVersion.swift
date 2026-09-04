@@ -6,8 +6,8 @@ public enum BoneAgentKitVersion: Sendable {
     public static let major = 0
     public static let minor = 2
     public static let patch = 0
-    public static let prerelease = "alpha.8"
+    public static let prerelease = "alpha.9"
 
     /// 符合 Semantic Versioning 2.0.0 的完整版本字符串。
-    public static let current = "0.2.0-alpha.8"
+    public static let current = "0.2.0-alpha.9"
 }

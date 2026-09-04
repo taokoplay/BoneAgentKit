@@ -8,11 +8,11 @@
 
 ## Persistence
 
-`BoneAgentPersistence` 将 Run 与 Checkpoint 作为同一原子提交单元，提供 create、load、CAS commit 和 acquireLease。所有推进同时受单调 revision 与 lease generation fencing 约束。Host Adapter 应在同一原子事务中完成；不能把 Run 和 Checkpoint 拆到两个无法协调的 Store。
+`BoneWorkflowPersistence` 将 Run 与 Checkpoint 作为同一原子提交单元，提供 create、load、CAS commit 和 acquireLease。所有推进同时受单调 revision 与 lease generation fencing 约束。Host Adapter 应在同一原子事务中完成；不能把 Run 和 Checkpoint 拆到两个无法协调的 Store。
 
 ## Agent Step
 
-`BoneAgentWorkflowStepController` 在每次 inference response 和每个 Tool result 后先提交 checkpoint，再发布安全事件并进入下一项工作。授权等待、pause、resume、cancel、成功、失败和取消终态都可恢复；事件不是持久事实源。旧一次性 `BoneAgentKit.run` API 保持兼容。
+`BoneWorkflowAgentStepController` 在每次 inference response 和每个 Tool result 后先提交 checkpoint，再发布安全事件并进入下一项工作。授权等待、pause、resume、cancel、成功、失败和取消终态都可恢复；事件不是持久事实源。Agent 运行统一由 `BoneAgent.run` 提供。
 
 ## 副作用
 

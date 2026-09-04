@@ -31,7 +31,7 @@ User Intent
 | 可恢复步骤 | `Workflow/Steps` |
 | Synthetic Test Harness | 独立 Product `BoneAgentTesting` |
 
-因此，BoneAgentKit **保留 Agent Harness 的架构能力，但不再用 Harness 作为生产 SDK 的品牌或领域目录**。`BoneAgentKit` 表示生产运行时；`BoneAgentTesting` 表示测试支持；只有 `BoneCrashTestHarness` 这类真实测试支架继续使用 Harness 术语。旧 `BoneHarnessAgentKit` 仅作为 deprecated Swift typealias 提供源码迁移窗口，不代表当前架构分层。
+因此，BoneAgentKit **保留可控 Agent Runtime 的架构能力，但不再用 Harness 作为生产 SDK 的品牌或领域目录**。`BoneAgentKit` 表示 Package/Product/module；`BoneAgent` 是唯一 Agent 运行入口；`BoneAgentTesting` 提供测试支持，崩溃边界遍历由 `BoneCrashBoundaryHarness` 承担。Alpha.9 不保留旧 Facade 或迁移 typealias。
 
 ## 分层与命名
 
@@ -85,7 +85,7 @@ Workflow 使用冻结 Plan、Run/Step/Attempt 状态机、组合 Persistence、C
 
 图片生成继续由实现推导：最终 `capabilities` 会从 `nonImageCapabilities` 移除 `.imageGeneration`，仅当 `imageGenerator` 非 `nil` 时加入；`generateImages` 是统一入口强制执行组件存在性与响应资源复验。
 
-模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `providerSmoke` / `hostVerified` 证据来源及验证日期。本地 Runtime Smoke 对 Tool Calling 或受约束输出必须绑定 `BoneCapabilityVerificationIdentity`，Engine 构造时还必须提供当前执行身份并与 Profile 精确匹配；未提供或不匹配即撤销高级能力。Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Prompt、Generation Control、Tool Envelope、Constraint Decoder、Context/Batch 或 Smoke 输出容量任一变化，历史证据即不匹配。云 Provider Smoke 使用独立的 `BoneProviderCapabilityVerificationIdentity`，绑定 Provider kind、协议方言、Endpoint 身份摘要、API 版本、精确模型、Mapper/Decoder、Constraint 方言和 Streaming 模式；任一字段变化同样使证据失效。两类身份互不替代，也都不保存 Prompt、Schema、输出、凭据或完整路径/URL。
+模型级能力通过可选 `BoneModelCapabilityProfile` 表达，记录能力集合、`official` / `runtimeSmoke` / `providerSmoke` / `hostVerified` 证据来源及验证日期。本地 Runtime Smoke 对 Tool Calling 或受约束输出必须绑定 `BoneLocalExecutionVerificationIdentity`，Engine 构造时还必须提供当前执行身份并与 Profile 精确匹配；未提供或不匹配即撤销高级能力。Artifact、Runtime、Tokenizer、Template、Renderer、Reasoning mode、Generation Prompt、Generation Control、Tool Envelope、Grammar Parser/Sampler、Context/Batch 或 Smoke 输出容量任一变化，历史证据即不匹配。云 Provider Smoke 使用独立的 `BoneProviderCapabilityVerificationIdentity`，绑定 Provider kind、协议方言、Endpoint 身份摘要、API 版本、精确模型、Mapper/Decoder、Constraint 方言和 Streaming 模式；任一字段变化同样使证据失效。两类身份互不替代，也都不保存 Prompt、Schema、输出、凭据或完整路径/URL。
 
 Profile 为 nil 表示 unknown，为兼容既有 Host，普通能力继续采用 Engine 级实现；但云端 `.constrainedOutput` 是更严格的例外：OpenAI、Gemini 和 Anthropic Engine 会先移除该能力，只有官方 Provider kind、当前 Constraint 方言可编译且匹配 `.providerSmoke` 身份时才为本次请求加回。`official` 文档证据和兼容协议名称不能单独授权。`BoneAgent` 在发布 `runStarted` 前使用请求级 resolved snapshot 预检。
 
@@ -93,9 +93,9 @@ Profile 为 nil 表示 unknown，为兼容既有 Host，普通能力继续采用
 | --- | --- | --- |
 | 文本推理 | Engine 级强制 | `infer` 和 Agent Run 均要求 `.text`；缺失时联网和 `runStarted` 前失败 |
 | 结构化输出 | Engine 级强制 + 显式 fallback | 原生输出要求 `.structuredOutput`；允许时可使用 `.toolCalling` fallback，结果仍需 JSON/Schema 验证 |
-| 受约束输出 | 请求级强制 + 执行身份 | `outputConstraint` 要求 `.constrainedOutput`；云端映射官方 JSON Schema 协议，本地由受信任 Compiler 生成 GBNF 并要求 `BoneLlamaCompiledConstraintRuntime` 接入真实 Sampler，返回后继续本地复验；首版禁止与 structured `responseFormat` 或 Tools 混用，Prompt 指令不算能力 |
+| 受约束输出 | 请求级强制 + 执行身份 | `outputConstraint` 要求 `.constrainedOutput`；云端映射官方 JSON Schema 协议，本地由受信任 Compiler 生成 GBNF 并要求 `BoneLlamaConstraintGenerationRuntime` 接入真实 Sampler，返回后继续本地复验；首版禁止与 structured `responseFormat` 或 Tools 混用，Prompt 指令不算能力 |
 | Tool Calling | Engine + 模型证据交集 | 请求含 Tools 或 Agent Registry 非空时要求 `.toolCalling`；本地模型由唯一模板 Renderer、Tool Envelope 与两轮 synthetic Tool Smoke 共同验收，校验完成前不执行真实 Tool |
-| Streaming | Engine 级强制 | `streamInference` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
+| Streaming | Engine 级强制 | `inferUsingStream` 额外要求 `.streaming`；只在协议完整终态后交付，不静默退化为非流式 |
 | 图片生成 | 由实现推导 | `.imageGeneration` 只由 `imageGenerator` 推导，且由 `generateImages` 统一入口强制 |
 | 图片编辑 | 后续 | 当前没有 Capability、请求 DTO 或 Runtime API，不得假设已实现 |
 

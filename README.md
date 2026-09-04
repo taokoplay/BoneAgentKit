@@ -21,8 +21,8 @@ BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行�
 | --- | --- | --- |
 | `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
 | `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario 和 Crash Harness | 无，仅测试使用 |
-| `BoneAgentLocalRuntime` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
-| `BoneAgentLlama` | llama Runtime seam、Prompt、受限 GBNF、UTF-8 Stop、Probe 与默认 text-only、可验证 Constraint/Tool Calling Engine | 无，不包含 llama.cpp |
+| `BoneAgentLocalModels` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
+| `BoneAgentLlama` | llama Runtime seam、Conversation Renderer、受限 GBNF、UTF-8 Stop、Probe 与默认 text-only、可验证 Constraint/Tool Calling Engine | 无，不包含 llama.cpp |
 
 Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为独立 Product 暴露。
 
@@ -34,7 +34,7 @@ Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为�
 dependencies: [
     .package(
         url: "https://github.com/taokoplay/BoneAgentKit.git",
-        exact: "0.2.0-alpha.8"
+        exact: "0.2.0-alpha.9"
     )
 ]
 ```
@@ -70,7 +70,7 @@ let registry = try BoneAgentToolRegistry(
     tools: [BoneAnyAgentTool(EchoTool())]
 )
 
-let agent = BoneAgentKit(
+let agent = BoneAgent(
     inferenceEngine: engine,
     toolRegistry: registry,
     toolContext: BoneAgentEmptyContext(),
