@@ -28,19 +28,23 @@ public struct BoneLlamaStopMatcher: Sendable {
 
     public mutating func consume(_ bytes: Data) -> BoneLlamaStopMatch {
         guard !isFinished else { return .none(deliverable: Data()) }
-        pending.append(contentsOf: bytes)
+        var deliverable = Data()
+        for byte in bytes {
+            pending.append(byte)
+            if let match = earliestMatch() {
+                deliverable.append(contentsOf: pending[..<match.offset])
+                pending.removeAll(keepingCapacity: false)
+                isFinished = true
+                return .matched(index: match.index, deliverable: deliverable)
+            }
 
-        if let match = earliestMatch() {
-            let deliverable = Data(pending[..<match.offset])
-            pending.removeAll(keepingCapacity: false)
-            isFinished = true
-            return .matched(index: match.index, deliverable: deliverable)
+            let held = longestSuffixThatIsStopPrefix()
+            let deliverableCount = pending.count - held
+            if deliverableCount > 0 {
+                deliverable.append(contentsOf: pending.prefix(deliverableCount))
+                pending.removeFirst(deliverableCount)
+            }
         }
-
-        let held = longestSuffixThatIsStopPrefix()
-        let deliverableCount = pending.count - held
-        let deliverable = Data(pending.prefix(deliverableCount))
-        if deliverableCount > 0 { pending.removeFirst(deliverableCount) }
         return pending.isEmpty
             ? .none(deliverable: deliverable)
             : .partial(deliverable: deliverable)

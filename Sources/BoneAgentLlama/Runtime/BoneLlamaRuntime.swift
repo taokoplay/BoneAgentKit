@@ -58,6 +58,8 @@ public struct BoneLlamaRuntimeVerificationComponents: Equatable, Sendable {
     public let constraintDecoderVersion: String?
     public let grammarRuntimeID: String?
     public let grammarRuntimeVersion: String?
+    public let stopMatcherID: String?
+    public let stopMatcherVersion: String?
 
     public init(
         tokenizerID: String,
@@ -65,7 +67,9 @@ public struct BoneLlamaRuntimeVerificationComponents: Equatable, Sendable {
         constraintDecoderID: String? = nil,
         constraintDecoderVersion: String? = nil,
         grammarRuntimeID: String? = nil,
-        grammarRuntimeVersion: String? = nil
+        grammarRuntimeVersion: String? = nil,
+        stopMatcherID: String? = nil,
+        stopMatcherVersion: String? = nil
     ) {
         self.tokenizerID = tokenizerID
         self.tokenizerVersion = tokenizerVersion
@@ -73,6 +77,8 @@ public struct BoneLlamaRuntimeVerificationComponents: Equatable, Sendable {
         self.constraintDecoderVersion = constraintDecoderVersion
         self.grammarRuntimeID = grammarRuntimeID
         self.grammarRuntimeVersion = grammarRuntimeVersion
+        self.stopMatcherID = stopMatcherID
+        self.stopMatcherVersion = stopMatcherVersion
     }
 }
 

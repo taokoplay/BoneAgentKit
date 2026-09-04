@@ -99,7 +99,7 @@ let engine = BoneLlamaInferenceEngine(
 - `BoneLlamaCompiledConstraintRuntime`：把 SDK 受信任 Compiler 产生的 `BoneLlamaCompiledGenerationControl` 接入真实 Grammar Sampler；Constraint 请求不得交给旧协议宽松解释；
 - `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer、Constraint Decoder 与 Grammar Runtime 的稳定身份供 Smoke 绑定。
 
-请求级 `outputConstraint` 只允许 canonical pipeline、文本 `responseFormat` 和空 Tool Catalog。`BoneLlamaGBNFCompiler` 首版支持精确 Enum、boolean、无范围 integer/number、无长度 string/string enum、无界 array、所有属性均 required 的 closed object，以及满足相同限制的 tagged union；optional properties、`additionalProperties == true`、字符串/数组长度与数值范围会在生成前失败。Object Grammar 使用 UTF-8 排序后的 canonical key order，因此可比 Validator 的 JSON 无序语义更窄，但不得更宽。Grammar 成功不替代 SDK 后验复验。
+请求级 `outputConstraint` 只允许 canonical pipeline、文本 `responseFormat` 和空 Tool Catalog。`BoneLlamaGBNFCompiler` 首版支持精确 Enum、boolean、Schema 未声明范围的 integer/number、无长度 string/string enum、无界 array、所有属性均 required 的 closed object，以及满足相同限制的 tagged union；optional properties、`additionalProperties == true`、字符串/数组长度与 Schema 数值范围会在生成前失败。为保证 Grammar 接受集不宽于 Foundation Validator，首版 integer 进一步窄化为最多 9 位十进制整数，number 窄化为最多 9 位整数与 9 位小数且不接受指数形式；JSON Unicode escape 拒绝孤立 surrogate。Object Grammar 使用 UTF-8 排序后的 canonical key order，因此可比 Validator 的 JSON 无序语义更窄，但不得更宽。Grammar 成功不替代 SDK 后验复验。
 
 `BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`。Runtime 返回 `stopToken(id:)` 或 `stopString(index:)` 时，ID/index 必须匹配本次 Control。Stop String 应通过 `BoneLlamaStopMatcher` 按 UTF-8 bytes 增量处理，支持跨 token/chunk、多字节字符、重叠与互为前缀的 Stop，且未决前缀不能提前交付。
 

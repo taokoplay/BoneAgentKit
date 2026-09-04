@@ -6,7 +6,7 @@ import XCTest
 final class BoneLlamaOutputConstraintTests: XCTestCase {
     func testEnumConstraintUsesCompilerAndCompiledRuntimeThenReturnsExactFinish() async throws {
         let runtime = ConstraintRuntimeFixture(result: "ready", termination: .eog)
-        let engine = makeEngine(runtime: runtime, compiler: BoneLlamaGBNFCompiler())
+        let engine = try makeEngine(runtime: runtime, compiler: BoneLlamaGBNFCompiler())
         let request = BoneInferenceRequest(
             modelID: "model",
             messages: [.init(role: .user, content: "Status")],
@@ -28,7 +28,7 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             additionalProperties: false
         )
         let runtime = ConstraintRuntimeFixture(result: #"{"ok":true}"#, termination: .eog)
-        let engine = makeEngine(runtime: runtime, compiler: BoneLlamaGBNFCompiler())
+        let engine = try makeEngine(runtime: runtime, compiler: BoneLlamaGBNFCompiler())
 
         let response = try await engine.infer(request: .init(
             modelID: "model",
@@ -64,9 +64,34 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
         XCTAssertEqual(generateCount, 0)
     }
 
+    func testUnverifiedConstraintFailsBeforeRuntimeLoad() async throws {
+        let runtime = ConstraintRuntimeFixture(result: "ready", termination: .eog)
+        let engine = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: Self.plan,
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            constraintCompiler: BoneLlamaGBNFCompiler(),
+            runtimeFactory: { runtime }
+        )
+
+        await assertThrows(try await engine.infer(request: request()))
+        let loads = await runtime.loadCount()
+        let control = await runtime.recordedControl()
+        XCTAssertEqual(loads, 0)
+        XCTAssertNil(control)
+    }
+
     func testConstraintCapabilityRequiresMatchingRuntimeSmokeProfile() throws {
         let runtime = ConstraintRuntimeFixture(result: "ready", termination: .eog)
-        let unverified = makeEngine(runtime: runtime, compiler: BoneLlamaGBNFCompiler())
+        let unverified = BoneLlamaInferenceEngine(
+            modelID: "model",
+            modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            plan: Self.plan,
+            conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            constraintCompiler: BoneLlamaGBNFCompiler(),
+            runtimeFactory: { runtime }
+        )
         XCTAssertEqual(unverified.nonImageCapabilities, [.text])
 
         let identity = try Self.identity()
@@ -112,12 +137,21 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
     private func makeEngine(
         runtime: ConstraintRuntimeFixture,
         compiler: (any BoneLlamaConstraintCompiling)?
-    ) -> BoneLlamaInferenceEngine {
-        BoneLlamaInferenceEngine(
+    ) throws -> BoneLlamaInferenceEngine {
+        let identity = try Self.identity()
+        let profile = try BoneModelCapabilityProfile(
+            capabilities: [.text, .constrainedOutput],
+            source: .runtimeSmoke,
+            verifiedAt: "2026-09-04",
+            verificationIdentity: identity
+        )
+        return BoneLlamaInferenceEngine(
             modelID: "model",
             modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
             plan: Self.plan,
             conversationRenderer: BoneLlamaChatMLConversationRenderer(),
+            verifiedCapabilityProfile: profile,
+            currentVerificationIdentity: identity,
             constraintCompiler: compiler,
             runtimeFactory: { runtime }
         )
@@ -133,7 +167,12 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
 
     private func assertThrows<T>(_ expression: @autoclosure () async throws -> T) async {
         do { _ = try await expression(); XCTFail("Expected error") }
-        catch { XCTAssertNotNil(error as? BoneLlamaAdapterError) }
+        catch {
+            XCTAssertTrue(
+                error is BoneLlamaAdapterError || error is BoneInferenceError,
+                "Unexpected error: \(error)"
+            )
+        }
     }
 
     private static let plan = BoneLocalRuntimePlan(
@@ -150,7 +189,7 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             runtimeVersion: 3,
             tokenizerID: "fixture",
             tokenizerVersion: "1",
-            templateDigest: String(repeating: "b", count: 64),
+            templateDigest: "aebb4f400dfe61249f64793948acd6b1dfa0b1c47ccebfbf06641d166d1e4ad0",
             rendererID: "bone.chatml",
             rendererVersion: "1",
             reasoningMode: "disabled",
@@ -178,18 +217,19 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
     }
 }
 
-private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime {
+private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime, BoneLlamaRuntimeVerificationIdentifying {
     nonisolated let runtimeVersion = 3
     let result: String
     let termination: BoneLlamaGenerationTermination
     var control: BoneLlamaCompiledGenerationControl?
+    var loads = 0
 
     init(result: String, termination: BoneLlamaGenerationTermination) {
         self.result = result
         self.termination = termination
     }
 
-    func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
+    func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws { loads += 1 }
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 8) }
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
         throw BoneLlamaRuntimeError.generationFailed
@@ -198,10 +238,23 @@ private actor ConstraintRuntimeFixture: BoneLlamaCompiledConstraintRuntime {
         self.control = control
         return .init(text: result, termination: termination)
     }
+    func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents {
+        .init(
+            tokenizerID: "fixture",
+            tokenizerVersion: "1",
+            constraintDecoderID: "fixture.gbnf",
+            constraintDecoderVersion: "1",
+            grammarRuntimeID: "fixture.gbnf",
+            grammarRuntimeVersion: "1",
+            stopMatcherID: "bone.utf8-stop",
+            stopMatcherVersion: "1"
+        )
+    }
     func smokeTest() async throws {}
     func cancel() async {}
     func unload() async {}
     func recordedControl() -> BoneLlamaCompiledGenerationControl? { control }
+    func loadCount() -> Int { loads }
 }
 
 private actor PlainConstraintRuntimeFixture: BoneLlamaRuntime {

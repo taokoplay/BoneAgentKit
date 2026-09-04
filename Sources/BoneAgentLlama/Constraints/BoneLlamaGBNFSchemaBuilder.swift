@@ -13,7 +13,7 @@ struct SchemaGrammarBuilder {
 
     mutating func compile(_ schema: BoneToolSchema) throws -> String {
         let rootNode = try add(schema)
-        guard expressions.count + 6 <= limits.maximumRuleCount else {
+        guard expressions.count + 7 <= limits.maximumRuleCount else {
             throw BoneLlamaConstraintCompilerError.resourceLimitExceeded
         }
         var writer = BoneLlamaGBNFWriter()
@@ -21,10 +21,22 @@ struct SchemaGrammarBuilder {
         for (index, expression) in expressions.enumerated() {
             writer.addRule(name: "node-\(index)", expression: expression)
         }
-        writer.addRule(name: "json-string", expression: #"\" json-char* \""#)
-        writer.addRule(name: "json-char", expression: #"[^\"\\\x00-\x1F] | \\ ([\"\\/bfnrt] | \"u\" [0-9a-fA-F]{4})"#)
-        writer.addRule(name: "integer", expression: #"\"-\"? (\"0\" | [1-9] [0-9]*)"#)
-        writer.addRule(name: "number", expression: #"\"-\"? (\"0\" | [1-9] [0-9]*) (\".\" [0-9]+)? ([eE] [+-]? [0-9]+)?"#)
+        writer.addRule(
+            name: "json-string",
+            expression: "\(BoneLlamaGBNFWriter.literal("\"")) json-char* \(BoneLlamaGBNFWriter.literal("\""))"
+        )
+        writer.addRule(
+            name: "json-char",
+            expression: #"[^"\\\x00-\x1F] | "\\" (["\\/bfnrt] | unicode-escape)"#
+        )
+        writer.addRule(
+            name: "unicode-escape",
+            expression: #""u" (([0-9a-cA-C] [0-9a-fA-F]{3}) | ([dD] [0-7] [0-9a-fA-F]{2}) | ([e-fE-F] [0-9a-fA-F]{3}) | ([dD] [89aAbB] [0-9a-fA-F]{2} "\\" "u" [dD] [c-fC-F] [0-9a-fA-F]{2}))"#
+        )
+        // The numeric language is intentionally narrower than the validator: at most nine
+        // integer digits and, for number, at most nine fractional digits with no exponent.
+        writer.addRule(name: "integer", expression: #""-"? ("0" | [1-9] [0-9]{0,8})"#)
+        writer.addRule(name: "number", expression: #""-"? ("0" | [1-9] [0-9]{0,8}) ("." [0-9] [0-9]{0,8})?"#)
         writer.addRule(name: "ws", expression: #"[ \t\n\r]*"#)
         return writer.source()
     }
@@ -39,7 +51,7 @@ struct SchemaGrammarBuilder {
         let expression: String
         switch schema {
         case .boolean:
-            expression = #"\"true\" | \"false\""#
+            expression = "\(BoneLlamaGBNFWriter.literal("true")) | \(BoneLlamaGBNFWriter.literal("false"))"
 
         case let .integer(minimum, maximum):
             guard minimum == nil, maximum == nil else { throw BoneLlamaConstraintCompilerError.unsupportedSchema }

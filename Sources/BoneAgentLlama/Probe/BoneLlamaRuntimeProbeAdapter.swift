@@ -68,6 +68,13 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
                 verified.insert(.text)
                 if model.inferenceCapabilityProfile?.capabilities.contains(.toolCalling) == true {
                     if let renderer = conversationRenderer, let envelope = toolEnvelope {
+                        let identityBeforeSmoke = try await verificationIdentity(
+                            model: model,
+                            renderer: renderer,
+                            envelope: envelope,
+                            runtime: runtime,
+                            plan: plan
+                        )
                         let constrained = try await verifyCanonicalToolCalling(
                             renderer: renderer,
                             envelope: envelope,
@@ -85,13 +92,17 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
                             )
                             verified.insert(.constrainedOutput)
                         }
-                        identity = try await verificationIdentity(
+                        let identityAfterSmoke = try await verificationIdentity(
                             model: model,
                             renderer: renderer,
                             envelope: envelope,
                             runtime: runtime,
                             plan: plan
                         )
+                        guard identityBeforeSmoke == identityAfterSmoke else {
+                            throw BoneLlamaAdapterError.invalidConfiguration
+                        }
+                        identity = identityAfterSmoke
                     } else if let legacyToolCalling {
                         try await verifyLegacyToolCalling(
                             codec: legacyToolCalling,
@@ -397,8 +408,8 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             compiledConstraintDigest: compiledDigest,
             grammarRuntimeID: compiledDigest == nil ? nil : components.grammarRuntimeID,
             grammarRuntimeVersion: compiledDigest == nil ? nil : components.grammarRuntimeVersion,
-            stopMatcherID: compiledDigest == nil ? nil : "bone.utf8-stop",
-            stopMatcherVersion: compiledDigest == nil ? nil : "1",
+            stopMatcherID: compiledDigest == nil ? nil : components.stopMatcherID,
+            stopMatcherVersion: compiledDigest == nil ? nil : components.stopMatcherVersion,
             terminationContractVersion: compiledDigest == nil ? nil : 1
         )
     }

@@ -36,6 +36,9 @@ final class BoneLlamaStopMatcherTests: XCTestCase {
         var prefix = try BoneLlamaStopMatcher(stopStrings: ["a", "ab"])
         XCTAssertEqual(prefix.consume(Data("a".utf8)), .matched(index: 0, deliverable: Data()))
 
+        var reversePrefix = try BoneLlamaStopMatcher(stopStrings: ["ab", "a"])
+        XCTAssertEqual(reversePrefix.consume(Data("ab".utf8)), .matched(index: 1, deliverable: Data()))
+
         var overlap = try BoneLlamaStopMatcher(stopStrings: ["abab", "bab"])
         XCTAssertEqual(
             overlap.consume(Data("xxabab".utf8)),
@@ -53,6 +56,14 @@ final class BoneLlamaStopMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.pendingByteCount, 3)
         XCTAssertEqual(matcher.finish(), Data("<st".utf8))
         XCTAssertEqual(matcher.pendingByteCount, 0)
+    }
+
+    func testLargeChunkKeepsPendingBufferBounded() throws {
+        var matcher = try BoneLlamaStopMatcher(stopStrings: ["<stop>"])
+        let match = matcher.consume(Data(repeating: 0x61, count: 1_000_000))
+        guard case let .none(deliverable) = match else { return XCTFail("Expected no match") }
+        XCTAssertEqual(deliverable.count, 1_000_000)
+        XCTAssertLessThan(matcher.pendingByteCount, "<stop>".utf8.count)
     }
 
     func testRandomChunkingProducesSameMatchAndOutput() throws {

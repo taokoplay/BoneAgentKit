@@ -91,6 +91,8 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
                   schemaVersion: schemaCanonicalFormatVersion,
                   controlVersion: controlCanonicalFormatVersion,
                   digest: compiledConstraintDigest,
+                  grammarRuntimeID: grammarRuntimeID,
+                  stopMatcherID: stopMatcherID,
                   terminationVersion: terminationContractVersion
               ) else {
             throw ValidationError.invalidIdentity
@@ -163,14 +165,23 @@ public struct BoneCapabilityVerificationIdentity: Codable, Equatable, Hashable, 
         schemaVersion: Int?,
         controlVersion: Int?,
         digest: String?,
+        grammarRuntimeID: String?,
+        stopMatcherID: String?,
         terminationVersion: Int?
     ) -> Bool {
         if compilerID == nil {
-            return schemaVersion == nil && controlVersion == nil && digest == nil && terminationVersion == nil
+            return schemaVersion == nil
+                && controlVersion == nil
+                && digest == nil
+                && grammarRuntimeID == nil
+                && stopMatcherID == nil
+                && terminationVersion == nil
         }
         return schemaVersion.map({ $0 > 0 }) == true
             && controlVersion.map({ $0 > 0 }) == true
             && digest.map(isSHA256) == true
+            && grammarRuntimeID != nil
+            && stopMatcherID != nil
             && terminationVersion.map({ $0 > 0 }) == true
     }
 

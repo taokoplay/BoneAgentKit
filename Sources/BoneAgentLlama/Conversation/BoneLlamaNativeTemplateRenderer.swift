@@ -22,10 +22,16 @@ public struct BoneLlamaNativeTemplateRenderer: BoneLlamaConversationRendering, S
               !addGenerationPrompt || capabilities.supportsAddGenerationPrompt else {
             throw BoneLlamaRuntimeError.nativeTemplateUnavailable
         }
-        return try await runtime.renderNativeTemplate(
+        let rendered = try await runtime.renderNativeTemplate(
             conversation: conversation,
             addGenerationPrompt: addGenerationPrompt,
             reasoningMode: reasoningMode
         )
+        guard rendered.templateIdentity.source == .ggufMetadata,
+              rendered.templateIdentity.reasoningMode == reasoningMode,
+              rendered.templateIdentity.addGenerationPrompt == addGenerationPrompt else {
+            throw BoneLlamaRuntimeError.nativeTemplateUnavailable
+        }
+        return rendered
     }
 }

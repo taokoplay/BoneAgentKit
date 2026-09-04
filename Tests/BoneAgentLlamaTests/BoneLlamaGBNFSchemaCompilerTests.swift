@@ -33,6 +33,10 @@ final class BoneLlamaGBNFSchemaCompilerTests: XCTestCase {
             first.source.range(of: #"\"active\""#)!.lowerBound,
             first.source.range(of: #"\"scores\""#)!.lowerBound
         )
+        XCTAssertTrue(first.source.contains(#"node-1 ::= "true" | "false""#))
+        XCTAssertTrue(first.source.contains(#"json-string ::= "\"" json-char* "\"""#))
+        XCTAssertTrue(first.source.contains(#"integer ::= "-"? ("0" | [1-9] [0-9]{0,8})"#))
+        XCTAssertFalse(first.source.contains(#"\\\"true\\\""#))
     }
 
     func testCompilesStringEnumAndTaggedUnion() throws {
@@ -65,6 +69,21 @@ final class BoneLlamaGBNFSchemaCompilerTests: XCTestCase {
             compiled.source.range(of: #"\"a\""#)!.lowerBound,
             compiled.source.range(of: #"\"b\""#)!.lowerBound
         )
+    }
+
+    func testFreeStringGrammarRejectsLoneSurrogatesAndNumbersAreBounded() throws {
+        let stringGrammar = try BoneLlamaGBNFCompiler().compile(.jsonSchema(
+            .string(enumValues: [], minimumLength: nil, maximumLength: nil)
+        )).source
+        XCTAssertTrue(stringGrammar.contains("[dD] [0-7]"))
+        XCTAssertTrue(stringGrammar.contains("[dD] [89aAbB]"))
+        XCTAssertTrue(stringGrammar.contains("[dD] [c-fC-F]"))
+
+        let numberGrammar = try BoneLlamaGBNFCompiler().compile(.jsonSchema(
+            .number(minimum: nil, maximum: nil)
+        )).source
+        XCTAssertTrue(numberGrammar.contains(#"[0-9]{0,8}"#))
+        XCTAssertFalse(numberGrammar.contains("[eE]"))
     }
 
     func testRejectsUnsupportedSchemaDialectBeforeGrammar() {

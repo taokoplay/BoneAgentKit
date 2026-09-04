@@ -64,6 +64,35 @@ final class ModelCapabilityProfileTests: XCTestCase {
             contextTokens: 4096,
             batchTokens: 256
         ))
+        XCTAssertThrowsError(try BoneCapabilityVerificationIdentity(
+            artifactSHA256: String(repeating: "a", count: 64),
+            runtimeID: "llama.cpp",
+            runtimeVersion: 1,
+            tokenizerID: "gguf",
+            tokenizerVersion: "1",
+            templateDigest: String(repeating: "b", count: 64),
+            rendererID: "native",
+            rendererVersion: "1",
+            reasoningMode: "disabled",
+            generationControlDigest: String(repeating: "c", count: 64),
+            toolEnvelopeID: nil,
+            toolEnvelopeVersion: nil,
+            constraintDecoderID: "llama-grammar",
+            constraintDecoderVersion: "1",
+            contextTokens: 4096,
+            batchTokens: 256,
+            constraintCompilerID: "bone.gbnf",
+            constraintCompilerVersion: "1",
+            constraintDialect: "bone-gbnf-v1",
+            schemaCanonicalFormatVersion: 1,
+            controlCanonicalFormatVersion: 1,
+            compiledConstraintDigest: String(repeating: "e", count: 64),
+            grammarRuntimeID: nil,
+            grammarRuntimeVersion: nil,
+            stopMatcherID: "bone.utf8-stop",
+            stopMatcherVersion: "1",
+            terminationContractVersion: 1
+        ))
     }
 
     private static func identity(
