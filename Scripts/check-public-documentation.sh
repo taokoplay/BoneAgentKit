@@ -27,9 +27,16 @@ for token in "${forbidden[@]}"; do
 done
 rm -f /tmp/bone-agent-doc-scan.txt
 
+current_version="$(sed -n 's/.*public static let current = "\([^"]*\)".*/\1/p' \
+  "$ROOT/Sources/BoneAgentKit/Compatibility/BoneAgentKitVersion.swift")"
+if [[ -z "$current_version" ]]; then
+  echo "无法读取 BoneAgentKitVersion.current" >&2
+  status=1
+fi
+
 required_readme=(
   'https://github.com/taokoplay/BoneAgentKit.git'
-  'exact: "0.2.0-alpha.3"'
+  "exact: \"$current_version\""
   '`BoneAgentKit`'
   '`BoneAgentTesting`'
   '`BoneAgentLocalRuntime`'
