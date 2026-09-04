@@ -47,12 +47,14 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
         currentVerificationIdentity: BoneCapabilityVerificationIdentity? = nil,
+        constraintCompiler: (any BoneLlamaConstraintCompiling)? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         self.modelID = modelID
-        let implemented: Set<BoneInferenceCapability> = toolEnvelope == nil
+        var implemented: Set<BoneInferenceCapability> = toolEnvelope == nil
             ? [.text]
             : [.text, .toolCalling]
+        if constraintCompiler != nil { implemented.insert(.constrainedOutput) }
         nonImageCapabilities = Self.resolvedCapabilities(
             implemented: implemented,
             profile: verifiedCapabilityProfile,
@@ -62,7 +64,11 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
             modelID: modelID,
             modelURL: modelURL,
             plan: plan,
-            pipeline: .canonical(renderer: conversationRenderer, toolEnvelope: toolEnvelope),
+            pipeline: .canonical(
+                renderer: conversationRenderer,
+                toolEnvelope: toolEnvelope,
+                constraintCompiler: constraintCompiler
+            ),
             runtime: runtimeFactory()
         )
     }
@@ -72,7 +78,9 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         profile: BoneModelCapabilityProfile?,
         currentIdentity: BoneCapabilityVerificationIdentity?
     ) -> Set<BoneInferenceCapability> {
-        guard let profile else { return implemented }
+        guard let profile else {
+            return implemented.subtracting([.constrainedOutput])
+        }
         var resolved = profile.resolved(engineCapabilities: implemented)
         let advanced: Set<BoneInferenceCapability> = [.toolCalling, .constrainedOutput]
         if !resolved.isDisjoint(with: advanced) {
@@ -120,7 +128,8 @@ private enum BoneLlamaInferencePipeline: Sendable {
     )
     case canonical(
         renderer: any BoneLlamaConversationRendering,
-        toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
+        toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?,
+        constraintCompiler: (any BoneLlamaConstraintCompiling)?
     )
 }
 
@@ -167,7 +176,7 @@ private actor Session {
         case let .legacy(promptEncoder, toolCalling):
             if let toolCalling { return try toolCalling.encode(request: request) }
             return try promptEncoder.encode(request: request)
-        case let .canonical(_, toolEnvelope):
+        case let .canonical(_, toolEnvelope, _):
             _ = try BoneLlamaConversationBuilder.build(
                 request: request,
                 toolEnvelope: toolEnvelope
@@ -217,7 +226,20 @@ private actor Session {
             )
             publish(.generating, configuration: configuration)
             let result: BoneLlamaGenerationResult
-            if prepared.control.requiresControlledRuntime {
+            if prepared.control.constraint != nil {
+                guard let compiled = runtime as? any BoneLlamaCompiledConstraintRuntime else {
+                    throw BoneLlamaAdapterError.unsupportedGenerationControl
+                }
+                result = try await compiled.generate(
+                    prompt: prompt,
+                    executionPlan: executionPlan,
+                    options: effectiveOptions,
+                    control: try BoneLlamaCompiledGenerationControl(
+                        control: prepared.control,
+                        compiler: prepared.constraintCompiler
+                    )
+                )
+            } else if prepared.control.requiresControlledRuntime {
                 guard let controlled = runtime as? any BoneLlamaControlledGenerationRuntime else {
                     throw BoneLlamaAdapterError.unsupportedGenerationControl
                 }
@@ -267,14 +289,15 @@ private actor Session {
     ) async throws -> (
         prompt: String,
         control: BoneLlamaGenerationControl,
-        envelope: (any BoneLlamaToolEnvelopeCoding)?
+        envelope: (any BoneLlamaToolEnvelopeCoding)?,
+        constraintCompiler: (any BoneLlamaConstraintCompiling)?
     ) {
         switch pipeline {
         case let .legacy(promptEncoder, toolCalling):
             let prompt = try toolCalling?.encode(request: request)
                 ?? promptEncoder.encode(request: request)
-            return (prompt, try .init(), nil)
-        case let .canonical(renderer, toolEnvelope):
+            return (prompt, try .init(), nil, nil)
+        case let .canonical(renderer, toolEnvelope, constraintCompiler):
             let conversation = try BoneLlamaConversationBuilder.build(
                 request: request,
                 toolEnvelope: toolEnvelope
@@ -286,15 +309,24 @@ private actor Session {
             let envelopeConstraint = try toolEnvelope?.generationConstraint(
                 tools: request.availableTools
             )
-            guard rendered.generationControl.constraint == nil || envelopeConstraint == nil else {
+            let requestConstraint = try request.outputConstraint.map(BoneLlamaOutputConstraintAdapter.map)
+            let constraintCount = [
+                rendered.generationControl.constraint,
+                envelopeConstraint,
+                requestConstraint,
+            ].compactMap { $0 }.count
+            guard constraintCount <= 1 else {
                 throw BoneLlamaAdapterError.invalidGenerationControl
             }
             let control = try BoneLlamaGenerationControl(
                 stopTokenIDs: rendered.generationControl.stopTokenIDs,
                 stopStrings: rendered.generationControl.stopStrings,
-                constraint: rendered.generationControl.constraint ?? envelopeConstraint
+                constraint: rendered.generationControl.constraint ?? envelopeConstraint ?? requestConstraint
             )
-            return (rendered.prompt, control, toolEnvelope)
+            if requestConstraint != nil, constraintCompiler == nil {
+                throw BoneLlamaAdapterError.unsupportedGenerationControl
+            }
+            return (rendered.prompt, control, toolEnvelope, constraintCompiler)
         }
     }
 
@@ -332,6 +364,12 @@ private actor Session {
         request: BoneInferenceRequest,
         canonicalEnvelope: (any BoneLlamaToolEnvelopeCoding)?
     ) throws -> BoneInferenceResponse {
+        if let outputConstraint = request.outputConstraint {
+            return try BoneLlamaOutputConstraintAdapter.decode(
+                output,
+                constraint: outputConstraint
+            )
+        }
         switch pipeline {
         case let .legacy(_, toolCalling):
             if let toolCalling {
