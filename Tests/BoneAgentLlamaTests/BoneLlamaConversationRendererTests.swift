@@ -127,7 +127,7 @@ private actor RendererRuntimeFixture: BoneLlamaRuntime {
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 1) }
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult { .init(text: "ok") }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
 }
@@ -153,7 +153,7 @@ private actor NativeRendererRuntimeFixture: BoneLlamaNativeTemplateRenderingRunt
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 1) }
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult { .init(text: "ok") }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func nativeTemplateCapabilities() async throws -> BoneLlamaNativeTemplateCapabilities { capabilities }

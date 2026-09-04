@@ -18,7 +18,7 @@ public protocol BoneLlamaRuntime: Sendable {
         options: BoneLlamaGenerationOptions
     ) async throws -> BoneLlamaGenerationResult
 
-    func smokeTest() async throws
+    func verifyBasicGeneration() async throws
     func cancel() async
     func unload() async
 }

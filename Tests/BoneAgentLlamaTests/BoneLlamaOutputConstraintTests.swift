@@ -250,7 +250,7 @@ private actor ConstraintRuntimeFixture: BoneLlamaConstraintGenerationRuntime, Bo
             stopMatcherVersion: "1"
         )
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func recordedControl() -> BoneLlamaResolvedGenerationControl? { control }
@@ -266,7 +266,7 @@ private actor PlainConstraintRuntimeFixture: BoneLlamaRuntime {
         count += 1
         return .init(text: "ready", termination: .eog)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func generateCount() -> Int { count }

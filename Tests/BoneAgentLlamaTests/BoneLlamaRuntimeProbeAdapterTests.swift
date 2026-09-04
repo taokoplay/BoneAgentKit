@@ -37,32 +37,6 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(events, [.load, .smoke, .unload])
     }
 
-    func testSmokeProbeVerifiesDeclaredToolCallingWithTwoSyntheticGenerations() async throws {
-        let runtime = LlamaRuntimeFixture(outputs: [
-            #"{"tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#,
-            "Capability verified.",
-        ])
-        let adapter = BoneLlamaRuntimeProbeAdapter(
-            runtimeVersion: 1,
-            toolCalling: BoneLlamaJSONToolCallingCodec(),
-            runtimeFactory: { runtime }
-        )
-        let profile = try BoneModelCapabilityProfile(
-            capabilities: [.text, .toolCalling],
-            source: .official,
-            verifiedAt: "2026-09-02"
-        )
-        let result = await adapter.probe(
-            model: try model(profile: profile),
-            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
-            environment: environment(), plan: plan(), depth: .smoke
-        )
-
-        XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling])
-        let events = await runtime.events()
-        XCTAssertEqual(events, [.load, .smoke, .generate, .generate, .unload])
-    }
-
     func testConstrainedSmokeVerifiesToolContinuationAndReturnsIdentity() async throws {
         let runtime = ControlledLlamaRuntimeFixture(outputs: [
             (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
@@ -286,7 +260,7 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
             stopMatcherVersion: "1"
         )
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func controls() -> [BoneLlamaGenerationControl] { recordedControls }
@@ -323,7 +297,7 @@ private actor LlamaRuntimeFixture: BoneLlamaRuntime {
         guard !outputs.isEmpty else { return .init(text: "ok") }
         return .init(text: outputs.removeFirst())
     }
-    func smokeTest() async throws { recorded.append(.smoke) }
+    func verifyBasicGeneration() async throws { recorded.append(.smoke) }
     func cancel() async {}
     func unload() async { recorded.append(.unload) }
     func events() -> [LlamaRuntimeEvent] { recorded }

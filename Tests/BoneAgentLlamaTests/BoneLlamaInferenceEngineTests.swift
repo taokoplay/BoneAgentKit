@@ -36,7 +36,7 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
             modelID: "model",
             modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
             plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
-            toolCalling: BoneLlamaJSONToolCallingCodec(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
             runtimeFactory: { runtime }
         )
         XCTAssertEqual(engine.nonImageCapabilities, [.text, .toolCalling])
@@ -456,7 +456,7 @@ private actor ControlledEngineRuntimeFixture: BoneLlamaRuntime {
         return .init(text: "ok")
     }
 
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
 
@@ -547,7 +547,7 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
         prefillRanges = executionPlan.prefillRanges
         return .init(text: result, termination: termination)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async { loaded = false }
 

@@ -9,46 +9,12 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
     private let modelID: String
     private let session: Session
 
-    /// alpha.6 兼容入口；Prompt Encoder 或 Tool Calling Adapter 已包含完整模板渲染。
-    public init(
-        modelID: String,
-        modelURL: URL,
-        plan: BoneLocalRuntimePlan,
-        promptEncoder: any BoneLlamaPromptEncoding = BoneLlamaChatMLPromptEncoder(),
-        toolCalling: (any BoneLlamaToolCalling)? = nil,
-        verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
-        currentVerificationIdentity: BoneLocalExecutionVerificationIdentity? = nil,
-        runtimeFactory: @escaping BoneLlamaRuntimeFactory
-    ) {
-        self.modelID = modelID
-        let implemented: Set<BoneInferenceCapability> = toolCalling == nil
-            ? [.text]
-            : [.text, .toolCalling]
-        let runtime = runtimeFactory()
-        nonImageCapabilities = Self.resolvedCapabilities(
-            implemented: implemented,
-            profile: verifiedCapabilityProfile,
-            currentIdentity: currentVerificationIdentity,
-            runtimeVersion: runtime.runtimeVersion,
-            toolEnvelopeIdentity: nil,
-            constraintCompilerIdentity: nil
-        )
-        session = Session(
-            modelID: modelID,
-            modelURL: modelURL,
-            plan: plan,
-            pipeline: .legacy(promptEncoder: promptEncoder, toolCalling: toolCalling),
-            runtime: runtime,
-            expectedIdentity: currentVerificationIdentity
-        )
-    }
-
     /// 模板唯一渲染入口；Tool Envelope 只编码 Tool 语义，不包含模型模板 Token。
     public init(
         modelID: String,
         modelURL: URL,
         plan: BoneLocalRuntimePlan,
-        conversationRenderer: any BoneLlamaConversationRendering,
+        conversationRenderer: any BoneLlamaConversationRendering = BoneLlamaChatMLConversationRenderer(),
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
         verifiedCapabilityProfile: BoneModelCapabilityProfile? = nil,
         currentVerificationIdentity: BoneLocalExecutionVerificationIdentity? = nil,
@@ -73,11 +39,9 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
             modelID: modelID,
             modelURL: modelURL,
             plan: plan,
-            pipeline: .canonical(
-                renderer: conversationRenderer,
-                toolEnvelope: toolEnvelope,
-                constraintCompiler: constraintCompiler
-            ),
+            renderer: conversationRenderer,
+            toolEnvelope: toolEnvelope,
+            constraintCompiler: constraintCompiler,
             runtime: runtime,
             expectedIdentity: currentVerificationIdentity
         )
@@ -167,23 +131,13 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
     public func unload() async { await session.unload() }
 }
 
-private enum BoneLlamaInferencePipeline: Sendable {
-    case legacy(
-        promptEncoder: any BoneLlamaPromptEncoding,
-        toolCalling: (any BoneLlamaToolCalling)?
-    )
-    case canonical(
-        renderer: any BoneLlamaConversationRendering,
-        toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?,
-        constraintCompiler: (any BoneLlamaConstraintCompiling)?
-    )
-}
-
 private actor Session {
     let modelID: String
     let modelURL: URL
     let plan: BoneLocalRuntimePlan
-    let pipeline: BoneLlamaInferencePipeline
+    let renderer: any BoneLlamaConversationRendering
+    let toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
+    let constraintCompiler: (any BoneLlamaConstraintCompiling)?
     let runtime: any BoneLlamaRuntime
     let expectedIdentity: BoneLocalExecutionVerificationIdentity?
     var isLoaded = false
@@ -196,14 +150,18 @@ private actor Session {
         modelID: String,
         modelURL: URL,
         plan: BoneLocalRuntimePlan,
-        pipeline: BoneLlamaInferencePipeline,
+        renderer: any BoneLlamaConversationRendering,
+        toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?,
+        constraintCompiler: (any BoneLlamaConstraintCompiling)?,
         runtime: any BoneLlamaRuntime,
         expectedIdentity: BoneLocalExecutionVerificationIdentity?
     ) {
         self.modelID = modelID
         self.modelURL = modelURL
         self.plan = plan
-        self.pipeline = pipeline
+        self.renderer = renderer
+        self.toolEnvelope = toolEnvelope
+        self.constraintCompiler = constraintCompiler
         self.runtime = runtime
         self.expectedIdentity = expectedIdentity
         state = .init(
@@ -221,17 +179,11 @@ private actor Session {
     }
 
     nonisolated func validateSynchronously(_ request: BoneInferenceRequest) throws -> String {
-        switch pipeline {
-        case let .legacy(promptEncoder, toolCalling):
-            if let toolCalling { return try toolCalling.encode(request: request) }
-            return try promptEncoder.encode(request: request)
-        case let .canonical(_, toolEnvelope, _):
-            _ = try BoneLlamaConversationBuilder.build(
-                request: request,
-                toolEnvelope: toolEnvelope
-            )
-            return "canonical"
-        }
+        _ = try BoneLlamaConversationBuilder.build(
+            request: request,
+            toolEnvelope: toolEnvelope
+        )
+        return "canonical"
     }
 
     func currentState() -> BoneLlamaModelState { state }
@@ -362,52 +314,45 @@ private actor Session {
         envelope: (any BoneLlamaToolEnvelopeCoding)?,
         constraintCompiler: (any BoneLlamaConstraintCompiling)?
     ) {
-        switch pipeline {
-        case let .legacy(promptEncoder, toolCalling):
-            let prompt = try toolCalling?.encode(request: request)
-                ?? promptEncoder.encode(request: request)
-            return (prompt, try .init(), nil, nil)
-        case let .canonical(renderer, toolEnvelope, constraintCompiler):
-            let conversation = try BoneLlamaConversationBuilder.build(
-                request: request,
-                toolEnvelope: toolEnvelope
-            )
-            let rendered = try await renderer.render(
-                conversation: conversation,
-                using: runtime
-            )
-            if request.outputConstraint != nil || !request.availableTools.isEmpty,
-               let expectedIdentity {
-                guard rendered.templateIdentity.templateDigest == expectedIdentity.templateDigest,
-                      rendered.templateIdentity.rendererID == expectedIdentity.rendererID,
-                      rendered.templateIdentity.rendererVersion == expectedIdentity.rendererVersion,
-                      rendered.templateIdentity.reasoningMode.rawValue == expectedIdentity.reasoningMode,
-                      rendered.templateIdentity.addGenerationPrompt == expectedIdentity.addGenerationPrompt else {
-                    throw BoneLlamaAdapterError.invalidConfiguration
-                }
+        let conversation = try BoneLlamaConversationBuilder.build(
+            request: request,
+            toolEnvelope: toolEnvelope
+        )
+        let rendered = try await renderer.render(
+            conversation: conversation,
+            using: runtime
+        )
+        if request.outputConstraint != nil || !request.availableTools.isEmpty,
+           let expectedIdentity {
+            guard rendered.templateIdentity.templateDigest == expectedIdentity.templateDigest,
+                  rendered.templateIdentity.rendererID == expectedIdentity.rendererID,
+                  rendered.templateIdentity.rendererVersion == expectedIdentity.rendererVersion,
+                  rendered.templateIdentity.reasoningMode.rawValue == expectedIdentity.reasoningMode,
+                  rendered.templateIdentity.addGenerationPrompt == expectedIdentity.addGenerationPrompt else {
+                throw BoneLlamaAdapterError.invalidConfiguration
             }
-            let envelopeConstraint = try toolEnvelope?.generationConstraint(
-                tools: request.availableTools
-            )
-            let requestConstraint = try request.outputConstraint.map(BoneLlamaOutputConstraintAdapter.map)
-            let constraintCount = [
-                rendered.generationControl.constraint,
-                envelopeConstraint,
-                requestConstraint,
-            ].compactMap { $0 }.count
-            guard constraintCount <= 1 else {
-                throw BoneLlamaAdapterError.invalidGenerationControl
-            }
-            let control = try BoneLlamaGenerationControl(
-                stopTokenIDs: rendered.generationControl.stopTokenIDs,
-                stopStrings: rendered.generationControl.stopStrings,
-                constraint: rendered.generationControl.constraint ?? envelopeConstraint ?? requestConstraint
-            )
-            if requestConstraint != nil, constraintCompiler == nil {
-                throw BoneLlamaAdapterError.unsupportedGenerationControl
-            }
-            return (rendered.prompt, control, toolEnvelope, constraintCompiler)
         }
+        let envelopeConstraint = try toolEnvelope?.generationConstraint(
+            tools: request.availableTools
+        )
+        let requestConstraint = try request.outputConstraint.map(BoneLlamaOutputConstraintAdapter.map)
+        let constraintCount = [
+            rendered.generationControl.constraint,
+            envelopeConstraint,
+            requestConstraint,
+        ].compactMap { $0 }.count
+        guard constraintCount <= 1 else {
+            throw BoneLlamaAdapterError.invalidGenerationControl
+        }
+        let control = try BoneLlamaGenerationControl(
+            stopTokenIDs: rendered.generationControl.stopTokenIDs,
+            stopStrings: rendered.generationControl.stopStrings,
+            constraint: rendered.generationControl.constraint ?? envelopeConstraint ?? requestConstraint
+        )
+        if requestConstraint != nil, constraintCompiler == nil {
+            throw BoneLlamaAdapterError.unsupportedGenerationControl
+        }
+        return (rendered.prompt, control, toolEnvelope, constraintCompiler)
     }
 
     private func validateConstrainedOutput(
@@ -450,15 +395,8 @@ private actor Session {
                 constraint: outputConstraint
             )
         }
-        switch pipeline {
-        case let .legacy(_, toolCalling):
-            if let toolCalling {
-                return try toolCalling.decode(output: output, availableTools: request.availableTools)
-            }
-        case .canonical:
-            if let canonicalEnvelope {
-                return try canonicalEnvelope.decode(output: output, availableTools: request.availableTools)
-            }
+        if let canonicalEnvelope {
+            return try canonicalEnvelope.decode(output: output, availableTools: request.availableTools)
         }
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw BoneLlamaAdapterError.emptyResponse }

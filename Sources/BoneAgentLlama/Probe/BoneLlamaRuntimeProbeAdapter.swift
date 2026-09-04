@@ -4,7 +4,6 @@ import Foundation
 
 public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendable {
     public let descriptor: BoneLocalModelBackendDescriptor
-    private let legacyToolCalling: (any BoneLlamaToolCalling)?
     private let conversationRenderer: (any BoneLlamaConversationRendering)?
     private let toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
     private let constraintCompiler: (any BoneLlamaConstraintCompiling)?
@@ -18,32 +17,12 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             maximumBatchTokens: 512,
             maximumThreadCount: 8
         ),
-        toolCalling: (any BoneLlamaToolCalling)? = nil,
-        runtimeFactory: @escaping BoneLlamaRuntimeFactory
-    ) {
-        descriptor = Self.descriptor(runtimeVersion, runtimeConstraints)
-        legacyToolCalling = toolCalling
-        conversationRenderer = nil
-        toolEnvelope = nil
-        constraintCompiler = nil
-        self.runtimeFactory = runtimeFactory
-    }
-
-    public init(
-        runtimeVersion: Int,
-        runtimeConstraints: BoneLocalRuntimeConstraints = .init(
-            maximumContextTokens: 32_768,
-            maximumOutputTokens: 4_096,
-            maximumBatchTokens: 512,
-            maximumThreadCount: 8
-        ),
-        conversationRenderer: any BoneLlamaConversationRendering,
+        conversationRenderer: any BoneLlamaConversationRendering = BoneLlamaChatMLConversationRenderer(),
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)? = nil,
         constraintCompiler: (any BoneLlamaConstraintCompiling)? = BoneLlamaGBNFCompiler(),
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
         descriptor = Self.descriptor(runtimeVersion, runtimeConstraints)
-        legacyToolCalling = nil
         self.conversationRenderer = conversationRenderer
         self.toolEnvelope = toolEnvelope
         self.constraintCompiler = constraintCompiler
@@ -64,7 +43,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             var verified: Set<BoneInferenceCapability> = []
             var identity: BoneLocalExecutionVerificationIdentity?
             if depth == .smoke {
-                try await runtime.smokeTest()
+                try await runtime.verifyBasicGeneration()
                 verified.insert(.text)
                 if model.inferenceCapabilityProfile?.capabilities.contains(.toolCalling) == true {
                     if let renderer = conversationRenderer, let envelope = toolEnvelope {
@@ -103,14 +82,6 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
                             throw BoneLlamaAdapterError.invalidConfiguration
                         }
                         identity = identityAfterSmoke
-                    } else if let legacyToolCalling {
-                        try await verifyLegacyToolCalling(
-                            codec: legacyToolCalling,
-                            runtime: runtime,
-                            modelID: model.id,
-                            plan: plan
-                        )
-                        verified.insert(.toolCalling)
                     }
                 }
             }
@@ -411,63 +382,6 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             stopMatcherID: compiledDigest == nil ? nil : components.stopMatcherID,
             stopMatcherVersion: compiledDigest == nil ? nil : components.stopMatcherVersion,
             terminationContractVersion: compiledDigest == nil ? nil : 1
-        )
-    }
-
-    private func verifyLegacyToolCalling(
-        codec: any BoneLlamaToolCalling,
-        runtime: any BoneLlamaRuntime,
-        modelID: String,
-        plan: BoneLocalRuntimePlan
-    ) async throws {
-        let initial = BoneInferenceRequest(
-            modelID: modelID,
-            messages: [.init(role: .user, content: "Call capability_probe with value ready.")],
-            availableTools: [Self.syntheticTool],
-            generationOptions: .init(temperature: 0, maximumOutputTokens: 256)
-        )
-        let options = try BoneLlamaGenerationOptions(inferenceOptions: initial.generationOptions, plan: plan)
-        let first = try await legacyGenerate(prompt: codec.encode(request: initial), options: options, runtime: runtime, plan: plan)
-        guard case let .assistantTurn(turn, reason, _, refusal, _) = try codec.decode(
-            output: first.text, availableTools: [Self.syntheticTool]
-        ), reason == .toolCalls, refusal == nil, turn.toolCalls.count == 1,
-              let call = turn.toolCalls.first else {
-            throw BoneLlamaAdapterError.invalidToolCallingResponse
-        }
-        let result = try BoneInferenceToolResult(
-            callID: call.id, toolID: call.toolID, content: .text("ready"), isError: false, ordinal: 0
-        )
-        let continuation = BoneInferenceRequest(
-            modelID: modelID,
-            messages: initial.messages + [.assistant(turn), .toolResults(try .init(results: [result]))],
-            availableTools: [Self.syntheticTool],
-            generationOptions: initial.generationOptions
-        )
-        let second = try await legacyGenerate(prompt: codec.encode(request: continuation), options: options, runtime: runtime, plan: plan)
-        guard case let .finish(finish) = try codec.decode(output: second.text, availableTools: [Self.syntheticTool]),
-              !finish.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw BoneLlamaAdapterError.invalidToolCallingResponse
-        }
-    }
-
-    private func legacyGenerate(
-        prompt: String,
-        options: BoneLlamaGenerationOptions,
-        runtime: any BoneLlamaRuntime,
-        plan: BoneLocalRuntimePlan
-    ) async throws -> BoneLlamaGenerationResult {
-        let executionPlan = try BoneLlamaPromptExecutionPlanner.plan(
-            tokenization: try await runtime.tokenize(prompt: prompt),
-            configuration: .init(plan: plan),
-            requestedMaximumOutputTokens: options.maximumOutputTokens
-        )
-        return try await runtime.generate(
-            prompt: prompt,
-            executionPlan: executionPlan,
-            options: try .init(
-                maximumOutputTokens: executionPlan.maximumOutputTokens,
-                temperature: options.temperature
-            )
         )
     }
 

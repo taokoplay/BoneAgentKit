@@ -68,7 +68,7 @@ final class HarnessSafetyTests: XCTestCase {
     }
 
     func testCrashHarnessVisitsEveryCommitBoundaryDeterministically() async throws {
-        let harness = BoneCrashTestHarness(boundaries: [
+        let harness = BoneCrashBoundaryHarness(boundaries: [
             .beforePersistenceCommit,
             .afterPersistenceCommitBeforeEvent,
             .afterEventBeforeNextWork
@@ -81,7 +81,7 @@ final class HarnessSafetyTests: XCTestCase {
             .afterPersistenceCommitBeforeEvent,
             .afterEventBeforeNextWork
         ])
-        XCTAssertTrue(first.allSatisfy(\.crashed))
+        XCTAssertTrue(first.allSatisfy(\.boundaryVisited))
     }
 
     func testFrameworkIndependentAssertionsReturnValuesInsteadOfXCTestFailures() {
