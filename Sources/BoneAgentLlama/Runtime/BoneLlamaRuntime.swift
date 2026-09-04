@@ -23,8 +23,26 @@ public protocol BoneLlamaRuntime: Sendable {
     func unload() async
 }
 
+public struct BoneLlamaNativeTemplateCapabilities: Equatable, Sendable {
+    public let supportedReasoningModes: Set<BoneLlamaReasoningMode>
+    public let supportsAddGenerationPrompt: Bool
+    public let templateFamily: String?
+
+    public init(
+        supportedReasoningModes: Set<BoneLlamaReasoningMode>,
+        supportsAddGenerationPrompt: Bool,
+        templateFamily: String? = nil
+    ) {
+        self.supportedReasoningModes = supportedReasoningModes
+        self.supportsAddGenerationPrompt = supportsAddGenerationPrompt
+        self.templateFamily = templateFamily
+    }
+}
+
 /// 可选的 GGUF 原生模板渲染能力；结构化消息不得预先套用其他模型模板。
 public protocol BoneLlamaNativeTemplateRenderingRuntime: BoneLlamaRuntime {
+    func nativeTemplateCapabilities() async throws -> BoneLlamaNativeTemplateCapabilities
+
     func renderNativeTemplate(
         conversation: BoneLlamaConversation,
         addGenerationPrompt: Bool,

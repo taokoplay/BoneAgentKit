@@ -72,6 +72,25 @@ final class BoneLlamaConversationRendererTests: XCTestCase {
         XCTAssertEqual(rendered.templateIdentity.rendererID, "fixture.native")
     }
 
+    func testNativeRendererFailsBeforeRenderWhenCapabilitiesDoNotSupportRequest() async {
+        let runtime = NativeRendererRuntimeFixture(capabilities: .init(
+            supportedReasoningModes: [],
+            supportsAddGenerationPrompt: false
+        ))
+        let conversation = try! BoneLlamaConversation(messages: [
+            try! .init(role: .user, content: "Hello"),
+        ])
+
+        do {
+            _ = try await BoneLlamaNativeTemplateRenderer().render(conversation: conversation, using: runtime)
+            XCTFail("Expected nativeTemplateUnavailable")
+        } catch {
+            XCTAssertEqual(error as? BoneLlamaRuntimeError, .nativeTemplateUnavailable)
+        }
+        let received = await runtime.receivedConversation()
+        XCTAssertNil(received)
+    }
+
     func testNativeRendererFailsClosedWhenRuntimeDoesNotSupportNativeTemplates() async {
         let conversation = try! BoneLlamaConversation(messages: [
             try! .init(role: .user, content: "Hello"),
@@ -102,6 +121,15 @@ private actor RendererRuntimeFixture: BoneLlamaRuntime {
 private actor NativeRendererRuntimeFixture: BoneLlamaNativeTemplateRenderingRuntime {
     nonisolated let runtimeVersion = 1
     private var conversation: BoneLlamaConversation?
+    private let capabilities: BoneLlamaNativeTemplateCapabilities
+
+    init(capabilities: BoneLlamaNativeTemplateCapabilities = .init(
+        supportedReasoningModes: [.disabled],
+        supportsAddGenerationPrompt: true,
+        templateFamily: "fixture"
+    )) {
+        self.capabilities = capabilities
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 1) }
@@ -109,6 +137,7 @@ private actor NativeRendererRuntimeFixture: BoneLlamaNativeTemplateRenderingRunt
     func smokeTest() async throws {}
     func cancel() async {}
     func unload() async {}
+    func nativeTemplateCapabilities() async throws -> BoneLlamaNativeTemplateCapabilities { capabilities }
 
     func renderNativeTemplate(
         conversation: BoneLlamaConversation,

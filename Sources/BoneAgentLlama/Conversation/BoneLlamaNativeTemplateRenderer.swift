@@ -17,6 +17,11 @@ public struct BoneLlamaNativeTemplateRenderer: BoneLlamaConversationRendering, S
         guard let runtime = runtime as? any BoneLlamaNativeTemplateRenderingRuntime else {
             throw BoneLlamaRuntimeError.nativeTemplateUnavailable
         }
+        let capabilities = try await runtime.nativeTemplateCapabilities()
+        guard capabilities.supportedReasoningModes.contains(reasoningMode),
+              !addGenerationPrompt || capabilities.supportsAddGenerationPrompt else {
+            throw BoneLlamaRuntimeError.nativeTemplateUnavailable
+        }
         return try await runtime.renderNativeTemplate(
             conversation: conversation,
             addGenerationPrompt: addGenerationPrompt,
