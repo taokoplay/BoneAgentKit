@@ -234,10 +234,10 @@ private actor Session {
                     options: effectiveOptions
                 )
             }
-            try validateTermination(
+            try BoneLlamaTerminationValidator.validate(
                 result.termination,
                 control: prepared.control,
-                requiresCompleteEnvelope: prepared.envelope != nil || prepared.control.constraint != nil
+                requiresCompleteOutput: prepared.envelope != nil || prepared.control.constraint != nil
             )
             try validateConstrainedOutput(result.text, constraint: prepared.control.constraint)
             guard !Self.containsReasoningMarker(result.text) else {
@@ -295,33 +295,6 @@ private actor Session {
                 constraint: rendered.generationControl.constraint ?? envelopeConstraint
             )
             return (rendered.prompt, control, toolEnvelope)
-        }
-    }
-
-    private func validateTermination(
-        _ termination: BoneLlamaGenerationTermination,
-        control: BoneLlamaGenerationControl,
-        requiresCompleteEnvelope: Bool
-    ) throws {
-        if termination == .maximumTokens {
-            throw BoneLlamaAdapterError.outputTruncated
-        }
-        guard requiresCompleteEnvelope else { return }
-        switch termination {
-        case .eog:
-            return
-        case .stopToken:
-            guard !control.stopTokenIDs.isEmpty else {
-                throw BoneLlamaAdapterError.invalidToolCallingResponse
-            }
-        case .stopString:
-            guard !control.stopStrings.isEmpty else {
-                throw BoneLlamaAdapterError.invalidToolCallingResponse
-            }
-        case .maximumTokens:
-            throw BoneLlamaAdapterError.outputTruncated
-        case .runtimeCompleted:
-            throw BoneLlamaAdapterError.invalidToolCallingResponse
         }
     }
 

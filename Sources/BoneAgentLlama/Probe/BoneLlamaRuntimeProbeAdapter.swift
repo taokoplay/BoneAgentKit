@@ -126,7 +126,11 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             runtime: runtime,
             plan: plan
         )
-        try Self.validateEnvelopeTermination(first.result.termination, control: first.control)
+        try BoneLlamaTerminationValidator.validate(
+            first.result.termination,
+            control: first.control,
+            requiresCompleteOutput: true
+        )
         guard case let .assistantTurn(turn, reason, _, refusal, _) = try envelope.decode(
                   output: first.result.text,
                   availableTools: [Self.syntheticTool]
@@ -157,7 +161,11 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             runtime: runtime,
             plan: plan
         )
-        try Self.validateEnvelopeTermination(second.result.termination, control: second.control)
+        try BoneLlamaTerminationValidator.validate(
+            second.result.termination,
+            control: second.control,
+            requiresCompleteOutput: true
+        )
         guard case let .finish(finish) = try envelope.decode(
                   output: second.result.text,
                   availableTools: [Self.syntheticTool]
@@ -223,26 +231,6 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalRuntimeAdapterProbing, Send
             options: effectiveOptions
         )
         return (result, control)
-    }
-
-    private static func validateEnvelopeTermination(
-        _ termination: BoneLlamaGenerationTermination,
-        control: BoneLlamaGenerationControl
-    ) throws {
-        switch termination {
-        case .eog:
-            return
-        case .stopToken:
-            guard !control.stopTokenIDs.isEmpty else {
-                throw BoneLlamaAdapterError.invalidToolCallingResponse
-            }
-        case .stopString:
-            guard !control.stopStrings.isEmpty else {
-                throw BoneLlamaAdapterError.invalidToolCallingResponse
-            }
-        case .maximumTokens, .runtimeCompleted:
-            throw BoneLlamaAdapterError.invalidToolCallingResponse
-        }
     }
 
     private func verificationIdentity(

@@ -179,8 +179,8 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         let validEnvelope = #"{"type":"final","content":"done"}"#
         for termination in [
             BoneLlamaGenerationTermination.runtimeCompleted,
-            .stopToken,
-            .stopString,
+            .stopToken(id: 2),
+            .stopString(index: 0),
         ] {
             let runtime = EngineRuntimeFixture(result: validEnvelope, termination: termination)
             let engine = BoneLlamaInferenceEngine(
