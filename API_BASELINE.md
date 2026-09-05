@@ -5,7 +5,7 @@
 公开 Product：
 
 - `BoneAgentKit`：生产 Agent、Inference、Workflow、Provider 和 Persistence 契约。
-- `BoneAgentTesting`：测试 fixture、scripted engine、recorder、assertion 和 crash harness。
+- `BoneAgentTesting`：测试 fixture、scripted engine、recorder、assertion、crash harness 和 Host 持久化契约验收套件。
 - `BoneAgentLocalModels`：本地模型 Catalog、Artifact、安全下载、断点恢复、安装状态、安全存储、环境快照、运行规划及两阶段 Runtime Probe 契约。
 - `BoneAgentLlama`：llama Runtime seam、Probe Backend、canonical Conversation Renderer，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneInferenceEngine`。
 
@@ -76,7 +76,7 @@
 
 - 新增 `BoneWorkflowToolExecutionError.outcomeUnknown/recoveryRequired` 与 `BoneAgentError.toolOutcomeUnknown/toolRecoveryRequired`；Host 穷尽 switch 必须迁移，禁止按普通工具失败自动重试。
 - `BoneLocalModelStore` 公开构造参数保持不变；测试用提交故障 seam 为 internal。安全例外：拒绝 `.` / `..` 模型 ID 、保留 staging 目录名、`.partial` 资产名和符号链接资产，不保留这些危险输入的旧行为。
-- `BoneAgentWorkflowStepController.finish(.succeeded)` 在 waiting 状态拒绝；失败和取消清除授权 ticket，恢复成功路径不变。
+- `BoneWorkflowAgentStepController.finish(.succeeded)` 在 waiting 状态拒绝；失败和取消清除授权 ticket，恢复成功路径不变。
 
 ## 阶段二安全兼容调整（Unreleased）
 

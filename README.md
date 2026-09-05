@@ -20,7 +20,7 @@ BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行�
 | Product | 用途 | 二进制依赖 |
 | --- | --- | --- |
 | `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
-| `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario 和 Crash Harness | 无，仅测试使用 |
+| `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario、Crash Harness 与 Host 持久化契约验收套件 | 无，仅测试使用 |
 | `BoneAgentLocalModels` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
 | `BoneAgentLlama` | llama Runtime seam、Conversation Renderer、受限 GBNF、UTF-8 Stop、Probe 与默认 text-only、可验证 Constraint/Tool Calling Engine | 无，不包含 llama.cpp |
 
@@ -106,6 +106,13 @@ let result = try await agent.run(
 - 对不可确认副作用使用 `outcomeUnknown / recoveryRequired`，不伪造 exactly-once；
 - 安全事件、状态投影和可注入 Persistence seam。
 
+### Host 持久化契约验收
+
+- `BoneAgentTesting` 的 `BoneWorkflowPersistenceContractSuite` 接受每场景隔离的 Host Store 工厂；
+- 验证快照提交、拒绝后的原子性、CAS 单赢家、generation fencing，以及可选的重新打开与独立连接一致性；
+- 返回固定白名单报告；缺能力明确 skipped，不计为通过；
+- 不包含数据库实现，不认证真实进程崩溃、断电持久性或 lease 到期。见 [接入说明](Documentation/Testing.md#host-持久化契约验收)。
+
 ### 本地模型基础设施
 
 - 版本化 Catalog、可信下载源、SHA-256 和原子安装；
@@ -131,6 +138,8 @@ Persistence / Recovery
     ↓
 Next Step or Final Result
 ```
+
+上图是包含 Workflow 的完整接入路径，不是每次 Agent 调用都会自动执行的持久化流程。仅做推理或短期查询时，可以直接使用 `BoneAgent.run`，无需创建 Workflow 数据库。
 
 Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、用户设置、凭据注入和持久化实现。两者只通过公开协议、类型化 Adapter 和不透明引用连接。
 
@@ -173,7 +182,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 
 - 当前提供确定性 Workflow + 局部 Agent Step，不支持任意 DAG；
 - 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
-- App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
+- App 被系统终止后不会永久后台运行；仅在 Host 接入 Workflow、持久层及接管策略后，才可基于保存的检查点恢复。直接 `BoneAgent.run` 不会自动落盘或重启恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
 - `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke。GBNF 只支持文档列出的 sound 子集，且 Grammar 后仍执行 SDK 复验；暂不提供 Token Streaming 或可靠加载百分比；
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测；当前 bundled 云模型尚未写入 Provider Smoke 身份，因此云端 Constraint seam 默认不自动启用。

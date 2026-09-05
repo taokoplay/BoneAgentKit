@@ -2,7 +2,7 @@
 
 ## Agent Harness 架构定位
 
-BoneAgentKit 是采用 **Agent Harness 架构**的生产级 Swift Agent Runtime SDK。这里的 Agent Harness 指围绕基础模型建立的受控执行环境，而不是某个名为 `Harness` 的类或目录。它将一次 Agent Run 所需的模型适配、上下文规划、Agent Loop、Tool 调度、策略与授权、状态提交、副作用对账和失败恢复组织成同一套控制面。
+BoneAgentKit 是采用 **Agent Harness 架构**的面向生产场景、仍处于预发布阶段的 Swift Agent Runtime SDK。这里的 Agent Harness 指围绕基础模型建立的受控执行环境，而不是某个名为 `Harness` 的类或目录。它将一次 Agent Run 所需的模型适配、上下文规划、Agent Loop、Tool 调度、策略与授权、状态提交、副作用对账和失败恢复组织成同一套控制面。
 
 ```text
 User Intent
@@ -103,7 +103,7 @@ Capability metadata 不替代 Provider 自身的模型目录、鉴权、额度�
 
 ## 事件与事实源
 
-当前事件只有 `runStarted → toolCallStarted → toolCallFinished → runFinished` 四阶段。它们用于单次 Run 的观察，不是持久事实源；数据库状态、用户确认票据和恢复依据仍由 App 管理。
+`BoneAgentEvent` 提供 `runStarted → toolCallStarted → toolCallFinished → runFinished` 四类生命周期事件。另有 `BoneAgentProgressSink` 接收准备检查点、工具校验和白名单失败诊断等进度；Inference Streaming 使用自己的事件协议。它们用于单次 Run 的观察，不是持久事实源；数据库状态、用户确认票据和恢复依据仍由 App 管理。
 
 ## Developer Experience Targets
 

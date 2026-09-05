@@ -12,6 +12,7 @@ Model 通过 `BoneInferenceEngine` 接入。已有 SDK 只需包装为这个协�
 
 ```swift
 import Foundation
+import BoneAgentKit
 
 struct ExistingModelAdapter: BoneInferenceEngine {
     let nonImageCapabilities: Set<BoneInferenceCapability> = [.text, .toolCalling]
@@ -73,6 +74,10 @@ enum QuickStartError: Error {
     case unexpectedSteps
 }
 ```
+
+此示例注册了 Echo Tool，但占位 Engine 直接返回文本，因此不会实际调用 Tool；验证 Tool 路径需让 Engine 返回相应 Tool Call，或使用测试 Product 的 Scripted Engine。将本页三个 Swift 代码块合并为可执行目标源码即可编译。
+
+该最短路径只完成进程内的一次 Agent Run，不会自动创建 Workflow、保存检查点或在重启后续跑。需要跨重启任务恢复时，另行接入 [Host Persistence Adapter](CharacterHostIntegration.md#persistence-adapter)；短期只读助手不必为此保存对话。
 
 最短路径完成。下一步按顺序阅读：
 

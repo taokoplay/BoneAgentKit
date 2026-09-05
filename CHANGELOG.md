@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- 对齐 Alpha.12 产品介绍、Package 接入版本、Host 验收入口与 API 名称；区分直接 Agent 调用、Workflow 恢复与 Host 所有权责任，追加版本化验证证据并修正生产成熟度表述。
+
 ## [0.2.0-alpha.12] - 2026-09-05
 
 ### Added

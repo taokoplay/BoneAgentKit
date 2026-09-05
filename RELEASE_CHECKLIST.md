@@ -72,3 +72,15 @@
 - GitHub Actions 配置已建立，未推送、未远端运行，不能当作已绿的远端 CI。
 
 签发前仍必须补：真实 Host Debug/Release、真实 Store lease expiry/事务/跨进程恢复、真机 Runtime/内存/取消、授权后的 Provider 非流式与流式测试、最低工具链、许可证和资产权利核验，以及最终已提交 SHA。以上未完成前不宣称生产验收或发布准入通过。
+
+
+## Alpha.12 发布证据（2026-09-05）
+
+本节追加新版本证据，不覆盖上方历史快照，也不将发布 tag 等同于生产准入。
+
+- `ebb90a54`：Host 持久化契约验收套件与 20 项新增测试；全库 417 项显式 Swift 6 严格测试、Release 严格构建、文档/diff 检查通过。
+- `ed9326e9c2b80c9193ad1268e809929274b42e6c`：Alpha.12 版本元数据提交；再次运行 417 项显式 Swift 6 严格测试、文档/diff 检查通过。未把父提交的 Release 结果声称为该版本提交的重新构建。
+- `0.2.0-alpha.12` annotated tag 已推送并核验远端指向上述版本提交；只推送 tag，未合并远端 main，未单独创建 GitHub Release 页面。
+- Xcode 26.0 / Swift 6.2 是本地验证环境；最低 Swift 5.9 仍未实测。四库 Simulator 构建证据属于此前整合阶段，Alpha.12 未重新做真机或四库 SDK 全量验收。
+- 2026-09-05 约 19:55 查询 Alpha.11 提交及仓库最近 Actions 运行列表为空；该查询不是 Alpha.12 发布后的 CI 核验，Alpha.12 远端 CI 结果尚未核验。
+- 契约套件尚无真实数据库 Adapter 的 reopen/独立连接正例；真实 Host、进程崩溃、lease expiry、真机 Runtime、Provider 与资产权利验收仍未关闭。原始测试日志保留本机，不包含在 tag 中。

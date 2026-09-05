@@ -32,7 +32,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [Testing 与 Harness](Testing.md) | Product 隔离、测试矩阵、事件和排错 |
+| [Testing 与 Harness](Testing.md) | Product 隔离、Host 持久化契约验收、测试矩阵、事件和排错 |
 | [安全与隐私](SecurityAndPrivacy.md) | 数据边界、日志、Endpoint 和真实 Smoke |
 | [公开 API 基线](../API_BASELINE.md) | 稳定范围、关键入口和兼容承诺 |
 | [发布检查清单](../RELEASE_CHECKLIST.md) | 技术、安全、许可、迁移和回滚门禁 |
