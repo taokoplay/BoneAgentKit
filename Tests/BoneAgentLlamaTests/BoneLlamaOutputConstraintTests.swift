@@ -212,7 +212,8 @@ final class BoneLlamaOutputConstraintTests: XCTestCase {
             grammarSamplerVersion: "1",
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: "1",
-            terminationContractVersion: 1
+            terminationContractVersion: 1,
+            probeProtocolVersion: 2
         )
     }
 }

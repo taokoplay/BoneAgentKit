@@ -58,7 +58,8 @@ final class BoneLocalRuntimeProbeModelsTests: XCTestCase {
             grammarParserID: nil,
             grammarParserVersion: nil,
             contextTokens: 4096,
-            batchTokens: 256
+            batchTokens: 256,
+            probeProtocolVersion: 2
         )
         let result = BoneLocalModelBackendProbeResult(
             check: .init(kind: .smoke, status: .passed),

@@ -36,13 +36,17 @@
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
 
+## Alpha.10 迁移提示
+
+- Direct Enum/JSON Probe 现在使用明确唯一目标；本地验证身份使用必需的 `schemaVersion = 3` 与 `probeProtocolVersion = 2`。缺少/错误版本或含旧字段的历史身份严格拒绝，Alpha.9 Smoke 记录必须重新验证。
+
 ## Alpha.9 迁移提示
 
 - 删除与 module 同名的 `BoneAgentKit` Facade；Agent 运行统一使用 `BoneAgent`。
 - Workflow 公开术语统一为 `BoneWorkflow*`；Persistence、Run record、Checkpoint 与 Agent Step 不保留旧别名。
 - 推理调用方式统一为 `BoneInferenceInvocationMode`；聚合式流传输统一使用 `BufferedStreaming`，逐事件入口仍为 `BoneInferenceEventStreaming`。
 - Product/module/test target `BoneAgentLocalRuntime` 改为 `BoneAgentLocalModels`；Adapter abstraction 改称 `BoneLocalModelBackend*`。
-- 本地验证身份改为 `BoneLocalExecutionVerificationIdentity`，并将 Grammar Parser 与 Grammar Sampler 身份分离；编码使用必需的 `schemaVersion = 2`，缺少/错误版本或含旧字段的 Alpha.8 本地身份严格拒绝，不能静默映射。
+- 本地验证身份改为 `BoneLocalExecutionVerificationIdentity`，并将 Grammar Parser 与 Grammar Sampler 身份分离；Alpha.9 编码使用必需的 `schemaVersion = 2`，缺少/错误版本或含旧字段的 Alpha.8 本地身份严格拒绝，不能静默映射。
 - Constraint Runtime/control 改为 `BoneLlamaConstraintGenerationRuntime` 与 `BoneLlamaResolvedGenerationControl`。
 - 删除旧 Prompt Encoder 与组合 Tool Calling 管线；统一使用 canonical Conversation Renderer + Tool Envelope。
 - Alpha.9 是预发布 clean break，不提供旧 public typealias、Product 或 initializer；编译错误构成调用方迁移清单。

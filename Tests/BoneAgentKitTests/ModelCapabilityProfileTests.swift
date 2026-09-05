@@ -30,12 +30,13 @@ final class ModelCapabilityProfileTests: XCTestCase {
         ))
     }
 
-    func testAlpha9VerificationIdentityRoundTripsWithExplicitSchemaVersion() throws {
+    func testCurrentVerificationIdentityRoundTripsWithExplicitSchemaVersion() throws {
         let identity = try Self.identity()
         let data = try JSONEncoder().encode(identity)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertEqual(object["schemaVersion"] as? Int, BoneLocalExecutionVerificationIdentity.currentSchemaVersion)
+        XCTAssertEqual(object["probeProtocolVersion"] as? Int, 2)
         XCTAssertEqual(try JSONDecoder().decode(BoneLocalExecutionVerificationIdentity.self, from: data), identity)
     }
 
@@ -49,7 +50,26 @@ final class ModelCapabilityProfileTests: XCTestCase {
             from: try JSONSerialization.data(withJSONObject: object)
         ))
 
-        object["schemaVersion"] = 1
+        for unsupportedVersion in [1, 2] {
+            object["schemaVersion"] = unsupportedVersion
+            XCTAssertThrowsError(try JSONDecoder().decode(
+                BoneLocalExecutionVerificationIdentity.self,
+                from: try JSONSerialization.data(withJSONObject: object)
+            ))
+        }
+    }
+
+    func testRejectsMissingOrInvalidProbeProtocolVersion() throws {
+        let encoded = try JSONEncoder().encode(Self.identity())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        object.removeValue(forKey: "probeProtocolVersion")
+        XCTAssertThrowsError(try JSONDecoder().decode(
+            BoneLocalExecutionVerificationIdentity.self,
+            from: try JSONSerialization.data(withJSONObject: object)
+        ))
+
+        object["probeProtocolVersion"] = 0
         XCTAssertThrowsError(try JSONDecoder().decode(
             BoneLocalExecutionVerificationIdentity.self,
             from: try JSONSerialization.data(withJSONObject: object)
@@ -107,6 +127,7 @@ final class ModelCapabilityProfileTests: XCTestCase {
         XCTAssertFalse(identity.matches(try Self.identity(grammarSamplerVersion: "2")))
         XCTAssertFalse(identity.matches(try Self.identity(stopMatcherVersion: "2")))
         XCTAssertFalse(identity.matches(try Self.identity(terminationContractVersion: 2)))
+        XCTAssertFalse(identity.matches(try Self.identity(probeProtocolVersion: 3)))
     }
 
     func testIdentityValidatesDigestsAndPairedOptionalComponents() {
@@ -127,7 +148,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             grammarParserID: nil,
             grammarParserVersion: nil,
             contextTokens: 4096,
-            batchTokens: 256
+            batchTokens: 256,
+            probeProtocolVersion: 2
         ))
         XCTAssertThrowsError(try BoneLocalExecutionVerificationIdentity(
             artifactSHA256: String(repeating: "a", count: 64),
@@ -156,7 +178,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             grammarSamplerVersion: nil,
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: "1",
-            terminationContractVersion: 1
+            terminationContractVersion: 1,
+            probeProtocolVersion: 2
         ))
     }
 
@@ -171,7 +194,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
         grammarParserVersion: String? = "1",
         grammarSamplerVersion: String? = "1",
         stopMatcherVersion: String? = "1",
-        terminationContractVersion: Int? = 1
+        terminationContractVersion: Int? = 1,
+        probeProtocolVersion: Int = 2
     ) throws -> BoneLocalExecutionVerificationIdentity {
         try .init(
             artifactSHA256: artifactSHA256,
@@ -202,7 +226,8 @@ final class ModelCapabilityProfileTests: XCTestCase {
             grammarSamplerVersion: grammarSamplerVersion,
             stopMatcherID: "bone.utf8-stop",
             stopMatcherVersion: stopMatcherVersion,
-            terminationContractVersion: terminationContractVersion
+            terminationContractVersion: terminationContractVersion,
+            probeProtocolVersion: probeProtocolVersion
         )
     }
 }

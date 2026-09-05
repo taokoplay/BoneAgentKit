@@ -251,6 +251,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         let enumConstraint = BoneLlamaGenerationConstraint.enumChoice(["ready", "not-ready"])
         let enumResult = try await directConstraintGenerate(
             constraint: enumConstraint,
+            prompt: "Return exactly ready. Output no other text.",
             renderer: renderer,
             runtime: runtime,
             modelID: modelID,
@@ -273,6 +274,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         let schemaConstraint = BoneLlamaGenerationConstraint.jsonSchema(schema)
         let schemaResult = try await directConstraintGenerate(
             constraint: schemaConstraint,
+            prompt: "Return a JSON object with ok set to true. Output no other text.",
             renderer: renderer,
             runtime: runtime,
             modelID: modelID,
@@ -284,10 +286,13 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             requiresCompleteOutput: true
         )
         do {
-            try BoneToolSchemaValidator.validate(
-                arguments: Data(schemaResult.text.utf8),
-                against: schema
-            )
+            let data = Data(schemaResult.text.utf8)
+            try BoneToolSchemaValidator.validate(arguments: data, against: schema)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object.count == 1,
+                  object["ok"] as? Bool == true else {
+                throw BoneLlamaAdapterError.invalidToolCallingResponse
+            }
         } catch {
             throw BoneLlamaAdapterError.invalidToolCallingResponse
         }
@@ -295,6 +300,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
 
     private func directConstraintGenerate(
         constraint: BoneLlamaGenerationConstraint,
+        prompt: String,
         renderer: any BoneLlamaConversationRendering,
         runtime: any BoneLlamaRuntime,
         modelID: String,
@@ -305,7 +311,7 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
         }
         let conversation = try BoneLlamaConversationBuilder.build(request: .init(
             modelID: modelID,
-            messages: [.init(role: .user, content: "Return the synthetic constraint value.")]
+            messages: [.init(role: .user, content: prompt)]
         ))
         let rendered = try await renderer.render(conversation: conversation, using: runtime)
         guard rendered.generationControl.constraint == nil else {
@@ -381,7 +387,8 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             grammarSamplerVersion: compiledDigest == nil ? nil : components.grammarSamplerVersion,
             stopMatcherID: compiledDigest == nil ? nil : components.stopMatcherID,
             stopMatcherVersion: compiledDigest == nil ? nil : components.stopMatcherVersion,
-            terminationContractVersion: compiledDigest == nil ? nil : 1
+            terminationContractVersion: compiledDigest == nil ? nil : 1,
+            probeProtocolVersion: Self.probeProtocolVersion
         )
     }
 
@@ -414,6 +421,9 @@ public struct BoneLlamaRuntimeProbeAdapter: BoneLocalModelBackendProbing, Sendab
             maximumProbeDepth: .smoke
         )
     }
+
+    /// 任何会影响 Smoke 输入或成功判定的语义变化都必须递增，使历史身份自动失效。
+    public static let probeProtocolVersion = 2
 
     private static let syntheticTool = BoneAgentToolDefinition(
         id: "bone.capability-probe",

@@ -71,12 +71,52 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(result.verificationIdentity?.grammarSamplerID, "fixture-gbnf-sampler")
         XCTAssertEqual(result.verificationIdentity?.stopMatcherID, "fixture-stop")
         XCTAssertEqual(result.verificationIdentity?.terminationContractVersion, 1)
+        XCTAssertEqual(
+            result.verificationIdentity?.probeProtocolVersion,
+            BoneLlamaRuntimeProbeAdapter.probeProtocolVersion
+        )
         XCTAssertTrue(result.verificationIdentity?.hasConstraintRuntimeIdentity == true)
+        let directPrompts = await runtime.directPrompts()
+        XCTAssertEqual(directPrompts.count, 2)
+        XCTAssertTrue(directPrompts.first?.contains("Return exactly ready. Output no other text.") == true)
+        XCTAssertTrue(directPrompts.last?.contains("Return a JSON object with ok set to true. Output no other text.") == true)
         let controls = await runtime.controls()
         XCTAssertEqual(controls.count, 4)
         XCTAssertTrue(controls.allSatisfy { $0.constraint != nil })
         let sawMultipleRanges = await runtime.sawMultiplePrefillRanges()
         XCTAssertTrue(sawMultipleRanges)
+    }
+
+    func testConstrainedSmokeFailsClosedWhenModelChoosesAllowedButUnrequestedEnumBranch() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(
+            outputs: [
+                (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
+                (#"{"type":"final","content":"Capability verified."}"#, .eog),
+            ],
+            directConstraintOutputs: [("not-ready", .eog), (#"{"ok":true}"#, .eog)]
+        )
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: ProbeRendererFixture(),
+            toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .failed)
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
+        XCTAssertNil(result.verificationIdentity)
+        let directPrompts = await runtime.directPrompts()
+        XCTAssertEqual(directPrompts.count, 1)
+        XCTAssertTrue(directPrompts.first?.contains("Return exactly ready. Output no other text.") == true)
     }
 
     func testConstrainedSmokeFailsClosedWhenDirectConstraintOutputIsInvalid() async throws {
@@ -198,6 +238,7 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
     private var outputs: [(String, BoneLlamaGenerationTermination)]
     private var directConstraintOutputs: [(String, BoneLlamaGenerationTermination)]
     private var recordedControls: [BoneLlamaGenerationControl] = []
+    private var recordedDirectPrompts: [String] = []
     private var multiplePrefillRanges = false
 
     init(
@@ -245,6 +286,7 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
             return .init(text: next.0, termination: next.1)
         }
         guard !directConstraintOutputs.isEmpty else { throw BoneLlamaRuntimeError.generationFailed }
+        recordedDirectPrompts.append(prompt)
         let next = directConstraintOutputs.removeFirst()
         return .init(text: next.0, termination: next.1)
     }
@@ -264,6 +306,7 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
     func cancel() async {}
     func unload() async {}
     func controls() -> [BoneLlamaGenerationControl] { recordedControls }
+    func directPrompts() -> [String] { recordedDirectPrompts }
     func sawMultiplePrefillRanges() -> Bool { multiplePrefillRanges }
 }
 

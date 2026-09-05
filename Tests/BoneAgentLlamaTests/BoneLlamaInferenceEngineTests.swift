@@ -384,7 +384,8 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
             contextTokens: 512,
             batchTokens: 32,
             addGenerationPrompt: true,
-            maximumOutputTokens: 64
+            maximumOutputTokens: 64,
+            probeProtocolVersion: BoneLlamaRuntimeProbeAdapter.probeProtocolVersion
         )
     }
 

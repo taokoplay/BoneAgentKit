@@ -2,7 +2,7 @@ import Foundation
 
 /// 绑定本地模型能力 Smoke 的完整执行组合；只保存稳定 ID、版本与摘要，不保存 Prompt 或模板正文。
 public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public enum ValidationError: Error, Equatable, Sendable {
         case invalidIdentity
@@ -38,6 +38,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
     public let stopMatcherID: String?
     public let stopMatcherVersion: String?
     public let terminationContractVersion: Int?
+    public let probeProtocolVersion: Int
 
     public init(
         artifactSHA256: String,
@@ -68,7 +69,8 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
         grammarSamplerVersion: String? = nil,
         stopMatcherID: String? = nil,
         stopMatcherVersion: String? = nil,
-        terminationContractVersion: Int? = nil
+        terminationContractVersion: Int? = nil,
+        probeProtocolVersion: Int
     ) throws {
         guard Self.isSHA256(artifactSHA256),
               Self.isSHA256(templateDigest),
@@ -89,6 +91,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
               Self.isValidTriple(constraintCompilerID, constraintCompilerVersion, constraintDialect),
               Self.isValidPair(grammarSamplerID, grammarSamplerVersion),
               Self.isValidPair(stopMatcherID, stopMatcherVersion),
+              probeProtocolVersion > 0,
               Self.isValidConstraintIdentityGroup(
                   compilerID: constraintCompilerID,
                   schemaVersion: schemaCanonicalFormatVersion,
@@ -131,6 +134,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
         self.stopMatcherID = stopMatcherID
         self.stopMatcherVersion = stopMatcherVersion
         self.terminationContractVersion = terminationContractVersion
+        self.probeProtocolVersion = probeProtocolVersion
     }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -164,6 +168,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
         case stopMatcherID
         case stopMatcherVersion
         case terminationContractVersion
+        case probeProtocolVersion
     }
 
     private enum LegacyCodingKeys: String, CodingKey, CaseIterable {
@@ -223,7 +228,8 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
                 grammarSamplerVersion: container.decodeIfPresent(String.self, forKey: .grammarSamplerVersion),
                 stopMatcherID: container.decodeIfPresent(String.self, forKey: .stopMatcherID),
                 stopMatcherVersion: container.decodeIfPresent(String.self, forKey: .stopMatcherVersion),
-                terminationContractVersion: container.decodeIfPresent(Int.self, forKey: .terminationContractVersion)
+                terminationContractVersion: container.decodeIfPresent(Int.self, forKey: .terminationContractVersion),
+                probeProtocolVersion: container.decode(Int.self, forKey: .probeProtocolVersion)
             )
         } catch let error as DecodingError {
             throw error
@@ -268,6 +274,7 @@ public struct BoneLocalExecutionVerificationIdentity: Codable, Equatable, Hashab
         try container.encodeIfPresent(stopMatcherID, forKey: .stopMatcherID)
         try container.encodeIfPresent(stopMatcherVersion, forKey: .stopMatcherVersion)
         try container.encodeIfPresent(terminationContractVersion, forKey: .terminationContractVersion)
+        try container.encode(probeProtocolVersion, forKey: .probeProtocolVersion)
     }
 
     public func matches(_ current: Self) -> Bool { self == current }

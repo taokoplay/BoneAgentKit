@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.10] - 2026-09-05
+
+### Fixed
+
+- 修复 Llama Direct Enum Probe 的假阴性：Probe 仍使用双分支 Enum Grammar，但现在明确要求模型返回 `ready`，使 Prompt 与精确成功断言一致；Direct JSON Probe 同样明确要求 `ok: true` 并执行 Schema 与目标语义双重后验验证。
+- 本地执行身份新增 `probeProtocolVersion = 2`，并将 `BoneLocalExecutionVerificationIdentity.schemaVersion` 提升为 `3`。Alpha.9 及更早 Smoke 身份缺少 Probe 协议版本，因此严格失效并必须重新执行完整 Smoke。
+- 新增回归测试，覆盖明确 Probe Prompt、Grammar 内但未被请求的 `not-ready` 分支、集合外输出、无效终止和“全部阶段通过后才返回完整身份”的失败关闭行为。
+
 ## [0.2.0-alpha.9] - 2026-09-04
 
 ### Changed
