@@ -24,7 +24,7 @@ public struct BoneInferenceRequirements: Equatable, Sendable {
 }
 
 /// 推理入口的调用方式；Streaming 会在请求本身需求之外增加流式能力。
-public enum BoneInferenceInvocation: Equatable, Sendable {
+public enum BoneInferenceInvocationMode: String, Codable, Equatable, Hashable, Sendable {
     case nonStreaming
     case streaming
 }
@@ -34,7 +34,7 @@ public enum BoneInferenceCapabilityValidator {
     public static func validate(
         request: BoneInferenceRequest,
         capabilities: Set<BoneInferenceCapability>,
-        invocation: BoneInferenceInvocation
+        invocation: BoneInferenceInvocationMode
     ) throws {
         let requirements = try BoneInferenceRequirements(request: request)
         for capability in requirements.requiredCapabilities.sorted(by: { $0.rawValue < $1.rawValue }) {

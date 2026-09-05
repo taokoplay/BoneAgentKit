@@ -14,7 +14,7 @@
 
 允许记录的最小白名单是：运行阶段、稳定错误分类、安全短 ID、HTTP 状态类别、响应长度、载荷类别、byteCount、MIME、候选/持久化计数。短 ID 必须不可逆且不输出完整 Provider UUID。
 
-标准 `BoneRunCheckpoint` 必须显式声明 `BoneCheckpointDataClassification` 与 `BoneCheckpointRetention`，只接受 `.safeState` 或 `.opaqueReference`。`.userPrivate`、`.credential`、`.providerContinuation` 与 `.rawModelExchange` 通过标准构造入口 fail-closed；若未来 Host 需要保存此类内容，必须另建具有加密、隔离、到期和删除能力协商的专用 Store，不能借普通 JSON payload 绕过。
+标准 `BoneWorkflowCheckpoint` 必须显式声明 `BoneCheckpointDataClassification` 与 `BoneCheckpointRetention`，只接受 `.safeState` 或 `.opaqueReference`。`.userPrivate`、`.credential`、`.providerContinuation` 与 `.rawModelExchange` 通过标准构造入口 fail-closed；若未来 Host 需要保存此类内容，必须另建具有加密、隔离、到期和删除能力协商的专用 Store，不能借普通 JSON payload 绕过。
 
 ## 运行数据边界
 

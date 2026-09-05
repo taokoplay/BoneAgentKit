@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 
@@ -36,7 +36,7 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
             modelID: "model",
             modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
             plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
-            toolCalling: BoneLlamaJSONToolCallingCodec(),
+            toolEnvelope: BoneLlamaJSONToolEnvelopeCodec(),
             runtimeFactory: { runtime }
         )
         XCTAssertEqual(engine.nonImageCapabilities, [.text, .toolCalling])
@@ -179,8 +179,8 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
         let validEnvelope = #"{"type":"final","content":"done"}"#
         for termination in [
             BoneLlamaGenerationTermination.runtimeCompleted,
-            .stopToken,
-            .stopString,
+            .stopToken(id: 2),
+            .stopString(index: 0),
         ] {
             let runtime = EngineRuntimeFixture(result: validEnvelope, termination: termination)
             let engine = BoneLlamaInferenceEngine(
@@ -365,7 +365,7 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
 
     private static func verificationIdentity(
         templateDigest: String
-    ) throws -> BoneCapabilityVerificationIdentity {
+    ) throws -> BoneLocalExecutionVerificationIdentity {
         try .init(
             artifactSHA256: String(repeating: "c", count: 64),
             runtimeID: "llama.cpp",
@@ -379,12 +379,13 @@ final class BoneLlamaInferenceEngineTests: XCTestCase {
             generationControlDigest: String(repeating: "d", count: 64),
             toolEnvelopeID: "bone.json-tool-envelope",
             toolEnvelopeVersion: "1",
-            constraintDecoderID: nil,
-            constraintDecoderVersion: nil,
+            grammarParserID: nil,
+            grammarParserVersion: nil,
             contextTokens: 512,
             batchTokens: 32,
             addGenerationPrompt: true,
-            maximumOutputTokens: 64
+            maximumOutputTokens: 64,
+            probeProtocolVersion: BoneLlamaRuntimeProbeAdapter.probeProtocolVersion
         )
     }
 
@@ -456,7 +457,7 @@ private actor ControlledEngineRuntimeFixture: BoneLlamaRuntime {
         return .init(text: "ok")
     }
 
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
 
@@ -547,7 +548,7 @@ private actor EngineRuntimeFixture: BoneLlamaRuntime {
         prefillRanges = executionPlan.prefillRanges
         return .init(text: result, termination: termination)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async { loaded = false }
 

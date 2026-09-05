@@ -21,7 +21,7 @@ Host 可以为业务对象签发随机、不透明、有限时效的引用。Res
 
 ## Persistence Adapter
 
-Host 通过 `BoneAgentPersistence` 实现 create、load、CAS commit 与 lease fencing。Run 与 Checkpoint 必须作为一致的原子提交单元；具体数据库和事务技术由 Host 自行选择，Kit 不作假设。
+Host 通过 `BoneWorkflowPersistence` 实现 create、load、CAS commit 与 lease fencing。Run 与 Checkpoint 必须作为一致的原子提交单元；具体数据库和事务技术由 Host 自行选择，Kit 不作假设。
 
 Provider 凭据只应由 Host composition root 临时注入，不得进入 Checkpoint、日志、事件或安全报告。
 

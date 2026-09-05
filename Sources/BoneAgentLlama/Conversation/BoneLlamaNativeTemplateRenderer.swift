@@ -17,10 +17,21 @@ public struct BoneLlamaNativeTemplateRenderer: BoneLlamaConversationRendering, S
         guard let runtime = runtime as? any BoneLlamaNativeTemplateRenderingRuntime else {
             throw BoneLlamaRuntimeError.nativeTemplateUnavailable
         }
-        return try await runtime.renderNativeTemplate(
+        let capabilities = try await runtime.nativeTemplateCapabilities()
+        guard capabilities.supportedReasoningModes.contains(reasoningMode),
+              !addGenerationPrompt || capabilities.supportsAddGenerationPrompt else {
+            throw BoneLlamaRuntimeError.nativeTemplateUnavailable
+        }
+        let rendered = try await runtime.renderNativeTemplate(
             conversation: conversation,
             addGenerationPrompt: addGenerationPrompt,
             reasoningMode: reasoningMode
         )
+        guard rendered.templateIdentity.source == .ggufMetadata,
+              rendered.templateIdentity.reasoningMode == reasoningMode,
+              rendered.templateIdentity.addGenerationPrompt == addGenerationPrompt else {
+            throw BoneLlamaRuntimeError.nativeTemplateUnavailable
+        }
+        return rendered
     }
 }

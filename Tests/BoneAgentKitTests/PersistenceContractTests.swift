@@ -5,20 +5,20 @@ import BoneAgentTesting
 
 /// SDK in-memory contract only: no wall-clock lease expiry or disk durability is implied.
 final class PersistenceContractTests: XCTestCase {
-    private static func seed(_ store: BoneInMemoryAgentPersistence) async throws -> BoneStoredRunSnapshot {
+    private static func seed(_ store: BoneInMemoryWorkflowPersistence) async throws -> BoneWorkflowRunSnapshot {
         let plan = try BoneWorkflowPlan(identity: "contract", revision: 1, steps: [.init(id: .init("step"), kind: "test", revision: 1)])
         return try await store.create(run: .init(id: .init("run"), plan: plan, state: .pending, revision: 0, leaseGeneration: 1),
             checkpoint: .init(descriptor: .init(formatVersion: 1, workflowIdentity: plan.identity, workflowRevision: 1), payload: Data("{\"value\":0}".utf8), dataClassification: .safeState))
     }
 
-    private static func change(_ snapshot: BoneStoredRunSnapshot, state: BoneWorkflowRunState = .running, generation: UInt64? = nil, identity: String? = nil) throws -> BoneStoredRunSnapshot {
+    private static func change(_ snapshot: BoneWorkflowRunSnapshot, state: BoneWorkflowRunState = .running, generation: UInt64? = nil, identity: String? = nil) throws -> BoneWorkflowRunSnapshot {
         .init(run: .init(id: snapshot.run.id, plan: snapshot.run.plan, state: state, revision: snapshot.run.revision, leaseGeneration: generation ?? snapshot.run.leaseGeneration),
               checkpoint: try .init(descriptor: .init(formatVersion: 1, workflowIdentity: identity ?? snapshot.run.plan.identity, workflowRevision: 1), payload: Data("{\"value\":1}".utf8), dataClassification: .safeState, revision: snapshot.checkpoint.revision))
     }
 
     func testCrashBoundariesExposeWholeOldOrWholeNewSnapshot() async throws {
-        _ = try await BoneCrashTestHarness().run { boundary in
-            let store = BoneInMemoryAgentPersistence()
+        _ = try await BoneCrashBoundaryHarness().run { boundary in
+            let store = BoneInMemoryWorkflowPersistence()
             let old = try await Self.seed(store)
             let next = try Self.change(old)
             if boundary != .beforePersistenceCommit {
@@ -37,7 +37,7 @@ final class PersistenceContractTests: XCTestCase {
     }
 
     func testRejectedBundleDoesNotPartiallyUpdateRunOrCheckpoint() async throws {
-        let store = BoneInMemoryAgentPersistence()
+        let store = BoneInMemoryWorkflowPersistence()
         let old = try await Self.seed(store)
         for (state, identity, error): (BoneWorkflowRunState, String?, BoneWorkflowFailure) in [(.running, "wrong", .corruptedCheckpoint), (.completed, nil, .invalidStateTransition)] {
             let bad = try Self.change(old, state: state, identity: identity)
@@ -51,7 +51,7 @@ final class PersistenceContractTests: XCTestCase {
     }
 
     func testConcurrentCASHasExactlyOneWinner() async throws {
-        let store = BoneInMemoryAgentPersistence()
+        let store = BoneInMemoryWorkflowPersistence()
         let old = try await Self.seed(store)
         let next = try Self.change(old)
         let successes = await withTaskGroup(of: Bool.self) { group in
@@ -70,7 +70,7 @@ final class PersistenceContractTests: XCTestCase {
     }
 
     func testNewGenerationFencesLateWorkerEvenWithFreshRevision() async throws {
-        let store = BoneInMemoryAgentPersistence()
+        let store = BoneInMemoryWorkflowPersistence()
         let old = try await Self.seed(store)
         let takeover = try await store.acquireLease(runID: old.run.id, expectedRevision: 1)
         XCTAssertEqual(takeover.run.leaseGeneration, 2)

@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import Foundation
 
 public struct BoneLlamaRuntimeConfiguration: Equatable, Sendable {
@@ -116,10 +116,10 @@ public enum BoneLlamaPromptExecutionPlanner {
     }
 }
 
-public enum BoneLlamaGenerationTermination: String, Codable, Equatable, Sendable {
+public enum BoneLlamaGenerationTermination: Codable, Equatable, Sendable {
     case eog
-    case stopToken
-    case stopString
+    case stopToken(id: Int32)
+    case stopString(index: Int)
     case maximumTokens
     case runtimeCompleted
 }

@@ -90,7 +90,7 @@ final class ProtocolShapeDiagnosticTests: XCTestCase {
         )
 
         do {
-            _ = try await engine.streamInferenceDetailed(
+            _ = try await engine.inferDetailedUsingStream(
                 request: request,
                 options: .init(firstEventTimeout: 1, idleTimeout: 1)
             )

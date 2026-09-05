@@ -150,7 +150,7 @@ private extension BoneLlamaConstrainedJSONToolEnvelopeCodec {
         let final = BoneToolSchema.object(
             properties: [
                 "type": .string(enumValues: ["final"], minimumLength: nil, maximumLength: nil),
-                "content": .string(enumValues: [], minimumLength: 1, maximumLength: nil),
+                "content": .string(enumValues: [], minimumLength: nil, maximumLength: nil),
             ],
             required: ["type", "content"],
             additionalProperties: false
@@ -159,7 +159,7 @@ private extension BoneLlamaConstrainedJSONToolEnvelopeCodec {
             guard let wireName = tool.wireName, let arguments = tool.inputSchema else { return nil }
             return .object(
                 properties: [
-                    "id": .string(enumValues: [], minimumLength: 1, maximumLength: 256),
+                    "id": .string(enumValues: [], minimumLength: nil, maximumLength: nil),
                     "name": .string(enumValues: [wireName], minimumLength: nil, maximumLength: nil),
                     "arguments": arguments,
                 ],
@@ -178,8 +178,8 @@ private extension BoneLlamaConstrainedJSONToolEnvelopeCodec {
                 "type": .string(enumValues: ["tool_calls"], minimumLength: nil, maximumLength: nil),
                 "tool_calls": .array(
                     items: callItem,
-                    minimumItems: 1,
-                    maximumItems: BoneInferenceAssistantTurn.maximumToolCallCount
+                    minimumItems: nil,
+                    maximumItems: nil
                 ),
             ],
             required: ["type", "tool_calls"],

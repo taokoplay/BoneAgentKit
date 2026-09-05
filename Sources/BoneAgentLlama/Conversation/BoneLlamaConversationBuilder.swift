@@ -12,10 +12,10 @@ public enum BoneLlamaConversationBuilder {
     ) throws -> BoneLlamaConversation {
         guard !request.messages.isEmpty,
               request.responseFormat == .text,
-              request.outputConstraint == nil,
               request.providerContinuation == nil,
               request.reasoningDisclosure == .hidden,
-              request.availableTools.isEmpty == (toolEnvelope == nil) else {
+              request.availableTools.isEmpty == (toolEnvelope == nil),
+              request.outputConstraint == nil || toolEnvelope == nil else {
             throw BoneLlamaAdapterError.unsupportedRequest
         }
 

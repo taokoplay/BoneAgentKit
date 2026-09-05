@@ -62,7 +62,7 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
 ## 可读推理披露
 
 `BoneInferenceRequest.reasoningDisclosure` 默认为 `.hidden`。业务只有通过
-`BoneInferenceDetailedResultProviding` 或 `BoneInferenceDetailedStreaming` 才能取得内存中的
+`BoneInferenceDetailedResultProviding` 或 `BoneInferenceDetailedBufferedStreaming` 才能取得内存中的
 `BoneInferenceDetailedResult.reasoning`：
 
 - `.hidden` 不交付任何可读推理；

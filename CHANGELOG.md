@@ -35,6 +35,43 @@
 - Host 对 `BoneWorkflowToolExecutionError` 和 `BoneAgentError` 的穷尽 switch 需处理新增恢复分类；使用原 Effect identity 读取持久事实并 reconcile，不创建新 identity 自动重试。
 - Host 为每个模型根目录提供一个 Store 所有者；`cleanIncompleteDownloads()` 仅在没有其他 Store/进程/下载正在使用该根时调用。安装可能临时需要额外一份模型空间，须纳入 Host 磁盘预算。
 
+## [0.2.0-alpha.10] - 2026-09-05
+
+### Fixed
+
+- 修复 Llama Direct Enum Probe 的假阴性：Probe 仍使用双分支 Enum Grammar，但现在明确要求模型返回 `ready`，使 Prompt 与精确成功断言一致；Direct JSON Probe 同样明确要求 `ok: true` 并执行 Schema 与目标语义双重后验验证。
+- 本地执行身份新增 `probeProtocolVersion = 2`，并将 `BoneLocalExecutionVerificationIdentity.schemaVersion` 提升为 `3`。Alpha.9 及更早 Smoke 身份缺少 Probe 协议版本，因此严格失效并必须重新执行完整 Smoke。
+- 新增回归测试，覆盖明确 Probe Prompt、Grammar 内但未被请求的 `not-ready` 分支、集合外输出、无效终止和“全部阶段通过后才返回完整身份”的失败关闭行为。
+
+## [0.2.0-alpha.9] - 2026-09-04
+
+### Changed
+
+- 删除与 module 同名的 `BoneAgentKit` Facade，`BoneAgent` 成为唯一 Agent 运行入口；Workflow 类型统一为 `BoneWorkflow*`。
+- 合并两套 Invocation 概念为 `BoneInferenceInvocationMode`，并用 `BufferedStreaming` 区分聚合式流传输与逐事件 Streaming。
+- Product/module/test target `BoneAgentLocalRuntime` 改为 `BoneAgentLocalModels`，Probe Adapter abstraction 改为 `BoneLocalModelBackend*`。
+- 本地能力证据改为 `BoneLocalExecutionVerificationIdentity`；Grammar Parser 与 Grammar Sampler 分别绑定身份，任一漂移都会撤销高级能力。该身份使用必需的 `schemaVersion = 2` 和严格自定义解码；缺少版本、版本不匹配或包含 Alpha.8 `constraintDecoder*` / `grammarRuntime*` 字段的旧身份一律拒绝，不能静默复用。
+- Llama Constraint seam 改为 `BoneLlamaConstraintGenerationRuntime` 与 `BoneLlamaResolvedGenerationControl`；删除旧 Prompt Encoder 和组合 Tool Calling 管线，只保留 canonical Conversation Renderer + Tool Envelope。
+- 测试术语改为 `BoneCrashBoundaryHarness` / `boundaryVisited`，基础 Runtime 检查改为 `verifyBasicGeneration()`。
+- 本次为 1.0 前 clean break，不保留旧 public typealias、Product/module 或 initializer；保持 Invocation 的 `nonStreaming` / `streaming` Codable raw values 不变。
+
+## [0.2.0-alpha.8] - 2026-09-04
+
+### Added
+
+- 新增显式版本化的 `BoneToolSchemaCanonicalEncoder` 与 Llama Generation Control canonical identity，替代 `String(describing:)`，并避免在身份中保存 Stop、Schema、Grammar 或输出正文。
+- 新增受信任的 `BoneLlamaCompiledConstraint`、`BoneLlamaGBNFCompiler` 与 `BoneLlamaCompiledConstraintRuntime`；支持精确 Enum 以及 boolean、无范围 integer/number、无长度 string/enum、无界 array、required-only closed object 和受限 tagged union。
+- 新增 UTF-8 增量 Stop Matcher，支持跨 chunk、多字节字符、重叠与前缀 Stop；Generation termination 现在携带实际 Stop Token ID 或 Stop String index。
+- Canonical Llama Engine 现可将请求级 `outputConstraint` 编译后交给真实 Grammar Runtime，并在返回后再次执行逐字节 Enum 或完整 JSON Schema 验证。
+- Runtime Smoke 现覆盖 constrained Tool 两轮、直接 Enum 与 JSON 输出，并将 Compiler、Canonical 格式、Grammar Runtime、Stop Matcher 和 Termination contract 绑定到执行身份。
+- Native Template Runtime 新增 reasoning mode 与 add-generation-prompt 能力协商。
+
+### Changed
+
+- Llama constraint 请求不再允许旧 `BoneLlamaControlledGenerationRuntime` 解释 Schema；必须实现 `BoneLlamaCompiledConstraintRuntime`。Stop-only 请求仍可沿用旧协议。
+- `BoneLlamaGenerationTermination.stopToken` / `.stopString` 改为带证据的 `stopToken(id:)` / `stopString(index:)`。Constraint 和 Tool Envelope 继续拒绝截断或模糊的 `runtimeCompleted`。
+- Alpha.8 GBNF 首版对 optional properties、开放 `additionalProperties`、字符串/数组长度和数值范围前置拒绝，不做 prompt-only 或宽松降级。
+
 ## [0.2.0-alpha.7] - 2026-09-03
 
 ### Added

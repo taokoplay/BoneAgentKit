@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 
@@ -229,6 +229,76 @@ final class BoneLlamaInferenceLifecycleTests: XCTestCase {
         XCTAssertEqual(snapshot.generations, 2)
     }
 
+    func testIdentityVerificationOwnsAdmissionAndDiscardsCancelledResults() async throws {
+        // Verification is asynchronous and can touch the runtime before load begins.
+        for action in ["complete", "cancel", "taskCancel", "unload"] {
+            let runtime = LifecycleRuntime(blocking: .generate, blockIdentity: true,
+                                           output: "ok")
+            await runtime.gate.open()
+            let envelope = BoneLlamaJSONToolEnvelopeCodec()
+            let identity = try BoneLocalExecutionVerificationIdentity(
+                artifactSHA256: String(repeating: "a", count: 64),
+                runtimeID: "llama.cpp", runtimeVersion: 1,
+                tokenizerID: "fixture", tokenizerVersion: "1",
+                templateDigest: "aebb4f400dfe61249f64793948acd6b1dfa0b1c47ccebfbf06641d166d1e4ad0",
+                rendererID: "bone.chatml", rendererVersion: "1", reasoningMode: "disabled",
+                generationControlDigest: String(repeating: "c", count: 64),
+                toolEnvelopeID: envelope.identity.id, toolEnvelopeVersion: envelope.identity.version,
+                grammarParserID: nil, grammarParserVersion: nil,
+                contextTokens: 512, batchTokens: 32, addGenerationPrompt: true,
+                maximumOutputTokens: 64, probeProtocolVersion: 2)
+            let engine = BoneLlamaInferenceEngine(
+                modelID: "model", modelURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+                plan: .init(contextTokens: 512, maximumOutputTokens: 64, batchTokens: 32, threadCount: 2),
+                toolEnvelope: envelope,
+                verifiedCapabilityProfile: try .init(
+                    capabilities: [.text, .toolCalling], source: .runtimeSmoke,
+                    verifiedAt: "2026-09-05", verificationIdentity: identity),
+                currentVerificationIdentity: identity, runtimeFactory: { runtime })
+            let request = BoneInferenceRequest(
+                modelID: "model", messages: [.init(role: .user, content: "Hi")],
+                availableTools: [.init(
+                    id: "test.echo", version: "1", title: "Echo", summary: "Echo",
+                    wireName: "echo", schemaVersion: 1,
+                    inputSchema: .object(properties: [:], required: [], additionalProperties: false))])
+            let first = Task { try await engine.infer(request: request) }
+            await runtime.identityGate.waitForEntry()
+            var unload: Task<Void, Never>?
+            switch action {
+            case "cancel": await engine.cancel()
+            case "taskCancel": first.cancel()
+            case "unload":
+                var states = await engine.modelStateUpdates().makeAsyncIterator()
+                _ = await states.next()
+                unload = Task { await engine.unload() }
+                while let state = await states.next(), state.phase != .unloading {}
+            default: break
+            }
+            do {
+                _ = try await engine.infer(request: request)
+                XCTFail("Identity verification must retain admission during \(action)")
+            } catch { XCTAssertEqual(error as? BoneLlamaAdapterError, .busy) }
+            let before = await runtime.snapshot()
+            XCTAssertEqual(before.loads, 0)
+            XCTAssertEqual(before.unloads, 0, "Do not unload while the identity oracle is active")
+            await runtime.identityGate.open()
+            if action == "complete" {
+                _ = try await first.value
+            } else {
+                await assertCancelled(first)
+                await unload?.value
+                let cancelled = await runtime.snapshot()
+                XCTAssertEqual(cancelled.loads, 0)
+                XCTAssertEqual(cancelled.generations, 0)
+                XCTAssertEqual(cancelled.overlappingUnloads, 0)
+                let state = await engine.currentModelState()
+                XCTAssertEqual(state.phase, .notLoaded)
+            }
+            // A delayed cancellation must not affect the next operation.
+            _ = try await engine.infer(request: request)
+        }
+    }
+
     private var request: BoneInferenceRequest {
         .init(modelID: "model", messages: [.init(role: .user, content: "Hi")])
     }
@@ -274,12 +344,14 @@ private actor LifecycleGate {
 }
 
 /// Ignores task cancellation and cancel(); only the test-owned gate releases native work.
-private actor LifecycleRuntime: BoneLlamaRuntime {
+private actor LifecycleRuntime: BoneLlamaRuntimeVerificationIdentifying {
     enum Stage: CaseIterable { case load, tokenize, generate }
     nonisolated let runtimeVersion = 1
     nonisolated let gate = LifecycleGate()
     nonisolated let cancelGate = LifecycleGate()
     nonisolated let unloadGate = LifecycleGate()
+    nonisolated let identityGate = LifecycleGate()
+    private let blockIdentity: Bool
     private let output: String
     private let blockCancel: Bool
     private let blockUnload: Bool
@@ -291,11 +363,18 @@ private actor LifecycleRuntime: BoneLlamaRuntime {
     private var unloads = 0
     private var overlappingUnloads = 0
 
-    init(blocking: Stage, blockCancel: Bool = false, blockUnload: Bool = false, output: String = "late answer") {
+    init(blocking: Stage, blockCancel: Bool = false, blockUnload: Bool = false, blockIdentity: Bool = false, output: String = "late answer") {
+        self.blockIdentity = blockIdentity
         self.output = output
         self.blocking = blocking
         self.blockCancel = blockCancel
         self.blockUnload = blockUnload
+    }
+    func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents {
+        activeCalls += 1
+        if blockIdentity { await identityGate.enterOnce() }
+        activeCalls -= 1
+        return .init(tokenizerID: "fixture", tokenizerVersion: "1")
     }
     private func work(_ stage: Stage) async {
         activeCalls += 1
@@ -316,7 +395,7 @@ private actor LifecycleRuntime: BoneLlamaRuntime {
         await work(.generate)
         return .init(text: output, termination: .eog)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {
         cancels += 1
         if blockCancel { await cancelGate.enterOnce() }
@@ -350,7 +429,7 @@ private actor PartialLoadFailureRuntime: BoneLlamaRuntime {
                   options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult {
         .init(text: "ok", termination: .eog)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {
         unloads += 1

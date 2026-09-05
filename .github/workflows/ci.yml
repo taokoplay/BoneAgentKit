@@ -31,6 +31,6 @@ jobs:
           git diff --check
       - name: iOS Simulator libraries
         run: |
-          for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalRuntime BoneAgentLlama; do
+          for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalModels BoneAgentLlama; do
             xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' -configuration Release CODE_SIGNING_ALLOWED=NO build
           done

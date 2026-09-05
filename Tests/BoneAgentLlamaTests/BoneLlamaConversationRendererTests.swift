@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 
@@ -72,6 +72,39 @@ final class BoneLlamaConversationRendererTests: XCTestCase {
         XCTAssertEqual(rendered.templateIdentity.rendererID, "fixture.native")
     }
 
+    func testNativeRendererRejectsReturnedIdentityThatDoesNotMatchRequest() async {
+        let runtime = NativeRendererRuntimeFixture(returnedAddGenerationPrompt: false)
+        let conversation = try! BoneLlamaConversation(messages: [
+            try! .init(role: .user, content: "Hello"),
+        ])
+
+        do {
+            _ = try await BoneLlamaNativeTemplateRenderer().render(conversation: conversation, using: runtime)
+            XCTFail("Expected nativeTemplateUnavailable")
+        } catch {
+            XCTAssertEqual(error as? BoneLlamaRuntimeError, .nativeTemplateUnavailable)
+        }
+    }
+
+    func testNativeRendererFailsBeforeRenderWhenCapabilitiesDoNotSupportRequest() async {
+        let runtime = NativeRendererRuntimeFixture(capabilities: .init(
+            supportedReasoningModes: [],
+            supportsAddGenerationPrompt: false
+        ))
+        let conversation = try! BoneLlamaConversation(messages: [
+            try! .init(role: .user, content: "Hello"),
+        ])
+
+        do {
+            _ = try await BoneLlamaNativeTemplateRenderer().render(conversation: conversation, using: runtime)
+            XCTFail("Expected nativeTemplateUnavailable")
+        } catch {
+            XCTAssertEqual(error as? BoneLlamaRuntimeError, .nativeTemplateUnavailable)
+        }
+        let received = await runtime.receivedConversation()
+        XCTAssertNil(received)
+    }
+
     func testNativeRendererFailsClosedWhenRuntimeDoesNotSupportNativeTemplates() async {
         let conversation = try! BoneLlamaConversation(messages: [
             try! .init(role: .user, content: "Hello"),
@@ -94,7 +127,7 @@ private actor RendererRuntimeFixture: BoneLlamaRuntime {
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 1) }
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult { .init(text: "ok") }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
 }
@@ -102,13 +135,28 @@ private actor RendererRuntimeFixture: BoneLlamaRuntime {
 private actor NativeRendererRuntimeFixture: BoneLlamaNativeTemplateRenderingRuntime {
     nonisolated let runtimeVersion = 1
     private var conversation: BoneLlamaConversation?
+    private let capabilities: BoneLlamaNativeTemplateCapabilities
+    private let returnedAddGenerationPrompt: Bool
+
+    init(
+        capabilities: BoneLlamaNativeTemplateCapabilities = .init(
+            supportedReasoningModes: [.disabled],
+            supportsAddGenerationPrompt: true,
+            templateFamily: "fixture"
+        ),
+        returnedAddGenerationPrompt: Bool = true
+    ) {
+        self.capabilities = capabilities
+        self.returnedAddGenerationPrompt = returnedAddGenerationPrompt
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 1) }
     func generate(prompt: String, executionPlan: BoneLlamaPromptExecutionPlan, options: BoneLlamaGenerationOptions) async throws -> BoneLlamaGenerationResult { .init(text: "ok") }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
+    func nativeTemplateCapabilities() async throws -> BoneLlamaNativeTemplateCapabilities { capabilities }
 
     func renderNativeTemplate(
         conversation: BoneLlamaConversation,
@@ -126,7 +174,7 @@ private actor NativeRendererRuntimeFixture: BoneLlamaNativeTemplateRenderingRunt
                 rendererID: "fixture.native",
                 rendererVersion: "1",
                 reasoningMode: .disabled,
-                addGenerationPrompt: true
+                addGenerationPrompt: returnedAddGenerationPrompt
             )
         )
     }

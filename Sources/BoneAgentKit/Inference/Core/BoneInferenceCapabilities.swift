@@ -14,12 +14,12 @@ public enum BoneInferenceCapability: String, Codable, CaseIterable, Hashable, Se
 /// 针对具体 Engine 实例、模型、请求和调用方式解析出的不可变能力快照。
 public struct BoneResolvedInferenceCapabilities: Equatable, Sendable {
     public let modelID: String
-    public let invocation: BoneInferenceInvocation
+    public let invocation: BoneInferenceInvocationMode
     public let capabilities: Set<BoneInferenceCapability>
 
     public init(
         modelID: String,
-        invocation: BoneInferenceInvocation,
+        invocation: BoneInferenceInvocationMode,
         capabilities: Set<BoneInferenceCapability>
     ) {
         self.modelID = modelID

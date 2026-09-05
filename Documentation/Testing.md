@@ -13,7 +13,7 @@ Package 提供独立 `BoneAgentTesting` Product，生产 `BoneAgentKit` Target �
 - `BoneTestAssertion` 与 privacy canary：框架无关断言及敏感标记检测；
 - `BoneAgentTestReport`：固定白名单 Codable 报告；
 - `BoneAgentTestScenario`：只驻留内存、刻意不 Codable；
-- `BoneCrashTestHarness`：遍历 persistence commit 前、commit 后事件前、事件后下一工作前三个崩溃边界。
+- `BoneCrashBoundaryHarness`：遍历 persistence commit 前、commit 后事件前、事件后下一工作前三个崩溃边界。
 
 Fixture 不提供 cassette recorder，不自动落盘，不记录 URL query、Header 值、请求/响应 body 或 SSE data。
 
@@ -60,10 +60,16 @@ swift run BoneAgentLiveProviderSmoke --live --confirm-network-and-costs \
 `.github/workflows/ci.yml` 运行默认、严格并发、显式 Swift 6、Release、文档和无网络 smoke 门禁。配置存在不等于远端运行通过；不使用真实 Provider 凭据。
 
 ```bash
-for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalRuntime BoneAgentLlama; do
+for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalModels BoneAgentLlama; do
   xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
     -configuration Release CODE_SIGNING_ALLOWED=NO build
 done
 ```
 
 2026-09-05 在 Xcode 26.0 / Swift 6.2 完成上述四库构建。Simulator SDK 编译不代表 iOS 13 真机执行或真实 Runtime 通过。真实 Host 必须另外运行 Debug/Release、数据库事务/lease expiry/崩溃恢复和设备资源测试；本仓库没有可代替这些验证的 Host runner。最低 Swift 5.9 工具链仍待独立验证。
+
+## 本地 Constraint Runtime
+
+自动测试分三层：Canonical/Compiler 单测证明稳定身份与受支持 GBNF 方言；Engine/Probe Contract 测试证明请求级 Constraint、精确终止证据和能力门禁；真实 GGUF Smoke 才能证明具体 Runtime 的 Grammar Sampler、Tokenizer、Native Template 与 Stop Matcher 组合可用。前两层不能自动更新 bundled model Profile。
+
+真实本地验收必须绑定精确 GGUF SHA-256、Runtime/Tokenizer/Template/Compiler/Grammar Parser/Grammar Sampler/Stop Matcher 版本、Context/Batch/最大输出配置，并在 iOS 真机覆盖直接 Enum、JSON Schema、受约束 Tool Call 与 Tool Result continuation。报告不得保存 Prompt、Schema/Grammar 正文、Stop String、模型输出或绝对路径。任一身份字段变化后必须重新验收。

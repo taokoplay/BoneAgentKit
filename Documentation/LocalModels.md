@@ -2,7 +2,7 @@
 
 > **范围：** 通用模型资产生命周期、设备规划、Runtime Probe，以及不绑定二进制的 llama Adapter 契约。
 
-`BoneAgentLocalRuntime` 是不绑定具体推理后端的本地模型基础 Product。它依赖 `BoneAgentKit` 的模型上下文限制契约，但不链接 llama.cpp、Foundation Models、MLX 或 Core ML。
+`BoneAgentLocalModels` 是不绑定具体推理后端的本地模型基础 Product。它依赖 `BoneAgentKit` 的模型上下文限制契约，但不链接 llama.cpp、Foundation Models、MLX 或 Core ML。
 
 [返回文档地图](INDEX.md) · [查看架构说明](Architecture.md)
 
@@ -19,7 +19,7 @@
 - `BoneLocalRuntimePlanner`：夹紧模型理论上限、Runtime 上限、Host 上限与请求偏好。
 - `BoneLocalModelArtifactInspector`：验证安装、完整性与最小格式签名，不解析完整 GGUF metadata。
 - `BoneLocalRuntimeProbeCoordinator`：编排 `metadata`、`load` 与 `smoke` 两阶段 Probe，并生成安全、确定性的报告。
-- `BoneLocalRuntimeAdapterProbing`：供 llama.cpp、Foundation Models 等独立 Adapter 实现真实 availability/load/smoke 检查。
+- `BoneLocalModelBackendProbing`：供 llama.cpp、Foundation Models 等独立 Backend 实现真实 availability/load/smoke 检查。
 
 ## Host 仍然负责
 
@@ -43,7 +43,7 @@ URLSession 在累计 progress/resume offset 超过 Manifest 大小时取消，�
 
 ## Adapter seam
 
-`BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、通用 ChatML encoder，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；后续 `BoneAgentLlamaCpp` 或 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
+`BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、canonical Conversation Renderer，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；独立 `BoneAgentLlamaCpp` 或其他 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
 
 ## Token Context 与自动 Prefill 分片
 
@@ -88,9 +88,9 @@ func generate(
 
 `BoneLlamaRuntimeStateObserving` 仍然是可选协议；它与上述必须迁移的 `BoneLlamaRuntime` Token 容量契约是两个不同层级。
 
-## 从 alpha.6 迁移到下一预发布开发线
+## 从 alpha.8 迁移到 alpha.9
 
-alpha.6 的 `promptEncoder` / `toolCalling` 初始化方式继续作为兼容入口，已渲染的 ChatML Prompt 不会再套用 Native Template。新接入应把会话模板与 Tool Envelope 分开：
+Alpha.9 是命名与管线 clean break，不保留旧 public typealias、Product 或 initializer。旧 `promptEncoder` / `toolCalling` 组合入口已删除；调用方必须把会话模板与 Tool Envelope 分开：
 
 ```swift
 let engine = BoneLlamaInferenceEngine(
@@ -100,24 +100,31 @@ let engine = BoneLlamaInferenceEngine(
     conversationRenderer: BoneLlamaNativeTemplateRenderer(),
     toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
     verifiedCapabilityProfile: profile,
+    currentVerificationIdentity: identity,
+    constraintCompiler: BoneLlamaGBNFCompiler(),
     runtimeFactory: runtimeFactory
 )
 ```
 
-具体 Runtime 按需实现三项独立能力：
+具体 Runtime 按需实现四项独立能力：
 
-- `BoneLlamaNativeTemplateRenderingRuntime`：从 GGUF metadata 对规范化 Conversation 应用且只应用一次模板；
-- `BoneLlamaControlledGenerationRuntime`：执行 Stop Token、Stop String 与由受信任 Adapter 产生的 Schema Constraint，并返回稳定 termination；
-- `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer 与 Constraint Decoder 的稳定身份供 Smoke 绑定。
+- `BoneLlamaNativeTemplateRenderingRuntime`：先声明支持的 reasoning mode 与 add-generation-prompt，再从 GGUF metadata 对规范化 Conversation 应用且只应用一次模板；
+- `BoneLlamaControlledGenerationRuntime`：仅用于 Stop-only 兼容请求；
+- `BoneLlamaConstraintGenerationRuntime`：把 SDK 受信任 Compiler 产生的 `BoneLlamaResolvedGenerationControl` 接入真实 Grammar Sampler；Constraint 请求不得交给旧协议宽松解释；
+- `BoneLlamaRuntimeVerificationIdentifying`：返回 Tokenizer、Grammar Parser 与 Grammar Sampler 的稳定身份供 Smoke 绑定。
 
-`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`，而 `stopToken` / `stopString` 只有在本次 Control 实际配置对应 Stop 时才可进入解码。模板正文、Stop String、Prompt 和模型输出不得写入 Profile；验证身份只保存规范化摘要。Runtime、Artifact、Tokenizer、Template、Renderer、Generation Prompt、Control、Envelope、Constraint Decoder、Context、Batch 或 Smoke 输出容量任一变化，都必须重新执行 Smoke。Engine 必须显式获得当前 `BoneCapabilityVerificationIdentity` 并精确匹配 Profile；缺失或漂移时撤销 Tool Calling 与 Constrained Output。
+请求级 `outputConstraint` 只允许 canonical pipeline、文本 `responseFormat` 和空 Tool Catalog。`BoneLlamaGBNFCompiler` 首版支持精确 Enum、boolean、Schema 未声明范围的 integer/number、无长度 string/string enum、无界 array、所有属性均 required 的 closed object，以及满足相同限制的 tagged union；optional properties、`additionalProperties == true`、字符串/数组长度与 Schema 数值范围会在生成前失败。为保证 Grammar 接受集不宽于 Foundation Validator，首版 integer 进一步窄化为最多 9 位十进制整数，number 窄化为最多 9 位整数与 9 位小数且不接受指数形式；JSON Unicode escape 拒绝孤立 surrogate。Object Grammar 使用 UTF-8 排序后的 canonical key order，因此可比 Validator 的 JSON 无序语义更窄，但不得更宽。Grammar 成功不替代 SDK 后验复验。
 
-云端验证身份与这里的本地 Runtime 身份是两套独立证据。`BoneProviderCapabilityVerificationIdentity` 绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式，不包含 GGUF Artifact、Tokenizer、Template、Prefill 或 Context/Batch；`BoneCapabilityVerificationIdentity` 也不能替云 Provider 背书。任一侧通过 Smoke 都不会自动授予另一侧能力。
+`BoneLlamaGenerationTermination.maximumTokens` 必须被视为截断；Tool/Constraint Envelope 也不得接受语义模糊的 `runtimeCompleted`。Runtime 返回 `stopToken(id:)` 或 `stopString(index:)` 时，ID/index 必须匹配本次 Control。Stop String 应通过 `BoneLlamaStopMatcher` 按 UTF-8 bytes 增量处理，支持跨 token/chunk、多字节字符、重叠与互为前缀的 Stop，且未决前缀不能提前交付。
+
+模板正文、Stop String、Prompt、Grammar 和模型输出不得写入 Profile；验证身份只保存规范化摘要。`BoneLocalExecutionVerificationIdentity` 使用必需的 `schemaVersion = 3`，并以 `probeProtocolVersion` 绑定 Smoke 的输入与成功判定语义；缺少或不支持版本、缺少 Probe 协议版本、或仍含 Alpha.8 `constraintDecoder*` / `grammarRuntime*` 字段的旧身份会在解码时失败，不能静默迁移。Alpha.10 的 Probe 协议版本为 `2`，因此 Alpha.9 及更早记录必须失效并重新执行完整 Smoke。Runtime、Artifact、Tokenizer、Template、Renderer、Generation Prompt、Control、Envelope、Compiler、Grammar Parser、Grammar Sampler、Stop Matcher、Termination contract、Context、Batch 或 Smoke 输出容量任一变化，都必须重新执行 Smoke。Engine 必须显式获得当前身份并精确匹配 Profile；缺失或漂移时撤销 Tool Calling 与 Constrained Output。
+
+云端验证身份与这里的本地 Runtime 身份是两套独立证据。`BoneProviderCapabilityVerificationIdentity` 绑定 Provider、协议、Endpoint 摘要、API、精确模型、Mapper/Decoder、Constraint 方言和调用模式，不包含 GGUF Artifact、Tokenizer、Template、Prefill 或 Context/Batch；`BoneLocalExecutionVerificationIdentity` 也不能替云 Provider 背书。任一侧通过 Smoke 都不会自动授予另一侧能力。
 
 ## 示例
 
 ```swift
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 
 let catalog = try BoneLocalModelCatalog(data: manifestData)
 let model = catalog.model(id: "qwen-2b-q4")!
@@ -150,21 +157,9 @@ let plan = try BoneLocalRuntimePlanner.plan(
 
 `BoneLocalModelDescriptor.inferenceCapabilityProfile` 是可选的 Catalog 证据；nil 表示 unknown，不表示模型明确不支持。Engine 配置 verified Profile 后，将其与当前 Runtime/Codec 实现取交集。模型声明 `.toolCalling` 且 Probe Adapter 注入对应 Codec 时，Smoke 使用无副作用 synthetic Tool 完成“生成调用 → 注入结果 → 生成最终文本”两轮验证；整个过程不注册或执行真实 Tool，任一步协议或 Schema 校验失败都不会授予 `.toolCalling`。
 
-`BoneLlamaInferenceEngine` 默认只承诺 `.text`，并继续拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Prompt encoder 不含业务人格或敏感数据策略，Host 可注入自己的模板。
+`BoneLlamaInferenceEngine` 默认只承诺 `.text`，并继续拒绝 Tool Calling、structured output、provider continuation、非隐藏 reasoning disclosure 和非文本消息。Renderer 不含业务人格或敏感数据策略，Host 可注入自己的 canonical Conversation Renderer。
 
-只有在初始化时显式注入 `BoneLlamaToolCalling`，Engine 才会为该实例声明 `.toolCalling`。内置 `BoneLlamaJSONToolCallingCodec` 使用 ChatML Prompt 和严格 JSON envelope，支持公开 Tool schema、同轮多个调用、Assistant Tool Call 历史及 Tool Result 续轮：
-
-```swift
-let engine = BoneLlamaInferenceEngine(
-    modelID: model.id,
-    modelURL: installedURL,
-    plan: plan,
-    toolCalling: BoneLlamaJSONToolCallingCodec(),
-    runtimeFactory: runtimeFactory
-)
-```
-
-调用输出必须完整匹配 `{"tool_calls":[{"id":"...","name":"wire_name","arguments":{...}}]}`；未知 Tool、重复调用 ID、非对象 arguments、空调用列表、截断 JSON 或夹带协议文本都会失败关闭。该 Codec 不是任意 GGUF 模型的自动兼容层：Host 必须通过真实模型 smoke 验证模型能够稳定遵循此模板；使用 Llama、Qwen、Hermes 等其他原生 Tool 模板时，应注入对应的 `BoneLlamaToolCalling` 实现。未注入 Codec 的旧初始化方式和 text-only 行为保持不变。
+只有显式注入 `BoneLlamaToolEnvelopeCoding` 实现，Engine 才具备 Tool Calling 的实现能力；模型 Profile、精确本地执行身份和当前 Runtime 组件还必须同时匹配，最终能力取交集。内置 `BoneLlamaConstrainedJSONToolEnvelopeCodec` 支持公开 Tool schema、同轮多个调用、Assistant Tool Call 历史及 Tool Result 续轮，并生成可由受信任 Compiler 约束的判别联合。未知 Tool、重复调用 ID、非对象 arguments、空调用列表、截断 JSON 或夹带协议文本都会失败关闭。该 Envelope 不是任意 GGUF 模型的自动兼容层：Host 必须用精确产品模型和执行身份完成真实 Smoke；未注入 Envelope 时保持 text-only。
 
 ## 当前模型状态
 

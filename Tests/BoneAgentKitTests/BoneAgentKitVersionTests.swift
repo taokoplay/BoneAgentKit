@@ -22,6 +22,7 @@ final class BoneAgentKitVersionTests: XCTestCase {
         let changelog = try String(contentsOf: root.appendingPathComponent("CHANGELOG.md"))
 
         XCTAssertTrue(readme.contains("exact: \"\(BoneAgentKitVersion.current)\""))
-        XCTAssertTrue(changelog.contains("## [\(BoneAgentKitVersion.current)] - 2026-09-03"))
+        let headingPattern = #"## \[\#(BoneAgentKitVersion.current)\] - \d{4}-\d{2}-\d{2}"#
+        XCTAssertNotNil(changelog.range(of: headingPattern, options: .regularExpression))
     }
 }

@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 
@@ -76,7 +76,7 @@ private actor ControlledGenerationRuntimeFixture: BoneLlamaControlledGenerationR
         self.control = control
         return .init(text: "ok", termination: .eog)
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func receivedControl() -> BoneLlamaGenerationControl? { control }

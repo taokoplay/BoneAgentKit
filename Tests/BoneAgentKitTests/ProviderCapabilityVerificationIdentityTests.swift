@@ -44,7 +44,7 @@ final class ProviderCapabilityVerificationIdentityTests: XCTestCase {
         modelID: String = "gpt-4.1-mini",
         apiVersion: String = "v1",
         requestMapperVersion: String = "1",
-        invocation: BoneInferenceInvocationIdentity = .nonStreaming
+        invocation: BoneInferenceInvocationMode = .nonStreaming
     ) throws -> BoneProviderCapabilityVerificationIdentity {
         try .init(
             providerKind: .openAI,

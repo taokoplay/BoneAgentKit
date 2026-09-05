@@ -34,6 +34,25 @@ public actor BoneAgent {
         toolScheduler = configuration.toolScheduler
     }
 
+    /// 便捷装配：将同一 Workflow Agent Step controller 绑定为进度 checkpoint sink。
+    public init(
+        inferenceEngine: any BoneInferenceEngine,
+        toolRegistry: BoneAgentToolRegistry,
+        toolContext: any BoneAgentToolContext,
+        configuration: BoneAgentConfiguration,
+        workflowController: BoneWorkflowAgentStepController,
+        eventSink: BoneAgentEventSink = BoneAgentEventSink()
+    ) {
+        self.init(
+            inferenceEngine: inferenceEngine,
+            toolRegistry: toolRegistry,
+            toolContext: toolContext,
+            configuration: configuration,
+            eventSink: eventSink,
+            progressSink: workflowController.progressSink()
+        )
+    }
+
     public func run(modelID: String, messages: [BoneInferenceMessage]) async throws -> BoneAgentRunResult {
         try await run(request: BoneInferenceRequest(modelID: modelID, messages: messages))
     }
@@ -45,6 +64,25 @@ public actor BoneAgent {
             throw BoneAgentError.inferenceFailed
         }
         return BoneAgentRunResult(output: output, steps: result.steps)
+    }
+
+    /// 将一次 Agent Run 的终态提交给 Workflow Agent Step；progressSink 应绑定同一 controller。
+    public func runWorkflowStep(
+        modelID: String,
+        messages: [BoneInferenceMessage],
+        controller: BoneWorkflowAgentStepController
+    ) async throws -> BoneAgentRunResult {
+        do {
+            let result = try await run(modelID: modelID, messages: messages)
+            try await controller.finish(.succeeded)
+            return result
+        } catch is CancellationError {
+            try await controller.finish(.cancelled)
+            throw CancellationError()
+        } catch {
+            try await controller.finish(.failed)
+            throw error
+        }
     }
 
     /// 运行至调用方指定的通用边界；Tool 集合和 continuation 始终由 Runtime 管理。

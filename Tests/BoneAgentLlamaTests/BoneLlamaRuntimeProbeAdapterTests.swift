@@ -1,5 +1,5 @@
 import BoneAgentKit
-import BoneAgentLocalRuntime
+import BoneAgentLocalModels
 import XCTest
 @testable import BoneAgentLlama
 
@@ -37,32 +37,6 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(events, [.load, .smoke, .unload])
     }
 
-    func testSmokeProbeVerifiesDeclaredToolCallingWithTwoSyntheticGenerations() async throws {
-        let runtime = LlamaRuntimeFixture(outputs: [
-            #"{"tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#,
-            "Capability verified.",
-        ])
-        let adapter = BoneLlamaRuntimeProbeAdapter(
-            runtimeVersion: 1,
-            toolCalling: BoneLlamaJSONToolCallingCodec(),
-            runtimeFactory: { runtime }
-        )
-        let profile = try BoneModelCapabilityProfile(
-            capabilities: [.text, .toolCalling],
-            source: .official,
-            verifiedAt: "2026-09-02"
-        )
-        let result = await adapter.probe(
-            model: try model(profile: profile),
-            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
-            environment: environment(), plan: plan(), depth: .smoke
-        )
-
-        XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling])
-        let events = await runtime.events()
-        XCTAssertEqual(events, [.load, .smoke, .generate, .generate, .unload])
-    }
-
     func testConstrainedSmokeVerifiesToolContinuationAndReturnsIdentity() async throws {
         let runtime = ControlledLlamaRuntimeFixture(outputs: [
             (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
@@ -92,11 +66,86 @@ final class BoneLlamaRuntimeProbeAdapterTests: XCTestCase {
         XCTAssertEqual(result.verifiedCapabilities, [.text, .toolCalling, .constrainedOutput])
         XCTAssertEqual(result.verificationIdentity?.toolEnvelopeVersion, "2")
         XCTAssertEqual(result.verificationIdentity?.artifactSHA256, String(repeating: "a", count: 64))
+        XCTAssertEqual(result.verificationIdentity?.constraintCompilerID, "bone.gbnf")
+        XCTAssertEqual(result.verificationIdentity?.constraintDialect, "bone-gbnf-v1")
+        XCTAssertEqual(result.verificationIdentity?.grammarSamplerID, "fixture-gbnf-sampler")
+        XCTAssertEqual(result.verificationIdentity?.stopMatcherID, "fixture-stop")
+        XCTAssertEqual(result.verificationIdentity?.terminationContractVersion, 1)
+        XCTAssertEqual(
+            result.verificationIdentity?.probeProtocolVersion,
+            BoneLlamaRuntimeProbeAdapter.probeProtocolVersion
+        )
+        XCTAssertTrue(result.verificationIdentity?.hasConstraintRuntimeIdentity == true)
+        let directPrompts = await runtime.directPrompts()
+        XCTAssertEqual(directPrompts.count, 2)
+        XCTAssertTrue(directPrompts.first?.contains("Return exactly ready. Output no other text.") == true)
+        XCTAssertTrue(directPrompts.last?.contains("Return a JSON object with ok set to true. Output no other text.") == true)
         let controls = await runtime.controls()
-        XCTAssertEqual(controls.count, 2)
+        XCTAssertEqual(controls.count, 4)
         XCTAssertTrue(controls.allSatisfy { $0.constraint != nil })
         let sawMultipleRanges = await runtime.sawMultiplePrefillRanges()
         XCTAssertTrue(sawMultipleRanges)
+    }
+
+    func testConstrainedSmokeFailsClosedWhenModelChoosesAllowedButUnrequestedEnumBranch() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(
+            outputs: [
+                (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
+                (#"{"type":"final","content":"Capability verified."}"#, .eog),
+            ],
+            directConstraintOutputs: [("not-ready", .eog), (#"{"ok":true}"#, .eog)]
+        )
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: ProbeRendererFixture(),
+            toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .failed)
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
+        XCTAssertNil(result.verificationIdentity)
+        let directPrompts = await runtime.directPrompts()
+        XCTAssertEqual(directPrompts.count, 1)
+        XCTAssertTrue(directPrompts.first?.contains("Return exactly ready. Output no other text.") == true)
+    }
+
+    func testConstrainedSmokeFailsClosedWhenDirectConstraintOutputIsInvalid() async throws {
+        let runtime = ControlledLlamaRuntimeFixture(
+            outputs: [
+                (#"{"type":"tool_calls","tool_calls":[{"id":"probe-1","name":"capability_probe","arguments":{"value":"ready"}}]}"#, .eog),
+                (#"{"type":"final","content":"Capability verified."}"#, .eog),
+            ],
+            directConstraintOutputs: [("READY", .eog)]
+        )
+        let adapter = BoneLlamaRuntimeProbeAdapter(
+            runtimeVersion: 2,
+            conversationRenderer: ProbeRendererFixture(),
+            toolEnvelope: BoneLlamaConstrainedJSONToolEnvelopeCodec(),
+            runtimeFactory: { runtime }
+        )
+        let result = await adapter.probe(
+            model: try model(profile: try BoneModelCapabilityProfile(
+                capabilities: [.text, .toolCalling, .constrainedOutput],
+                source: .official,
+                verifiedAt: "2026-09-03"
+            )),
+            artifactURL: URL(fileURLWithPath: "/tmp/model.gguf"),
+            environment: environment(), plan: plan(), depth: .smoke
+        )
+
+        XCTAssertEqual(result.check.status, .failed)
+        XCTAssertTrue(result.verifiedCapabilities.isEmpty)
+        XCTAssertNil(result.verificationIdentity)
     }
 
     func testConstrainedSmokeFailsClosedOnInvalidTermination() async throws {
@@ -184,13 +233,24 @@ private struct ProbeRendererFixture: BoneLlamaConversationRendering {
     }
 }
 
-private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
+private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntime, BoneLlamaConstraintGenerationRuntime, BoneLlamaRuntimeVerificationIdentifying {
     nonisolated let runtimeVersion = 2
     private var outputs: [(String, BoneLlamaGenerationTermination)]
+    private var directConstraintOutputs: [(String, BoneLlamaGenerationTermination)]
     private var recordedControls: [BoneLlamaGenerationControl] = []
+    private var recordedDirectPrompts: [String] = []
     private var multiplePrefillRanges = false
 
-    init(outputs: [(String, BoneLlamaGenerationTermination)]) { self.outputs = outputs }
+    init(
+        outputs: [(String, BoneLlamaGenerationTermination)],
+        directConstraintOutputs: [(String, BoneLlamaGenerationTermination)] = [
+            ("ready", .eog),
+            (#"{"ok":true}"#, .eog),
+        ]
+    ) {
+        self.outputs = outputs
+        self.directConstraintOutputs = directConstraintOutputs
+    }
 
     func load(modelURL: URL, configuration: BoneLlamaRuntimeConfiguration) async throws {}
     func tokenize(prompt: String) async throws -> BoneLlamaPromptTokenization { try .init(tokenCount: 96) }
@@ -209,18 +269,44 @@ private actor ControlledLlamaRuntimeFixture: BoneLlamaControlledGenerationRuntim
         let next = outputs.removeFirst()
         return .init(text: next.0, termination: next.1)
     }
+    func generate(
+        prompt: String,
+        executionPlan: BoneLlamaPromptExecutionPlan,
+        options: BoneLlamaGenerationOptions,
+        control: BoneLlamaResolvedGenerationControl
+    ) async throws -> BoneLlamaGenerationResult {
+        recordedControls.append(try .init(
+            stopTokenIDs: control.stopTokenIDs,
+            stopStrings: control.stopStrings,
+            constraint: control.sourceConstraint
+        ))
+        multiplePrefillRanges = multiplePrefillRanges || executionPlan.prefillRanges.count > 1
+        if !outputs.isEmpty {
+            let next = outputs.removeFirst()
+            return .init(text: next.0, termination: next.1)
+        }
+        guard !directConstraintOutputs.isEmpty else { throw BoneLlamaRuntimeError.generationFailed }
+        recordedDirectPrompts.append(prompt)
+        let next = directConstraintOutputs.removeFirst()
+        return .init(text: next.0, termination: next.1)
+    }
     func verificationComponents() async throws -> BoneLlamaRuntimeVerificationComponents {
         .init(
             tokenizerID: "fixture-tokenizer",
             tokenizerVersion: "1",
-            constraintDecoderID: "fixture-grammar",
-            constraintDecoderVersion: "1"
+            grammarParserID: "fixture-grammar",
+            grammarParserVersion: "1",
+            grammarSamplerID: "fixture-gbnf-sampler",
+            grammarSamplerVersion: "1",
+            stopMatcherID: "fixture-stop",
+            stopMatcherVersion: "1"
         )
     }
-    func smokeTest() async throws {}
+    func verifyBasicGeneration() async throws {}
     func cancel() async {}
     func unload() async {}
     func controls() -> [BoneLlamaGenerationControl] { recordedControls }
+    func directPrompts() -> [String] { recordedDirectPrompts }
     func sawMultiplePrefillRanges() -> Bool { multiplePrefillRanges }
 }
 
@@ -254,7 +340,7 @@ private actor LlamaRuntimeFixture: BoneLlamaRuntime {
         guard !outputs.isEmpty else { return .init(text: "ok") }
         return .init(text: outputs.removeFirst())
     }
-    func smokeTest() async throws { recorded.append(.smoke) }
+    func verifyBasicGeneration() async throws { recorded.append(.smoke) }
     func cancel() async {}
     func unload() async { recorded.append(.unload) }
     func events() -> [LlamaRuntimeEvent] { recorded }

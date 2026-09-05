@@ -21,8 +21,8 @@ BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行�
 | --- | --- | --- |
 | `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
 | `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario 和 Crash Harness | 无，仅测试使用 |
-| `BoneAgentLocalRuntime` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
-| `BoneAgentLlama` | llama Runtime seam、Prompt、Probe 与默认 text-only、可显式扩展 Tool Calling 的 Inference Engine | 无，不包含 llama.cpp |
+| `BoneAgentLocalModels` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
+| `BoneAgentLlama` | llama Runtime seam、Conversation Renderer、受限 GBNF、UTF-8 Stop、Probe 与默认 text-only、可验证 Constraint/Tool Calling Engine | 无，不包含 llama.cpp |
 
 Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为独立 Product 暴露。
 
@@ -34,7 +34,7 @@ Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为�
 dependencies: [
     .package(
         url: "https://github.com/taokoplay/BoneAgentKit.git",
-        exact: "0.2.0-alpha.7"
+        exact: "0.2.0-alpha.10"
     )
 ]
 ```
@@ -70,7 +70,7 @@ let registry = try BoneAgentToolRegistry(
     tools: [BoneAnyAgentTool(EchoTool())]
 )
 
-let agent = BoneAgentKit(
+let agent = BoneAgent(
     inferenceEngine: engine,
     toolRegistry: registry,
     toolContext: BoneAgentEmptyContext(),
@@ -94,7 +94,7 @@ let result = try await agent.run(
 - 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
 - 云端与本地目录共用带证据来源的可选模型能力 Profile，已知能力与 Engine/Runtime 实现取交集，unknown 保持兼容且不冒充模型级验证；
 - OpenAI、Anthropic、Gemini 请求和事件聚合，并为经过真实 Smoke 绑定身份的精确模型提供原生 Output Constraint seam；
-- 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地使用受信任 Runtime Constraint；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
+- 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地由受信任 Compiler 将精确 Enum 或受支持的 `BoneToolSchema` 子集编译为 GBNF，并交给真实 Grammar Sampler；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
 - 默认串行、显式只读并行的确定性调度。
 
@@ -175,7 +175,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
 - App 被系统终止后不会永久后台运行，下次启动通过新 lease 恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
-- `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke，暂不提供 Token Streaming 或可靠加载百分比；
+- `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke。GBNF 只支持文档列出的 sound 子集，且 Grammar 后仍执行 SDK 复验；暂不提供 Token Streaming 或可靠加载百分比；
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测；当前 bundled 云模型尚未写入 Provider Smoke 身份，因此云端 Constraint seam 默认不自动启用。
 
 ## 许可证

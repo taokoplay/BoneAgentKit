@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// 真实 Provider Constraint Smoke 的执行器。场景使用固定、无副作用输入，报告不包含模型正文。
@@ -5,7 +6,7 @@ public enum BoneLiveConstraintSmoke {
     public static func run(
         provider: BoneInferenceProviderKind,
         modelID: String,
-        invocation: BoneInferenceInvocationIdentity,
+        invocation: BoneInferenceInvocationMode,
         engine: any BoneInferenceEngine,
         identity: BoneProviderCapabilityVerificationIdentity,
         iterations: Int
@@ -13,11 +14,12 @@ public enum BoneLiveConstraintSmoke {
         guard (1...1_000).contains(iterations) else {
             throw BoneInferenceError.invalidGenerationOptions
         }
-        let start = ProcessInfo.processInfo.systemUptime
+        let startNanoseconds = DispatchTime.now().uptimeNanoseconds
         var succeeded = 0
         var failures: [BoneLiveConstraintSmokeFailure: Int] = [:]
 
         for _ in 0..<iterations {
+            try Task.checkCancellation()
             let request = BoneInferenceRequest(
                 modelID: modelID,
                 messages: [.init(role: .user, content: "Return the allowed decision value for this synthetic smoke test.")],
@@ -30,24 +32,28 @@ public enum BoneLiveConstraintSmoke {
                 case .nonStreaming:
                     response = try await engine.infer(request: request)
                 case .streaming:
-                    guard let streaming = engine as? any BoneInferenceStreaming else {
+                    guard let streaming = engine as? any BoneInferenceBufferedStreaming else {
                         throw BoneInferenceError.unsupportedCapability(.streaming)
                     }
-                    response = try await streaming.streamInference(request: request, options: .init())
+                    response = try await streaming.inferUsingStream(request: request, options: .init())
                 }
                 guard case let .finish(value) = response,
                       ["pass", "fail"].contains(value.text) else {
                     throw BoneInferenceTransportError.invalidResponse
                 }
                 succeeded += 1
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 failures[classify(error), default: 0] += 1
             }
         }
 
-        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - start)
-        let milliseconds = elapsed * 1_000 >= Double(Int.max)
-            ? Int.max : Int(elapsed * 1_000)
+        let endNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let elapsedNanoseconds = endNanoseconds >= startNanoseconds
+            ? endNanoseconds - startNanoseconds
+            : 0
+        let milliseconds = Int(min(elapsedNanoseconds / 1_000_000, UInt64(Int.max)))
         return try .init(
             provider: provider,
             modelID: modelID,

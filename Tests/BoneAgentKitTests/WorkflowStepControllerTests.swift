@@ -8,33 +8,33 @@ private enum StepStoreError: Error, Equatable {
 
 /// Validates before writing; CAS and lease fencing are one atomic actor operation.
 private actor StepStore {
-    private(set) var stored: BoneAgentWorkflowStepCheckpoint
+    private(set) var stored: BoneWorkflowAgentStepCheckpoint
     private(set) var submissions = 0
     private(set) var invalidSubmissions = 0
-    private(set) var events: [BoneAgentWorkflowStepEventKind] = []
+    private(set) var events: [BoneWorkflowAgentStepEventKind] = []
     private var generation: UInt64
 
-    init(_ checkpoint: BoneAgentWorkflowStepCheckpoint) {
+    init(_ checkpoint: BoneWorkflowAgentStepCheckpoint) {
         stored = checkpoint
         generation = checkpoint.leaseGeneration
     }
 
-    nonisolated var persistence: BoneAgentWorkflowStepPersistence {
+    nonisolated var persistence: BoneWorkflowAgentStepCheckpointStore {
         .init { next, revision, lease in
             try await self.commit(next, revision: revision, lease: lease)
         }
     }
 
-    nonisolated var eventSink: BoneAgentWorkflowStepEventSink {
+    nonisolated var eventSink: BoneWorkflowAgentStepEventSink {
         .init { await self.record($0.kind) }
     }
 
-    private func record(_ event: BoneAgentWorkflowStepEventKind) { events.append(event) }
+    private func record(_ event: BoneWorkflowAgentStepEventKind) { events.append(event) }
     func takeOver() { generation += 1 }
 
-    func commit(_ next: BoneAgentWorkflowStepCheckpoint, revision: UInt64, lease: UInt64) throws -> BoneAgentWorkflowStepCheckpoint {
+    func commit(_ next: BoneWorkflowAgentStepCheckpoint, revision: UInt64, lease: UInt64) throws -> BoneWorkflowAgentStepCheckpoint {
         submissions += 1
-        let terminal: BoneAgentWorkflowStepTerminalState?
+        let terminal: BoneWorkflowAgentStepTerminalState?
         switch next.state {
         case .succeeded: terminal = .succeeded
         case .failed: terminal = .failed
@@ -56,12 +56,12 @@ private actor StepStore {
 }
 
 private func stepCopy(
-    _ checkpoint: BoneAgentWorkflowStepCheckpoint,
+    _ checkpoint: BoneWorkflowAgentStepCheckpoint,
     revision: UInt64? = nil,
     lease: UInt64? = nil,
     inferenceCount: Int? = nil,
     runID: BoneRunID? = nil
-) -> BoneAgentWorkflowStepCheckpoint {
+) -> BoneWorkflowAgentStepCheckpoint {
     .init(runID: runID ?? checkpoint.runID, stepID: checkpoint.stepID, attemptID: checkpoint.attemptID,
           state: checkpoint.state, inferenceResponseCount: inferenceCount ?? checkpoint.inferenceResponseCount,
           toolResultCount: checkpoint.toolResultCount, pendingAuthorizationTicketID: checkpoint.pendingAuthorizationTicketID,
@@ -93,11 +93,11 @@ private actor StepCommitGate {
 }
 
 final class WorkflowStepControllerTests: XCTestCase {
-    private func initial() throws -> BoneAgentWorkflowStepCheckpoint {
+    private func initial() throws -> BoneWorkflowAgentStepCheckpoint {
         .init(runID: try .init("run"), stepID: try .init("step"), attemptID: try .init("attempt"), leaseGeneration: 7)
     }
 
-    private func controller(_ checkpoint: BoneAgentWorkflowStepCheckpoint, store: StepStore) throws -> BoneAgentWorkflowStepController {
+    private func controller(_ checkpoint: BoneWorkflowAgentStepCheckpoint, store: StepStore) throws -> BoneWorkflowAgentStepController {
         try .init(restoring: checkpoint, persistence: store.persistence, eventSink: store.eventSink)
     }
 
@@ -121,7 +121,7 @@ final class WorkflowStepControllerTests: XCTestCase {
         try await verifyWaitingTerminal(.cancelled)
     }
 
-    private func verifyWaitingTerminal(_ terminal: BoneAgentWorkflowStepTerminalState?) async throws {
+    private func verifyWaitingTerminal(_ terminal: BoneWorkflowAgentStepTerminalState?) async throws {
         let seed = try initial()
         let store = StepStore(seed)
         let subject = try controller(seed, store: store)
@@ -137,13 +137,13 @@ final class WorkflowStepControllerTests: XCTestCase {
         XCTAssertEqual(saved.terminalState, terminal ?? .cancelled)
         XCTAssertEqual(saved.cancellationPersisted, terminal != .failed)
         XCTAssertEqual(saved.persistenceRevision, 2)
-        let decoded = try JSONDecoder().decode(BoneAgentWorkflowStepCheckpoint.self, from: JSONEncoder().encode(saved))
+        let decoded = try JSONDecoder().decode(BoneWorkflowAgentStepCheckpoint.self, from: JSONEncoder().encode(saved))
         let restored = try controller(decoded, store: store)
-        await assertError(BoneAgentWorkflowStepError.terminalState) { try await restored.receive(.inferenceResponsePrepared(step: 1, kind: .finish)) }
-        await assertError(BoneAgentWorkflowStepError.terminalState) { try await restored.resumeAfterAuthorization(ticketID: ticket) }
-        await assertError(BoneAgentWorkflowStepError.terminalState) { try await restored.resume() }
-        await assertError(BoneAgentWorkflowStepError.terminalState) { try await restored.finish(.succeeded) }
-        await assertError(BoneAgentWorkflowStepError.terminalState) { try await restored.cancel() }
+        await assertError(BoneWorkflowAgentStepError.terminalState) { try await restored.receive(.inferenceResponsePrepared(step: 1, kind: .finish)) }
+        await assertError(BoneWorkflowAgentStepError.terminalState) { try await restored.resumeAfterAuthorization(ticketID: ticket) }
+        await assertError(BoneWorkflowAgentStepError.terminalState) { try await restored.resume() }
+        await assertError(BoneWorkflowAgentStepError.terminalState) { try await restored.finish(.succeeded) }
+        await assertError(BoneWorkflowAgentStepError.terminalState) { try await restored.cancel() }
         let count = await store.submissions
         let events = await store.events
         XCTAssertEqual(count, 2)
@@ -157,14 +157,14 @@ final class WorkflowStepControllerTests: XCTestCase {
         let ticket = try BoneAuthorizationTicketID("ticket")
         try await subject.waitForAuthorization(ticketID: ticket)
         let waiting = await subject.checkpoint
-        await assertError(BoneAgentWorkflowStepError.invalidState) { try await subject.finish(.succeeded) }
+        await assertError(BoneWorkflowAgentStepError.invalidState) { try await subject.finish(.succeeded) }
         let count = await store.submissions
         let invalid = await store.invalidSubmissions
         let after = await subject.checkpoint
         XCTAssertEqual(count, 1, "Disallowed transitions must not reach persistence")
         XCTAssertEqual(invalid, 0)
         XCTAssertEqual(after, waiting)
-        await assertError(BoneAgentWorkflowStepError.authorizationTicketMismatch) {
+        await assertError(BoneWorkflowAgentStepError.authorizationTicketMismatch) {
             try await subject.resumeAfterAuthorization(ticketID: .init("wrong"))
         }
         try await subject.resumeAfterAuthorization(ticketID: ticket)
@@ -181,7 +181,7 @@ final class WorkflowStepControllerTests: XCTestCase {
         let sink = subject.progressSink()
         try await subject.cancel()
         for progress: BoneAgentProgress in [.inferenceResponsePrepared(step: 1, kind: .finish), .toolResultPrepared(step: 1, ordinal: 0), .inferenceFailed(.network)] {
-            await assertError(BoneAgentWorkflowStepError.terminalState) { try await sink.receive(progress) }
+            await assertError(BoneWorkflowAgentStepError.terminalState) { try await sink.receive(progress) }
         }
         let count = await store.submissions
         let events = await store.events
@@ -220,7 +220,7 @@ final class WorkflowStepControllerTests: XCTestCase {
         let seed = try initial()
         let store = StepStore(seed)
         let gate = StepCommitGate()
-        let subject = try BoneAgentWorkflowStepController(restoring: seed, persistence: .init { next, revision, lease in
+        let subject = try BoneWorkflowAgentStepController(restoring: seed, persistence: .init { next, revision, lease in
             if next.inferenceResponseCount == 1 { await gate.suspend() }
             return try await store.commit(next, revision: revision, lease: lease)
         }, eventSink: store.eventSink)
@@ -243,7 +243,7 @@ final class WorkflowStepControllerTests: XCTestCase {
         // Preserve post-write validation of state invariants, content, revision, identity and lease.
         for mode in 0..<5 {
             let probe = StepStore(seed)
-            let subject = try BoneAgentWorkflowStepController(restoring: seed, persistence: .init { next, revision, lease in
+            let subject = try BoneWorkflowAgentStepController(restoring: seed, persistence: .init { next, revision, lease in
                 switch mode {
                 case 0: return stepCopy(next, revision: revision + 1, inferenceCount: -1)
                 case 1: return stepCopy(next, revision: revision + 1, inferenceCount: 4)
@@ -252,7 +252,7 @@ final class WorkflowStepControllerTests: XCTestCase {
                 default: return stepCopy(next, revision: revision + 1, runID: try .init("other-run"))
                 }
             }, eventSink: probe.eventSink)
-            await assertError(BoneAgentWorkflowStepError.invalidState) { try await subject.pause() }
+            await assertError(BoneWorkflowAgentStepError.invalidState) { try await subject.pause() }
             let local = await subject.checkpoint
             let events = await probe.events
             XCTAssertEqual(local, seed)
@@ -262,10 +262,10 @@ final class WorkflowStepControllerTests: XCTestCase {
 
     func testRestoreRejectsTerminalCheckpointWithPendingTicket() throws {
         let seed = try initial()
-        let invalid = BoneAgentWorkflowStepCheckpoint(runID: seed.runID, stepID: seed.stepID, attemptID: seed.attemptID,
+        let invalid = BoneWorkflowAgentStepCheckpoint(runID: seed.runID, stepID: seed.stepID, attemptID: seed.attemptID,
             state: .cancelled, pendingAuthorizationTicketID: try .init("ticket"), cancellationPersisted: true, terminalState: .cancelled)
         XCTAssertThrowsError(try controller(invalid, store: StepStore(seed))) {
-            XCTAssertEqual($0 as? BoneAgentWorkflowStepError, .invalidState)
+            XCTAssertEqual($0 as? BoneWorkflowAgentStepError, .invalidState)
         }
     }
 }

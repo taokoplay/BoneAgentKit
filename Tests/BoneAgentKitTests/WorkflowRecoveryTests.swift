@@ -198,7 +198,7 @@ final class WorkflowRecoveryTests: XCTestCase {
     }
 
     func testCrashHarnessCommitWindowsRecoverWithoutReexecutionOrEventAssumption() async throws {
-        _ = try await BoneCrashTestHarness().run { boundary in
+        _ = try await BoneCrashBoundaryHarness().run { boundary in
             let cut: RecoveryCut = boundary == .beforePersistenceCommit ? .afterReceipt : boundary == .afterPersistenceCommitBeforeEvent ? .afterCommit : .none
             let (store, context) = try Self.setup(cut)
             _ = await Self.execute(store, context)

@@ -27,11 +27,19 @@ for token in "${forbidden[@]}"; do
 done
 rm -f /tmp/bone-agent-doc-scan.txt
 
+current_version="$(sed -n 's/.*public static let current = "\([^"]*\)".*/\1/p' \
+  "$ROOT/Sources/BoneAgentKit/Compatibility/BoneAgentKitVersion.swift")"
+if [[ -z "$current_version" ]]; then
+  echo "无法读取 BoneAgentKitVersion.current" >&2
+  status=1
+fi
+
 required_readme=(
   'https://github.com/taokoplay/BoneAgentKit.git'
+  "exact: \"$current_version\""
   '`BoneAgentKit`'
   '`BoneAgentTesting`'
-  '`BoneAgentLocalRuntime`'
+  '`BoneAgentLocalModels`'
   '`BoneAgentLlama`'
   'Documentation/INDEX.md'
   'AGPL-3.0-only'
@@ -43,6 +51,38 @@ for token in "${required_readme[@]}"; do
     status=1
   fi
 done
+
+legacy_alpha9_names=(
+  'BoneAgentKit('
+  'BoneAgentLocalRuntime'
+  'BoneAgentPersistence'
+  'BoneInMemoryAgentPersistence'
+  'BoneStoredRun'
+  'BoneRunCheckpoint'
+  'BoneAgentWorkflowStep'
+  'BoneInferenceInvocationIdentity'
+  'BoneInferenceDetailedStreaming'
+  'BoneLlamaCompiledConstraintRuntime'
+  'BoneLlamaCompiledGenerationControl'
+  'BoneCapabilityVerificationIdentity'
+  'BoneLlamaPromptEncoding'
+  'BoneLlamaChatMLPromptEncoder'
+  'BoneLlamaToolCalling'
+  'BoneLlamaJSONToolCallingCodec'
+  'BoneCrashTestHarness'
+  'BoneLocalRuntimeAdapter'
+)
+
+for token in "${legacy_alpha9_names[@]}"; do
+  if git -C "$ROOT" grep -n -I -F -- "$token" -- \
+      'README.md' 'Examples/*.md' 'Examples/**/*.md' 'Documentation/*.md' \
+      ':!Documentation/Plans/**' >/tmp/bone-agent-alpha9-name-scan.txt; then
+    echo "当前公开说明仍包含 Alpha.9 旧名称：$token" >&2
+    cat /tmp/bone-agent-alpha9-name-scan.txt >&2
+    status=1
+  fi
+done
+rm -f /tmp/bone-agent-alpha9-name-scan.txt
 
 python3 - "$ROOT" <<'PY' || status=1
 import re
