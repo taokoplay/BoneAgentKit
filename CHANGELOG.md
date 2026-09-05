@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.11] - 2026-09-05
+
+### Release scope
+
+- 整合 alpha.10 全部改动与四阶段 SDK 硬化；保持 alpha.9 的命名与 API clean break，不恢复旧别名。
+- 预发布包，不代表生产准入：真实 Host/数据库/lease 到期、真机 Runtime、真实 Provider 与最低 Swift 5.9 工具链仍未验收。
+- 整合基线通过 397 项严格并发及显式 Swift 6 测试、Release、四库 iOS Simulator SDK 构建、离线 smoke 与文档门禁；远端 CI 结果需另行核验。
+
 ### Fixed
 
 - 阶段四：修复 Swift 6 弃用 C 字符串初始化；Smoke 单调计时兼容 iOS 13，不再直接依赖 iOS 16 ContinuousClock。
