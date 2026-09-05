@@ -73,3 +73,41 @@ done
 自动测试分三层：Canonical/Compiler 单测证明稳定身份与受支持 GBNF 方言；Engine/Probe Contract 测试证明请求级 Constraint、精确终止证据和能力门禁；真实 GGUF Smoke 才能证明具体 Runtime 的 Grammar Sampler、Tokenizer、Native Template 与 Stop Matcher 组合可用。前两层不能自动更新 bundled model Profile。
 
 真实本地验收必须绑定精确 GGUF SHA-256、Runtime/Tokenizer/Template/Compiler/Grammar Parser/Grammar Sampler/Stop Matcher 版本、Context/Batch/最大输出配置，并在 iOS 真机覆盖直接 Enum、JSON Schema、受约束 Tool Call 与 Tool Result continuation。报告不得保存 Prompt、Schema/Grammar 正文、Stop String、模型输出或绝对路径。任一身份字段变化后必须重新验收。
+
+
+## Host 持久化契约验收
+
+`BoneAgentTesting` 提供 `BoneWorkflowPersistenceContractSuite().run(factory:)`，每个场景要求工厂创建隔离测试命名空间。以下仅是内存接入示例，不是磁盘验收：
+
+```swift
+import BoneAgentKit
+import BoneAgentTesting
+
+let observations = try await BoneWorkflowPersistenceContractSuite().run { _ in
+    BoneWorkflowPersistenceContractFixture(
+        persistence: BoneInMemoryWorkflowPersistence(),
+        cleanup: {}
+    )
+}
+for observation in observations {
+    switch observation.outcome {
+    case .passed: break
+    case .skipped(let capability): print("Missing capability: \(capability.rawValue)")
+    case .failed(let failures): print(failures.map(\.rawValue))
+    }
+}
+```
+
+六个场景覆盖创建/读取/成功提交、拒绝非法 bundle 后无部分更新、并发 CAS、generation fencing、关闭后重新打开读取、独立连接的 CAS/fencing 一致性。内存示例预期四项通过、两项 skipped；不能把 skipped 统计为通过。
+
+真实 Host 工厂须提供自己的 `persistence`，并按能力注入：
+
+- `reopenAfterClosingPrimary`：显式关闭主连接，再返回指向同一底层存储的新连接；suite 仍持有 persistence 引用，不能依赖 actor deinit 触发关闭。返回同一个 actor 不满足声明。
+- `openIndependentConnection`：返回可与主连接并行工作的独立连接，不能只是同一 actor 的包装。
+- `cleanup`：关闭所有连接并清理本场景拥有的测试资源；不得删除生产数据。成功、失败、跳过和取消均等待此回调。工厂返回之前失败，资源仍由工厂自行清理。
+
+suite 在未取消的独立 Task 中执行 cleanup，之后传播取消；不要依赖调用任务的 Task-local 状态。Host 操作与 cleanup 都须合作退出，不提供强制超时。报告仅含固定场景、结果、失败分类和缺失能力，不包含原始 Error、路径、Run ID 或 payload。Host 自己的日志不在这一脱敏保证内。
+
+这是行为探测，不是完整的线性化证明或进程崩溃/断电持久性认证。双任务 CAS 不保证触发数据库内部每种危险交错。重新打开与连接独立性由 Host 真实实现并声明，suite 无法验证物理存储拓扑。当前未提供真实 Adapter，跨连接和重开尚无真实持久层正例。
+
+2026-09-05 核验 `alpha.11` 提交及仓库最近 Actions 运行列表均为空；Actions 已启用，但没有远端通过证据。最低 Swift 5.9 工具链仍未实测。

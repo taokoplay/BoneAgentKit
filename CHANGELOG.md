@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `BoneAgentTesting` 新增可注入隔离 fixture 的 `BoneWorkflowPersistenceContractSuite`：六个持久化契约探测、固定白名单报告、可选 reopen/独立连接能力及所有退出路径 cleanup。缺能力明确 skipped；不是物理持久性、进程崩溃或 lease 到期认证。
+- 补充违约 Adapter 反例，验证 CAS 多赢家、拒绝后部分更新和旧 generation 提交可被检出；Core 协议未变更。
+
 ## [0.2.0-alpha.11] - 2026-09-05
 
 ### Release scope

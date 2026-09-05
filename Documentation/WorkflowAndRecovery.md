@@ -49,3 +49,10 @@ wall-clock 使用单调时钟，是操作边界上的协作截止；等于上限
 PersistenceContractTests、AuthorizationContractTests、WorkflowRecoveryTests 验证内存原子 snapshot/CAS/generation fencing、Grant 多维绑定与单次消费、Intent 到 Receipt/commit 的故障窗口和恢复决策。恢复依赖事实而非事件是否已交付，不保证 exactly-once。
 
 内存 Persistence 没有 lease 到期时间接口，测试只验证 generation 接管，不能替代 Host 的真实 lease expiry 验收。CrashHarness 为故障注入，不是真实进程 kill；数据库事务、断电/跨进程持久性、外部查询延迟与补偿失败仍需 Host 验收。对账由 Host 执行，SDK 提供恢复决策。
+
+
+## Host 所有权与验收边界
+
+`BoneWorkflowPersistence.acquireLease` 当前表达基于 revision CAS 的 generation 接管，不包含 owner、时间有效期或续租接口。Host 必须另行决定谁有权接管以及何时允许接管；generation 用于拒绝旧 worker，不能替代这一所有权策略。验收套件不会把 generation 递增声称为 lease 到期验证，也不修改 Core 接口。
+
+可用 `BoneWorkflowPersistenceContractSuite` 验证 Adapter 的快照提交、CAS 和 fencing 行为，接入方式见 [Testing](Testing.md)。Intent/Receipt 的真实进程崩溃恢复、数据库事务、租约有效期与外部副作用对账仍需独立 Host 验收；首批套件未覆盖 Effect Store，不承诺 exactly-once 或自动重试未知副作用。

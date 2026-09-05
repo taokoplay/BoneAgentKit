@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 320 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 328 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -91,3 +91,10 @@
 - 原子 turn/tool execution reserve 为 internal；公开 Meter 方法与预算错误枚举不变。
 - OpenAI 普通文本也必须单 choice、stop；流式另需 DONE。length → outputTruncated，过滤/拒绝/缺失/未知终态 → invalidResponse。保留 requiringSingleCompletedChoice 参数但不再允许宽松模式。
 - SSE 未成帧 EOF 返回 invalidResponse；LF/CRLF 及逐字节 UTF-8 保留，未扩展 CR-only/BOM/Last-Event-ID。
+
+
+## Host 持久化契约测试 API
+
+`BoneAgentTesting` 新增 `BoneWorkflowPersistenceContractSuite`、`BoneWorkflowPersistenceContractFixture`、`BoneWorkflowPersistenceContractFixtureFactory`、`BoneWorkflowPersistenceContractCase`、`BoneWorkflowPersistenceContractObservation`、`BoneWorkflowPersistenceContractOutcome`、`BoneWorkflowPersistenceContractFailure` 和 `BoneWorkflowPersistenceContractCapability`。
+
+`run(factory:) async throws` 返回固定白名单 observations；fixture 提供 Store、cleanup 和可选的 reopen/独立连接回调。六个场景的 passed 仅代表相应行为探测通过，skipped 必须单独处理；取消抛出 CancellationError，原始 Host 错误不进入报告。Core Persistence API 与租约语义保持不变。
