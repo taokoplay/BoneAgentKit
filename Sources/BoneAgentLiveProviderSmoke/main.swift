@@ -109,7 +109,7 @@ enum BoneAgentLiveProviderSmokeMain {
             Foundation.exit(2)
         }
         guard let rawAPIKey = getenv(live.provider.credentialVariable),
-              let apiKey = String(validatingUTF8: rawAPIKey),
+              let apiKey = String(validatingCString: rawAPIKey),
               !apiKey.isEmpty else {
             FileHandle.standardError.write(Data("缺少所选 Provider 的固定凭据变量。\n".utf8))
             Foundation.exit(2)

@@ -60,3 +60,15 @@
 3. 保持旧 checkpoint decoder 与兼容 Product；禁止用数据迁移掩盖代码回滚。
 4. 真实 Provider 故障时关闭对应灰度入口，不删除用户任务或持久化记录。
 5. 保存失败门禁名称、脱敏日志、提交 SHA 和处置结论。
+
+## 本地硬化验证快照（2026-09-05）
+
+本快照对应 `9e247440` 后尚未提交的第三、四阶段工作树，不是发布签发。Xcode 26.0 / Swift 6.2；未运行最低 Swift 5.9 工具链。
+
+- 默认、完整严格并发与显式 Swift 6 严格模式均为 349 项测试通过。
+- macOS Release 严格构建与三 Provider 无网络 dry-run 通过。
+- 四个库 Product 的 iOS Simulator Release SDK 构建通过，保持 iOS 13 deployment 声明；不是 iOS 13 真机执行证据。
+- README 版本与 `BoneAgentKitVersion.current` 一致性、公开文档与 diff 门禁通过。
+- GitHub Actions 配置已建立，未推送、未远端运行，不能当作已绿的远端 CI。
+
+签发前仍必须补：真实 Host Debug/Release、真实 Store lease expiry/事务/跨进程恢复、真机 Runtime/内存/取消、授权后的 Provider 非流式与流式测试、最低工具链、许可证和资产权利核验，以及最终已提交 SHA。以上未完成前不宣称生产验收或发布准入通过。

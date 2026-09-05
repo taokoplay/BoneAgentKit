@@ -12,17 +12,15 @@ public enum BoneOpenAIResponseAggregator {
         else {
             throw BoneInferenceTransportError.invalidResponse
         }
-        if requiringSingleCompletedChoice {
-            guard choices.count == 1,
-                  (choice["index"] == nil || choice["index"] as? Int == 0),
-                  choice["finish_reason"] as? String == "stop" else {
-                if choice["finish_reason"] as? String == "length" {
-                    throw BoneInferenceTransportError.outputTruncated
-                }
-                throw BoneInferenceTransportError.invalidResponse
-            }
-        } else if choice["finish_reason"] as? String == "length" {
-            throw BoneInferenceTransportError.outputTruncated
+        // Text APIs return one answer, never silently select or concatenate choices.
+        // Keep the legacy flag source-compatible; ordinary text now has the same contract.
+        guard json["error"] == nil, choices.count == 1,
+              choice["index"] == nil || choice["index"] as? Int == 0 else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+        try validateFinishReason(choice["finish_reason"] as? String)
+        guard message["refusal"] == nil || message["refusal"] is NSNull else {
+            throw BoneInferenceTransportError.invalidResponse
         }
         if let content = message["content"] as? String, !content.isEmpty {
             return content
@@ -60,37 +58,35 @@ public enum BoneOpenAIResponseAggregator {
             else {
                 throw BoneInferenceTransportError.invalidResponse
             }
-            let choices = json["choices"] as? [[String: Any]] ?? []
-            if requiringSingleCompletedChoice, choices.count > 1 {
+            guard let choices = json["choices"] as? [[String: Any]], choices.count <= 1 else {
                 throw BoneInferenceTransportError.invalidResponse
             }
             for choice in choices {
-                if requiringSingleCompletedChoice,
-                   let index = choice["index"] as? Int,
-                   index != 0 {
+                guard !sawStop,
+                      choice["index"] == nil || choice["index"] as? Int == 0 else {
                     throw BoneInferenceTransportError.invalidResponse
                 }
-                if let finishReason = choice["finish_reason"] as? String {
-                    if finishReason == "length" {
-                        throw BoneInferenceTransportError.outputTruncated
-                    }
-                    if requiringSingleCompletedChoice {
-                        guard finishReason == "stop", !sawStop else {
-                            throw BoneInferenceTransportError.invalidResponse
-                        }
-                        sawStop = true
-                    }
+                if let reason = choice["finish_reason"], !(reason is NSNull) {
+                    try validateFinishReason(reason as? String)
+                    sawStop = true
                 }
                 let delta = choice["delta"] as? [String: Any]
+                guard delta?["refusal"] == nil || delta?["refusal"] is NSNull else {
+                    throw BoneInferenceTransportError.invalidResponse
+                }
                 if let content = delta?["content"] as? String {
                     text += content
                 }
             }
         }
-        guard completed, !text.isEmpty,
-              !requiringSingleCompletedChoice || sawStop else {
+        guard completed, !text.isEmpty, sawStop else {
             throw BoneInferenceTransportError.invalidResponse
         }
         return text
+    }
+
+    private static func validateFinishReason(_ reason: String?) throws {
+        if reason == "length" { throw BoneInferenceTransportError.outputTruncated }
+        guard reason == "stop" else { throw BoneInferenceTransportError.invalidResponse }
     }
 }

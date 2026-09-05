@@ -2,7 +2,7 @@
 
 ## Product 隔离
 
-Package 提供独立 `BoneAgentTesting` Product，生产 `BoneAgentKit` Target 不依赖它。早期兼容 runner 仍可从 `Tests/BoneAgentKit/TestSupport` 编译辅助文件，但正式可复用实现位于 Testing Product。App Release 不应链接 Synthetic Fixture、Scripted Engine、Recorder、Scenario 或 Crash Harness。Package graph 回归持续验证此边界。
+Package 提供独立 `BoneAgentTesting` Product，生产 `BoneAgentKit` Target 不依赖它。正式可复用实现位于 Testing Product；旧 Host runner 路径不属于本仓库验证入口。App Release 不应链接 Synthetic Fixture、Scripted Engine、Recorder、Scenario 或 Crash Harness。Package graph 回归持续验证此边界。
 
 ## 测试能力
 
@@ -20,17 +20,21 @@ Fixture 不提供 cassette recorder，不自动落盘，不记录 URL query、He
 ## 推荐矩阵
 
 ```bash
-swift test --package-path Frameworks/BoneAgentKit --disable-sandbox
-zsh Tests/BoneAgentKit/run_bone_agent_runtime_tests.sh
-zsh Tests/BoneAgentKit/run_bone_agent_workflow_step_tests.sh
-zsh Tests/BoneAgentKit/run_bone_effect_recovery_tests.sh
-zsh Tests/BoneAgentKit/run_bone_persistence_contract_tests.sh
-zsh Tests/BoneAgentKit/run_bone_authorization_tests.sh
-zsh Tests/BoneAgentKit/run_minimal_workflow_host_example.sh
-python3 Tests/BoneAgentKit/bone_harness_testing_package_graph_regression.py
+# 在仓库根运行；无需关闭 sandbox
+swift test
+swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+swift test -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+swift build -c release -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+swift test --filter WorkflowStepControllerTests
+swift test --filter WorkflowRecoveryTests
+swift test --filter PersistenceContractTests
+swift test --filter AuthorizationContractTests
+swift run BoneAgentLiveProviderSmoke --dry-run
+bash Scripts/check-public-documentation.sh
+git diff --check
 ```
 
-所有 Swift runner 使用 Swift 6、strict concurrency complete 和 warnings-as-errors。Tool 参数和结果单项上限为 1 MiB。随机延迟测试必须固定 seed，并按 ordinal 断言结果，不能按完成时间。初始 Fixture 建立的使用成本目标是 1 小时内，一次 Tool 失败应能在 10 分钟内定位。
+上述门禁分别验证默认语言模式与显式 Swift 6 严格模式。Package 声明最低 Swift 5.9；仅在较新编译器通过不等于最低工具链实测。Tool 参数和结果单项上限为 1 MiB。随机延迟测试必须固定 seed，并按 ordinal 断言结果，不能按完成时间。初始 Fixture 建立的使用成本目标是 1 小时内，一次 Tool 失败应能在 10 分钟内定位。
 
 ## 事件和 Checkpoint
 
@@ -50,3 +54,16 @@ swift run BoneAgentLiveProviderSmoke --live --confirm-network-and-costs \
 ```
 
 凭据变量固定为 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 或 `GEMINI_API_KEY`；Runner 不枚举其它环境变量。真实报告仍只是候选证据，只有满足发布阈值并经审核后才能写入 bundled model Profile。
+
+## CI 与 iOS SDK
+
+`.github/workflows/ci.yml` 运行默认、严格并发、显式 Swift 6、Release、文档和无网络 smoke 门禁。配置存在不等于远端运行通过；不使用真实 Provider 凭据。
+
+```bash
+for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalRuntime BoneAgentLlama; do
+  xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
+    -configuration Release CODE_SIGNING_ALLOWED=NO build
+done
+```
+
+2026-09-05 在 Xcode 26.0 / Swift 6.2 完成上述四库构建。Simulator SDK 编译不代表 iOS 13 真机执行或真实 Runtime 通过。真实 Host 必须另外运行 Debug/Release、数据库事务/lease expiry/崩溃恢复和设备资源测试；本仓库没有可代替这些验证的 Host runner。最低 Swift 5.9 工具链仍待独立验证。

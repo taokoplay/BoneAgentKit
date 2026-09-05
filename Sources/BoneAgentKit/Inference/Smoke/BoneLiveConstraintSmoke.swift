@@ -13,8 +13,7 @@ public enum BoneLiveConstraintSmoke {
         guard (1...1_000).contains(iterations) else {
             throw BoneInferenceError.invalidGenerationOptions
         }
-        let clock = ContinuousClock()
-        let start = clock.now
+        let start = ProcessInfo.processInfo.systemUptime
         var succeeded = 0
         var failures: [BoneLiveConstraintSmokeFailure: Int] = [:]
 
@@ -46,9 +45,9 @@ public enum BoneLiveConstraintSmoke {
             }
         }
 
-        let elapsed = start.duration(to: clock.now)
-        let milliseconds = max(0, Int(elapsed.components.seconds * 1_000)
-            + Int(elapsed.components.attoseconds / 1_000_000_000_000_000))
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - start)
+        let milliseconds = elapsed * 1_000 >= Double(Int.max)
+            ? Int.max : Int(elapsed * 1_000)
         return try .init(
             provider: provider,
             modelID: modelID,

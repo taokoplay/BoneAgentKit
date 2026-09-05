@@ -65,3 +65,10 @@
 - 下载 Transport 方法签名不变，但完成 URL 必须等于 request.destinationURL，cancel 返回须停止写入；start 抛错不能留下后台 writer。
 - Store/Catalog 保留 `.bone-download-staging` 及资产 `.partial.download` 大小写变体；下载磁盘预算为两份模型加 margin，溢出拒绝。
 - Llama cancel 为协作控制，unload 等待在途调用退出；不承诺强制终止原生代码。
+
+## 阶段三兼容调整（Unreleased）
+
+- BoneAgent initializer 追加默认 `monotonicClock: @Sendable () -> TimeInterval`；普通初始化源码兼容，不承诺函数引用/预编译二进制兼容。
+- 原子 turn/tool execution reserve 为 internal；公开 Meter 方法与预算错误枚举不变。
+- OpenAI 普通文本也必须单 choice、stop；流式另需 DONE。length → outputTruncated，过滤/拒绝/缺失/未知终态 → invalidResponse。保留 requiringSingleCompletedChoice 参数但不再允许宽松模式。
+- SSE 未成帧 EOF 返回 invalidResponse；LF/CRLF 及逐字节 UTF-8 保留，未扩展 CR-only/BOM/Last-Event-ID。

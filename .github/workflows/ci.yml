@@ -1,0 +1,36 @@
+name: SDK gates
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+      - run: swift test
+      - run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+      - run: swift test -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+      - run: swift build -c release -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+      - run: swift run BoneAgentLiveProviderSmoke --dry-run
+      - run: bash Scripts/check-public-documentation.sh
+      - name: Check committed whitespace
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$PUSH_BASE}"
+          if [[ -n "$base" && ! "$base" =~ ^0+$ ]] && git cat-file -e "$base^{commit}"; then
+            git diff --check "$base" HEAD
+          else
+            git show --check --format= HEAD
+          fi
+          git diff --check
+      - name: iOS Simulator libraries
+        run: |
+          for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalRuntime BoneAgentLlama; do
+            xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' -configuration Release CODE_SIGNING_ALLOWED=NO build
+          done

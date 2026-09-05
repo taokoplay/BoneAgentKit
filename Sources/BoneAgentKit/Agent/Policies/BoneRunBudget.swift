@@ -1,6 +1,7 @@
 import Foundation
 
-/// 单次 Run 的硬预算；wall-clock 使用单调 uptime 秒数，兼容 iOS 13。
+/// 单次 Run 的操作额度与协作截止预算；wall-clock 使用单调 uptime 秒数，兼容 iOS 13。
+/// 截止在操作边界检查，不强行终止 Host 代码，也不打断必要的副作用 Receipt 提交。
 public struct BoneRunBudget: Codable, Equatable, Sendable {
     public let maximumInferenceCalls: Int
     public let maximumToolCalls: Int
@@ -97,6 +98,21 @@ public actor BoneRunBudgetMeter {
         estimatedCostMicrounits += newCost
     }
 
+    /// Agent 在调用引擎前原子预留轮次及推理额度；拒绝时所有计数保持不变。
+    /// 已接受的尝试（包括随后抛错/取消）消耗额度，不在完成时重复计轮次。
+    func reserveInferenceTurn(
+        inputBytes: Int,
+        estimatedCostMicrounits: Int64,
+        nowUptime: TimeInterval
+    ) throws {
+        guard turns < budget.maximumTurns else {
+            throw BoneRunBudgetError.turnLimitReached(limit: budget.maximumTurns)
+        }
+        try reserveInference(inputBytes: inputBytes, estimatedCostMicrounits: estimatedCostMicrounits,
+            nowUptime: nowUptime)
+        turns += 1
+    }
+
     public func commitInference(outputBytes newOutputBytes: Int) throws {
         try reserveOutputBytes(newOutputBytes)
     }
@@ -115,6 +131,20 @@ public actor BoneRunBudgetMeter {
         }
         toolCalls += 1
         inputBytes += argumentsBytes
+    }
+
+    /// 原子预留一次 Tool 尝试的累计额度与在途槽位。失败不改变任何计数；
+    /// 成功后累计调用/输入额度不退款，只有在途槽位需由调用方释放。
+    func reserveToolExecution(
+        argumentsBytes: Int,
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) throws {
+        try checkWallClock(nowUptime: nowUptime)
+        guard concurrentToolCalls < budget.maximumConcurrentToolCalls else {
+            throw BoneRunBudgetError.concurrencyLimitReached(limit: budget.maximumConcurrentToolCalls)
+        }
+        try reserveTool(argumentsBytes: argumentsBytes, nowUptime: nowUptime)
+        concurrentToolCalls += 1
     }
 
     public func commitTool(resultBytes: Int) throws {

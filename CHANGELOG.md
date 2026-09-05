@@ -6,6 +6,13 @@
 
 ### Fixed
 
+- 阶段四：修复 Swift 6 弃用 C 字符串初始化；Smoke 单调计时兼容 iOS 13，不再直接依赖 iOS 16 ContinuousClock。
+- 文档版本门禁读取当前版本声明；替换失效 Host 测试命令，新增无凭据 CI 门禁与四库 Simulator 构建。
+
+- 阶段三：预算在推理前预留 turn，工具额度与并发槽位原子预留；legacy 工具边界与取消/协作截止检查统一。
+- 普通 OpenAI 文本与受约束文本统一验证终态，拒绝过滤、缺失或未知终态、多 choice、重复 DONE 和 DONE 后数据；SSE EOF 不再补造未完整事件。
+- 补充持久化/CAS/generation、授权绑定消费和副作用恢复故障矩阵测试；不代表真实 Host lease expiry/数据库验收。
+
 - 阶段二：下载启动前登记身份，隔离迟到取消/暂停/完成；Task 与流终止传播到底层 URLSession，按累计字节中止超大响应。
 - 下载采用独立暂存路径，失败清理本操作文件，启动清理旧 `.partial.download`；空间预检计入安装复制并防止溢出。
 - Llama Session 完整推理单 in-flight，取消身份隔离，unload 等待在途 Runtime 和控制调用排空。
@@ -16,6 +23,10 @@
 - 授权等待态允许取消/失败并清除 ticket；checkpoint 提交前验证。等待授权时直接标记成功被拒绝，需先显式完成授权恢复。
 
 ### Migration
+
+- `BoneAgent.init` 新增默认 monotonicClock 参数；普通调用兼容，初始化函数引用需核对。
+- OpenAI 文本仅接受 stop，length 返回 outputTruncated，其余非法终态返回 invalidResponse。流式还要求 DONE；requiringSingleCompletedChoice=false 不再放宽终态或多 choice。
+- SSE 必须有终止空行；不规范兼容服务器可能被拒绝。临时 delta 不代表成功，Host 以 completed 为准。
 
 - Llama 新增 `BoneLlamaAdapterError.busy`；并发请求由 Host 排队/重试。取消后卸载，原生不合作时 unload 仍需等待。
 - Catalog/Store 新保留 `.bone-download-staging` ID，以及 `.partial.download` 文件后缀（含大小写变体）；自定义下载 Transport 必须交付指定 destination，cancel 返回后不得再写文件。

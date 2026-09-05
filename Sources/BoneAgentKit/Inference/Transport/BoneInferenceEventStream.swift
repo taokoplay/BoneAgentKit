@@ -50,32 +50,12 @@ public struct BoneInferenceEventStreamFramer: Sendable {
     }
 
     public mutating func finish() throws -> [BoneInferenceEventStreamEvent] {
-        if !buffer.isEmpty {
-            var lineData = buffer[...]
-            buffer.removeAll(keepingCapacity: false)
-            if lineData.last == 0x0D { lineData = lineData.dropLast() }
-            guard let line = String(data: lineData, encoding: .utf8) else {
-                throw BoneInferenceTransportError.invalidResponse
-            }
-            _ = consume(line: line)
+        // EOF is not an SSE delimiter. Reject a pending frame rather than inventing
+        // a final event (in particular an unterminated provider completion marker).
+        guard buffer.isEmpty, !hasFields else {
+            throw BoneInferenceTransportError.invalidResponse
         }
-        guard hasFields else { return [] }
-        guard !dataLines.isEmpty else {
-            eventName = nil
-            eventID = nil
-            hasFields = false
-            return []
-        }
-        let event = BoneInferenceEventStreamEvent(
-            event: eventName,
-            id: eventID,
-            data: dataLines.joined(separator: "\n")
-        )
-        eventName = nil
-        eventID = nil
-        dataLines.removeAll(keepingCapacity: true)
-        hasFields = false
-        return [event]
+        return []
     }
 
     private mutating func consume(line: String) -> BoneInferenceEventStreamEvent? {
@@ -87,6 +67,7 @@ public struct BoneInferenceEventStreamFramer: Sendable {
                 dataLines.removeAll(keepingCapacity: true)
                 hasFields = false
             }
+            guard !dataLines.isEmpty else { return nil }
             return BoneInferenceEventStreamEvent(
                 event: eventName,
                 id: eventID,

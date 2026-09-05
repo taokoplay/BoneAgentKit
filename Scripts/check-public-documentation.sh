@@ -29,7 +29,6 @@ rm -f /tmp/bone-agent-doc-scan.txt
 
 required_readme=(
   'https://github.com/taokoplay/BoneAgentKit.git'
-  'exact: "0.2.0-alpha.3"'
   '`BoneAgentKit`'
   '`BoneAgentTesting`'
   '`BoneAgentLocalRuntime`'
@@ -57,6 +56,12 @@ tracked = subprocess.check_output(
     ["git", "-C", str(root), "ls-files", "*.md"], text=True
 ).splitlines()
 errors: list[str] = []
+version_source = (root / "Sources/BoneAgentKit/Compatibility/BoneAgentKitVersion.swift").read_text()
+version = re.search(r'public static let current = "([^"\n]+)"', version_source)
+if version is None:
+    errors.append("Version source missing current")
+elif f'exact: "{version.group(1)}"' not in (root / "README.md").read_text():
+    errors.append("README exact version differs from BoneAgentKitVersion.current")
 link_pattern = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 
 for relative in tracked:
