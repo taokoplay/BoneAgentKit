@@ -54,6 +54,16 @@ final class BoneLocalModelCatalogTests: XCTestCase {
         }
     }
 
+    func testCatalogRejectsDotSegmentModelIDsAndArtifactNames() {
+        for id in [".", "..", "", "../escape", "nested/model", ".bone-install-staging", ".BONE-INSTALL-STAGING", ".Bone-Install-Staging", ".bone-download-staging", ".BONE-DOWNLOAD-STAGING"] {
+            let json = modelJSON().replacingOccurrences(of: "\"id\": \"qwen-2b-q4\"", with: "\"id\": \"\(id)\"")
+            XCTAssertThrowsError(try BoneLocalModelCatalog(data: manifestData(models: json)), id)
+        }
+        for name in [".", "..", "", "model.partial", "model.PARTIAL", "model.partial.download", "model.PARTIAL.DOWNLOAD"] {
+            XCTAssertThrowsError(try BoneLocalModelCatalog(data: manifestData(models: modelJSON(fileName: name))), name)
+        }
+    }
+
     private func manifestData(models: String? = nil) -> Data {
         Data("""
         {

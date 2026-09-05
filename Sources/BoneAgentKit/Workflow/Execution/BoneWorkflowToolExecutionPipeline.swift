@@ -7,6 +7,10 @@ public enum BoneWorkflowToolExecutionError: Error, Equatable, Sendable {
     case effectStoreRejected
     case cancelledBeforeExecution
     case toolExecutionFailed
+    /// executionStarted 后执行抛错，不能证明副作用未发生；必须先恢复/对账。
+    case outcomeUnknown
+    /// 执行已返回结果，但 Receipt 记录或提交未确认；必须读取持久化事实恢复。
+    case recoveryRequired
 }
 
 /// 通用高风险 Tool 管线：Grant consume → Intent → executionStarted → Tool → Receipt → commit。
@@ -123,7 +127,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
             // executionStarted 事实，让 Recovery Planner 进入 reconcile/outcomeUnknown。
             output = try await operation()
         } catch {
-            throw BoneWorkflowToolExecutionError.toolExecutionFailed
+            throw BoneWorkflowToolExecutionError.outcomeUnknown
         }
 
         do {
@@ -137,10 +141,9 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
             try await effectStore.commitReceipt(effectID: context.effectID, leaseGeneration: context.leaseGeneration)
             await commitObserver.receive(effectID: context.effectID, outcome: .succeeded)
             return output
-        } catch let error as BoneWorkflowToolExecutionError {
-            throw error
         } catch {
-            throw BoneWorkflowToolExecutionError.effectStoreRejected
+            // 包括取消：执行结果已知不等于 Receipt 已提交，不可降级为普通失败。
+            throw BoneWorkflowToolExecutionError.recoveryRequired
         }
     }
 

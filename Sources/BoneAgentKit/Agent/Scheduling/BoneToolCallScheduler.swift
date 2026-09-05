@@ -195,7 +195,9 @@ private extension BoneToolCallScheduler {
                 return nil
             }
         }
-        if error is BoneToolBatchAbortError || error is BoneRunBudgetError ||
+        // 公开 Operation 可直接调用 Workflow 管线；其错误均为控制面/恢复失败。
+        if error is BoneWorkflowToolExecutionError ||
+            error is BoneToolBatchAbortError || error is BoneRunBudgetError ||
             error is BoneToolPolicyError || error is BoneToolSchedulerError ||
             error is BoneInferenceError {
             return nil

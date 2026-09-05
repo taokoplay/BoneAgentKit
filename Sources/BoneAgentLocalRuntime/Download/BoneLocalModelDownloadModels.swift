@@ -112,10 +112,17 @@ public enum BoneLocalModelDownloadTransportFailure: Error, Equatable, Sendable {
 
 public protocol BoneLocalModelDownloadOperation: Sendable {
     func events() -> AsyncThrowingStream<BoneLocalModelDownloadTransportEvent, Error>
+    /// Stop publishing events/files before returning resume data. Failure to obtain
+    /// resume data is not a successful pause; the coordinator cancels the operation.
     func pause() async throws -> Data
+    /// Idempotently stop the operation. After returning, no destination-file writes
+    /// may occur. Custom transports must honor this for safe owned-file cleanup.
     func cancel() async
 }
 
 public protocol BoneLocalModelDownloadTransport: Sendable {
+    /// Publish completed files only at request.destinationURL. If start throws, it
+    /// must leave no asynchronous writer using that destination. A late successful
+    /// start may immediately be cancelled without events() ever being requested.
     func start(_ request: BoneLocalModelDownloadRequest) async throws -> any BoneLocalModelDownloadOperation
 }

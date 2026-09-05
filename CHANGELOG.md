@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 阶段二：下载启动前登记身份，隔离迟到取消/暂停/完成；Task 与流终止传播到底层 URLSession，按累计字节中止超大响应。
+- 下载采用独立暂存路径，失败清理本操作文件，启动清理旧 `.partial.download`；空间预检计入安装复制并防止溢出。
+- Llama Session 完整推理单 in-flight，取消身份隔离，unload 等待在途 Runtime 和控制调用排空。
+
+- 阶段一生产硬化：Catalog 和 Store 拒绝特殊模型 ID、非法文件名和模型目录/资产符号链接；保留 `.bone-install-staging` 目录及 `.partial` 临时文件后缀；路径检查不替代 Host 文件系统隔离。
+- Store 使用目标卷内专用目录中的独立 staging、完整性校验与原子 rename 发布；提交失败保留旧模型和下载源，同一 Store 的安装、删除和启动清理互斥。不承诺断电持久性。
+- 高风险 Tool 在执行开始后抛错返回 `outcomeUnknown`，Receipt 记录/提交未确认返回 `recoveryRequired`；Agent 对应 `toolOutcomeUnknown` / `toolRecoveryRequired`，`collectAll` 不收集这些错误，不继续后继 Tool 或 inference。
+- 授权等待态允许取消/失败并清除 ticket；checkpoint 提交前验证。等待授权时直接标记成功被拒绝，需先显式完成授权恢复。
+
+### Migration
+
+- Llama 新增 `BoneLlamaAdapterError.busy`；并发请求由 Host 排队/重试。取消后卸载，原生不合作时 unload 仍需等待。
+- Catalog/Store 新保留 `.bone-download-staging` ID，以及 `.partial.download` 文件后缀（含大小写变体）；自定义下载 Transport 必须交付指定 destination，cancel 返回后不得再写文件。
+- 下载可用空间预检改为两份 Manifest 大小加安全余量；URLSession 字节限制允许系统当前块的超额，不是零超额磁盘配额。
+
+- Host 对 `BoneWorkflowToolExecutionError` 和 `BoneAgentError` 的穷尽 switch 需处理新增恢复分类；使用原 Effect identity 读取持久事实并 reconcile，不创建新 identity 自动重试。
+- Host 为每个模型根目录提供一个 Store 所有者；`cleanIncompleteDownloads()` 仅在没有其他 Store/进程/下载正在使用该根时调用。安装可能临时需要额外一份模型空间，须纳入 Host 磁盘预算。
+
 ## [0.2.0-alpha.7] - 2026-09-03
 
 ### Added

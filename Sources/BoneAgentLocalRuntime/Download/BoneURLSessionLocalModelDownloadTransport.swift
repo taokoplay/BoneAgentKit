@@ -31,6 +31,7 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
     private var session: URLSession?
     private var task: URLSessionDownloadTask?
     private var started = false
+    private var terminal = false
 
     init(request: BoneLocalModelDownloadRequest, configuration: URLSessionConfiguration) {
         self.request = request
@@ -41,14 +42,15 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
     func events() -> AsyncThrowingStream<BoneLocalModelDownloadTransportEvent, Error> {
         AsyncThrowingStream { continuation in
             lock.lock()
-            self.continuation = continuation
-            let shouldStart = !started
+            let shouldStart = !started && !terminal
+            if shouldStart { self.continuation = continuation }
             started = true
             lock.unlock()
             guard shouldStart else {
                 continuation.finish(throwing: BoneLocalModelDownloadTransportFailure.other)
                 return
             }
+            continuation.onTermination = { [weak self] _ in self?.stop() }
             startSession()
         }
     }
@@ -68,7 +70,9 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
         }
     }
 
-    func cancel() async { lockedTask()?.cancel() }
+    func cancel() async { stop() }
+
+    private func stop() { finish(throwing: .cancelled(resumeData: nil)) }
 
     private func startSession() {
         let config = configuration.copy() as? URLSessionConfiguration ?? configuration
@@ -87,10 +91,16 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
             task = session.downloadTask(with: urlRequest)
         }
         lock.lock()
+        guard !terminal else {
+            lock.unlock()
+            task.cancel()
+            session.invalidateAndCancel()
+            return
+        }
         self.session = session
         self.task = task
-        lock.unlock()
         task.resume()
+        lock.unlock()
     }
 
     func urlSession(
@@ -100,13 +110,24 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
-        let expected = totalBytesExpectedToWrite > 0
-            ? totalBytesExpectedToWrite
-            : request.expectedByteCount
-        yield(.progress(.init(
-            downloadedBytes: totalBytesWritten,
-            expectedBytes: expected
-        )))
+        guard totalBytesWritten <= request.expectedByteCount,
+              totalBytesExpectedToWrite <= request.expectedByteCount else {
+            finish(throwing: .invalidResponse(statusCode: nil))
+            return
+        }
+        yield(.progress(.init(downloadedBytes: totalBytesWritten, expectedBytes: request.expectedByteCount)))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didResumeAtOffset fileOffset: Int64,
+        expectedTotalBytes: Int64
+    ) {
+        guard fileOffset <= request.expectedByteCount, expectedTotalBytes <= request.expectedByteCount else {
+            finish(throwing: .invalidResponse(statusCode: nil))
+            return
+        }
     }
 
     func urlSession(
@@ -114,6 +135,10 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
+        lock.lock()
+        let isTerminal = terminal
+        lock.unlock()
+        guard !isTerminal else { return }
         guard let response = downloadTask.response as? HTTPURLResponse else {
             finish(throwing: .invalidResponse(statusCode: nil))
             return
@@ -129,13 +154,24 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
             if let finalURL = response.url {
                 try BoneLocalModelDownloadSecurityPolicy.validate(finalURL, for: request.source)
             }
+            let attributes = try FileManager.default.attributesOfItem(atPath: location.path)
+            guard let size = attributes[.size] as? NSNumber, size.int64Value <= request.expectedByteCount else {
+                finish(throwing: .invalidResponse(statusCode: nil))
+                return
+            }
             try FileManager.default.createDirectory(
                 at: request.destinationURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? FileManager.default.removeItem(at: request.destinationURL)
-            try FileManager.default.moveItem(at: location, to: request.destinationURL)
-            yield(.completed(request.destinationURL))
+            // Serialize publication with cancellation: after cancel returns no late move
+            // may recreate a destination that the coordinator has already cleaned.
+            lock.lock()
+            guard !terminal else { lock.unlock(); return }
+            do {
+                try FileManager.default.moveItem(at: location, to: request.destinationURL)
+            } catch { lock.unlock(); throw error }
+            continuation?.yield(.completed(request.destinationURL))
+            lock.unlock()
             finish()
         } catch let error as BoneLocalModelDownloadError {
             finish(throwing: error == .untrustedURL ? .untrustedRedirect : .other)
@@ -199,13 +235,18 @@ private final class BoneURLSessionLocalModelDownloadOperation: NSObject, @unchec
 
     private func finish(throwing failure: BoneLocalModelDownloadTransportFailure? = nil) {
         lock.lock()
+        guard !terminal else { lock.unlock(); return }
+        terminal = true
         let continuation = continuation
         self.continuation = nil
-        task = nil
+        let task = task
+        self.task = nil
         let session = session
         self.session = nil
         lock.unlock()
         if let failure {
+            task?.cancel()
+            session?.invalidateAndCancel()
             continuation?.finish(throwing: failure)
         } else {
             continuation?.finish()

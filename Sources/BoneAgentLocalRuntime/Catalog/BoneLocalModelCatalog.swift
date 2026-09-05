@@ -58,14 +58,13 @@ public struct BoneLocalModelCatalog: Equatable, Sendable {
                 current: runtimeVersion
             )
         }
-        guard isIdentifier(model.id), !model.displayName.isEmpty, !model.family.isEmpty,
+        guard BoneLocalModelPathPolicy.isIdentifier(model.id), !model.displayName.isEmpty, !model.family.isEmpty,
               model.parameterCount > 0, model.minimumMemoryBytes > 0,
               model.recommendedContextTokens >= 512,
               model.recommendedContextTokens <= model.contextLimits.contextWindowTokens else {
             throw BoneLocalModelCatalogError.invalidModel(model.id)
         }
-        guard model.artifact.fileName == URL(fileURLWithPath: model.artifact.fileName).lastPathComponent,
-              !model.artifact.fileName.isEmpty,
+        guard BoneLocalModelPathPolicy.isFileName(model.artifact.fileName),
               model.artifact.expectedByteCount > 0,
               model.artifact.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
               !model.artifact.sources.isEmpty else {

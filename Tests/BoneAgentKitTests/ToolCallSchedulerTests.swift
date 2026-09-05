@@ -157,6 +157,36 @@ final class ToolCallSchedulerTests: XCTestCase {
         }
     }
 
+    /// Workflow 管线与 Agent 的恢复错误均不得被直接 Operation 的 collectAll 吞掉。
+    func testCollectAllPreservesWorkflowRecoveryFailuresInSerialAndParallelModes() async throws {
+        let failures: [any Error] = [
+            BoneWorkflowToolExecutionError.outcomeUnknown,
+            BoneWorkflowToolExecutionError.recoveryRequired,
+            BoneWorkflowToolExecutionError.authorizationRejected,
+            BoneAgentError.toolOutcomeUnknown,
+            BoneAgentError.toolRecoveryRequired,
+        ]
+        for mode: BoneToolSchedulingMode in [.serial, .boundedParallel(maximumConcurrency: 2)] {
+            for failure in failures {
+                let scheduler = try BoneToolCallScheduler(mode: mode, failureStrategy: .collectAll)
+                let calls = [makeCall(id: "a", ordinal: 0), makeCall(id: "b", ordinal: 1)]
+                let definitions = calls.map {
+                    makeDefinition(id: $0.toolID, policy: .parallelSafe(resourceKeys: [$0.toolID]))
+                }
+                do {
+                    _ = try await scheduler.execute(calls: calls, definitions: definitions) { _ in throw failure }
+                    XCTFail("Recovery failure must abort the batch")
+                } catch {
+                    if let expected = failure as? BoneWorkflowToolExecutionError {
+                        XCTAssertEqual(error as? BoneWorkflowToolExecutionError, expected)
+                    } else {
+                        XCTAssertEqual(error as? BoneAgentError, failure as? BoneAgentError)
+                    }
+                }
+            }
+        }
+    }
+
     /// 验证 collectAll 仍然传播任务取消。
     func testCollectAllDoesNotCollectCancellation() async throws {
         let scheduler = try BoneToolCallScheduler(failureStrategy: .collectAll)

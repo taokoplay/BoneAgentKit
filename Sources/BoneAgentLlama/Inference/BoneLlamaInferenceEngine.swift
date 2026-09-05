@@ -96,6 +96,8 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         return .init(modelID: modelID, invocation: invocation, capabilities: nonImageCapabilities)
     }
 
+    /// One request owns the entire load/render/tokenize/generate lifecycle. Concurrent
+    /// requests fail with BoneLlamaAdapterError.busy rather than queueing.
     public func infer(request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
         guard request.modelID == modelID else { throw BoneLlamaAdapterError.modelMismatch }
         return try await session.infer(request)
@@ -109,7 +111,10 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         await session.stateUpdates()
     }
 
+    /// Requests cooperative cancellation. Native work may continue until its current call returns.
     public func cancel() async { await session.cancel() }
+    /// Cancels and drains in-flight work before releasing the runtime; may wait indefinitely
+    /// for a runtime that does not cooperate. New inference is rejected while draining.
     public func unload() async { await session.unload() }
 }
 
@@ -130,7 +135,14 @@ private actor Session {
     let plan: BoneLocalRuntimePlan
     let pipeline: BoneLlamaInferencePipeline
     let runtime: any BoneLlamaRuntime
-    var isLoaded = false
+    private enum ResourceState { case notLoaded, loading, loaded }
+    private var resourceState = ResourceState.notLoaded
+    private var operationID: UUID?
+    private var operationCancelled = false
+    private var cleaningResource = false
+    private var cancellationTask: Task<Void, Never>?
+    private var unloadTask: Task<Void, Never>?
+    private var drainWaiters: [CheckedContinuation<Void, Never>] = []
 
     private var revision: UInt64 = 0
     private var state: BoneLlamaModelState
@@ -191,21 +203,59 @@ private actor Session {
     }
 
     func infer(_ request: BoneInferenceRequest) async throws -> BoneInferenceResponse {
+        guard operationID == nil, unloadTask == nil else {
+            throw BoneLlamaAdapterError.busy
+        }
+        guard !Task.isCancelled else { throw BoneLlamaAdapterError.runtime(.cancelled) }
+        let id = UUID()
+        operationID = id
+        operationCancelled = false
+        return try await withTaskCancellationHandler {
+            do {
+                let response = try await runInference(request, id: id)
+                try checkOperation(id)
+                await finishOperation(id)
+                return response
+            } catch {
+                // A cancelled operation owns its slot until all runtime/control calls drain.
+                let cancelled = operationCancelled || Task.isCancelled
+                if cancelled { requestCancellation(id) }
+                await finishOperation(id)
+                if cancelled { throw BoneLlamaAdapterError.runtime(.cancelled) }
+                throw error
+            }
+        } onCancel: {
+            Task { await self.requestCancellation(id) }
+        }
+    }
+
+    private func checkOperation(_ id: UUID) throws {
+        guard operationID == id, !operationCancelled, !Task.isCancelled else {
+            throw BoneLlamaAdapterError.runtime(.cancelled)
+        }
+    }
+
+    private func runInference(_ request: BoneInferenceRequest, id: UUID) async throws -> BoneInferenceResponse {
         let options = try BoneLlamaGenerationOptions(
             inferenceOptions: request.generationOptions,
             plan: plan
         )
         let configuration = BoneLlamaRuntimeConfiguration(plan: plan)
         do {
-            if !isLoaded {
+            try checkOperation(id)
+            if resourceState != .loaded {
+                resourceState = .loading
                 publish(.loading, configuration: configuration)
                 try await runtime.load(modelURL: modelURL, configuration: configuration)
-                isLoaded = true
+                resourceState = .loaded
+                try checkOperation(id)
                 publish(.loaded, configuration: configuration)
             }
             let prepared = try await prepare(request)
+            try checkOperation(id)
             let prompt = prepared.prompt
             let tokenization = try await runtime.tokenize(prompt: prompt)
+            try checkOperation(id)
             let executionPlan = try BoneLlamaPromptExecutionPlanner.plan(
                 tokenization: tokenization,
                 configuration: configuration,
@@ -234,6 +284,7 @@ private actor Session {
                     options: effectiveOptions
                 )
             }
+            try checkOperation(id)
             try validateTermination(
                 result.termination,
                 control: prepared.control,
@@ -248,15 +299,19 @@ private actor Session {
                 request: request,
                 canonicalEnvelope: prepared.envelope
             )
+            try checkOperation(id)
             publish(.loaded, configuration: configuration)
             return response
         } catch let error as BoneLlamaAdapterError {
+            try checkOperation(id)
             publish(.failed, configuration: configuration)
             throw error
         } catch let error as BoneLlamaRuntimeError {
+            try checkOperation(id)
             publish(.failed, configuration: configuration, failure: error)
             throw BoneLlamaAdapterError.runtime(error)
         } catch {
+            try checkOperation(id)
             publish(.failed, configuration: configuration)
             throw error
         }
@@ -374,19 +429,69 @@ private actor Session {
         return .finish(.init(text: text))
     }
 
+    /// Identity-scoped: a delayed task cancellation cannot cancel a subsequent inference.
+    private func requestCancellation(_ id: UUID) {
+        guard operationID == id, !operationCancelled else { return }
+        operationCancelled = true
+        if unloadTask == nil {
+            publish(.cancelling, configuration: BoneLlamaRuntimeConfiguration(plan: plan))
+        }
+        guard !cleaningResource else { return }
+        let runtime = self.runtime
+        cancellationTask = Task { await runtime.cancel() }
+    }
+
+    private func finishOperation(_ id: UUID) async {
+        guard operationID == id else { return }
+        // Keep admission closed until even a late cancel() callback has returned.
+        if let cancellationTask { await cancellationTask.value }
+        if operationCancelled || resourceState == .loading {
+            // A failed load may have partially allocated resources. Retain the operation
+            // slot until cleanup returns, without unloading ordinary output failures.
+            cleaningResource = true
+            await runtime.unload()
+            cleaningResource = false
+            resourceState = .notLoaded
+            // Preserve the typed load failure snapshot unless cancellation took over.
+            if operationCancelled && unloadTask == nil { publish(.notLoaded) }
+        }
+        cancellationTask = nil
+        operationID = nil
+        operationCancelled = false
+        let waiters = drainWaiters
+        drainWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+    }
+
     func cancel() async {
-        let configuration = isLoaded ? BoneLlamaRuntimeConfiguration(plan: plan) : nil
-        publish(.cancelling, configuration: configuration)
-        await runtime.cancel()
-        publish(isLoaded ? .loaded : .notLoaded, configuration: configuration)
+        guard let id = operationID else { return }
+        requestCancellation(id)
+        if let cancellationTask { await cancellationTask.value }
     }
 
     func unload() async {
-        let configuration = isLoaded ? BoneLlamaRuntimeConfiguration(plan: plan) : nil
-        publish(.unloading, configuration: configuration)
-        await runtime.unload()
-        isLoaded = false
+        if let unloadTask {
+            await unloadTask.value
+            return
+        }
+        // Install the shared task before yielding; all unload callers join this drain.
+        let task = Task { await self.performUnload() }
+        unloadTask = task
+        publish(.unloading, configuration: BoneLlamaRuntimeConfiguration(plan: plan))
+        if let id = operationID { requestCancellation(id) }
+        await task.value
+    }
+
+    private func performUnload() async {
+        if operationID != nil {
+            await withCheckedContinuation { drainWaiters.append($0) }
+        }
+        if resourceState != .notLoaded {
+            await runtime.unload()
+            resourceState = .notLoaded
+        }
         publish(.notLoaded)
+        unloadTask = nil
     }
 
     private func publish(

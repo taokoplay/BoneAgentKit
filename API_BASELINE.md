@@ -52,3 +52,16 @@
 - Provider 私有 wire DTO、Header、原始响应和内部 controller 不属于公开稳定接口。
 - 模型具体能力由实例和请求解析，不按 Provider 名称永久承诺。
 - llama.cpp 与 Foundation Models adapter 在独立 preview 版本稳定前不属于 1.0 必选依赖。
+
+## Unreleased 阶段一兼容差异
+
+- 新增 `BoneWorkflowToolExecutionError.outcomeUnknown/recoveryRequired` 与 `BoneAgentError.toolOutcomeUnknown/toolRecoveryRequired`；Host 穷尽 switch 必须迁移，禁止按普通工具失败自动重试。
+- `BoneLocalModelStore` 公开构造参数保持不变；测试用提交故障 seam 为 internal。安全例外：拒绝 `.` / `..` 模型 ID 、保留 staging 目录名、`.partial` 资产名和符号链接资产，不保留这些危险输入的旧行为。
+- `BoneAgentWorkflowStepController.finish(.succeeded)` 在 waiting 状态拒绝；失败和取消清除授权 ticket，恢复成功路径不变。
+
+## 阶段二安全兼容调整（Unreleased）
+
+- `BoneLlamaAdapterError.busy` 新增；同 Session 不排队，完整请求与卸载排空期间拒绝新 infer。
+- 下载 Transport 方法签名不变，但完成 URL 必须等于 request.destinationURL，cancel 返回须停止写入；start 抛错不能留下后台 writer。
+- Store/Catalog 保留 `.bone-download-staging` 及资产 `.partial.download` 大小写变体；下载磁盘预算为两份模型加 margin，溢出拒绝。
+- Llama cancel 为协作控制，unload 等待在途调用退出；不承诺强制终止原生代码。

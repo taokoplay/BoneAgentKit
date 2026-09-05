@@ -11,7 +11,7 @@
 - `BoneLocalModelCatalog`：解码并校验版本化 Manifest。
 - `BoneLocalModelDescriptor`：模型事实、上下文限制、内存要求和许可证。
 - `BoneLocalModelArtifact`：文件名、大小、SHA-256 与多个受信下载源。
-- `BoneLocalModelStore`：安全路径、完整性校验、partial 到 final 原子安装、删除和残留清理。
+- `BoneLocalModelStore`：安全路径、完整性校验、目标卷 staging 到 final 原子安装、删除和残留清理。
 - `BoneLocalModelDownloadCoordinator`：actor 状态机、空间预检、进度、暂停/恢复/取消和受控多源切换。
 - `BoneLocalModelDownloadTransport`：可注入下载 seam；`BoneURLSessionLocalModelDownloadTransport` 是默认实现。
 - `BoneLocalModelDownloadSecurityPolicy`：初始请求与逐跳重定向的 HTTPS/Host 白名单校验。
@@ -28,6 +28,18 @@
 - App Prompt、人格和敏感数据规则。
 - 注入模型存储根目录和下载策略。
 - 决定是否允许蜂窝、如何持久化 resume data，以及前后台下载策略。
+
+## 存储安全与安装边界
+
+模型 ID 必须为非空 ASCII 字母、数字、点、下划线或连字符组合，且不得为 `.` / `..` 或保留名称 `.bone-install-staging` / `.bone-download-staging`（大小写不敏感）。文件名必须是单个非空路径分量，不能使用临时文件保留后缀 `.partial` / `.partial.download`（大小写不敏感）；Store 对直接构造的 Descriptor 同样检查，并拒绝模型目录和资产符号链接。根目录规范路径在初始化时固定。该检查不构成针对同进程恶意代码或外部并发修改目录的 OS 沙箱；Host 必须限制根目录访问权。
+
+安装将源复制到目标卷内专用 `.bone-install-staging/` 目录中的唯一 staging，校验 staging 的大小和 SHA-256，再原子 rename 为 final。不先删除旧模型，提交前失败时源和旧版本保持可用；提交成功后的源清理为 best effort。这里承诺原子可见性，不承诺断电后的持久性。额外 staging 空间应纳入 Host 磁盘预算。
+
+同一 Store 内安装、删除与清理互斥。Host 应为同一根目录提供一个所有者；`cleanIncompleteDownloads()` 仅用于无活动下载/安装时的启动清理，清理两个专用 staging 目录与遗留 `.partial` / `.partial.download` 普通文件，不按模型目录后缀删除；合法的 `.installing` 资产仍保留，不提供跨 Store 或跨进程排他。下载每次 source attempt 使用 `.bone-download-staging/` 下唯一路径；完整性失败或取消清理本次文件。空间预检按 `2 × expectedByteCount + safetyMargin` 计算，算术溢出拒绝下载。
+
+Coordinator 在首个 await 前登记操作身份，启动中重复下载返回 `alreadyActive`；取消后的迟到句柄/事件不能安装模型或覆盖新操作。Swift Task 取消会传播到底层。暂停请求期间不接受迟到完成；只有取得 resume data 才进入 paused，显式 cancel 优先于迟到 pause 回调。resume 固定使用原 source。
+
+URLSession 在累计 progress/resume offset 超过 Manifest 大小时取消，并在发布文件前复验大小；不依赖 Content-Length，也不等待超大响应完整结束。系统可能已写入当前块，不能将此解释为严格零字节超额。自定义 Transport 必须返回请求指定的 destinationURL，且 `cancel()` 返回后不再写该路径；`start()` 抛错后不得遗留后台 writer。SDK 无法强制终止违约的自定义代码。真实 OS resume data 的跨进程恢复仍需 Host 验收。
 
 ## Adapter seam
 
@@ -178,3 +190,10 @@ Background URLSession、全局下载队列、业务错误文案、真实 llama.c
 ---
 
 [返回文档地图](INDEX.md) · [查看安全与隐私](SecurityAndPrivacy.md)
+
+
+### Session 并发与取消契约
+
+同一 Llama Engine 从 load、render、tokenize 到 generate/decode 只允许一个 in-flight 请求；并发 infer 返回 `BoneLlamaAdapterError.busy`，不自动排队。取消使用请求身份隔离迟到回调，取消后的结果不发布成功或 loaded。取消会排空并卸载 Runtime，后继请求重新加载。
+
+`cancel()` 等待 Runtime 取消回调，不代表推理已经退出；`unload()` 等待推理和控制回调排空后释放资源，排空期间新 infer 返回 busy。不能硬终止不合作原生调用，因此 unload 可能无限等待；真实原生锁、executor、设备内存和取消延迟需集成验收。

@@ -151,6 +151,8 @@ public enum BoneLlamaRuntimeError: Error, Equatable, Sendable {
 }
 
 public enum BoneLlamaAdapterError: Error, Equatable, Sendable {
+    /// Another inference or unload still owns this engine session.
+    case busy
     case modelMismatch
     case invalidConfiguration
     case invalidGenerationOptions

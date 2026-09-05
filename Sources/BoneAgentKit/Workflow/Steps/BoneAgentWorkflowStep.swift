@@ -226,11 +226,15 @@ public actor BoneAgentWorkflowStepController {
 
     public func cancel() async throws {
         try ensureNotTerminal()
-        try await commit(copy(state: .cancelled, cancellationPersisted: true, terminalState: .cancelled), event: .cancelled)
+        try await commit(copy(state: .cancelled, clearAuthorizationTicket: true, cancellationPersisted: true, terminalState: .cancelled), event: .cancelled)
     }
 
+    /// Waiting steps may fail or cancel, but must explicitly resume authorization before succeeding.
     public func finish(_ terminalState: BoneAgentWorkflowStepTerminalState) async throws {
         try ensureNotTerminal()
+        guard terminalState != .succeeded || checkpoint.state != .waiting else {
+            throw BoneAgentWorkflowStepError.invalidState
+        }
         let state: BoneWorkflowStepState
         let event: BoneAgentWorkflowStepEventKind
         switch terminalState {
@@ -238,7 +242,7 @@ public actor BoneAgentWorkflowStepController {
         case .failed: state = .failed; event = .failed
         case .cancelled: state = .cancelled; event = .cancelled
         }
-        try await commit(copy(state: state, cancellationPersisted: terminalState == .cancelled, terminalState: terminalState), event: event)
+        try await commit(copy(state: state, clearAuthorizationTicket: true, cancellationPersisted: terminalState == .cancelled, terminalState: terminalState), event: event)
     }
 
     public nonisolated func progressSink() -> BoneAgentProgressSink {
@@ -249,6 +253,8 @@ public actor BoneAgentWorkflowStepController {
     }
 
     private func commit(_ next: BoneAgentWorkflowStepCheckpoint, event: BoneAgentWorkflowStepEventKind) async throws {
+        // Reject inconsistent candidates before the Host can persist them.
+        try Self.validate(next)
         let stored = try await persistence.commit(
             next,
             expectedRevision: checkpoint.persistenceRevision,

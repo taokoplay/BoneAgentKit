@@ -30,3 +30,9 @@ Effect Intent
 策略包括 naturallyIdempotent、idempotencyKeyRequired、reconcilable、compensatable、nonRecoverableRequiresUserDecision。副作用可能成功但 Receipt/Checkpoint 尚未写入的窗口必须先 reconcile，不能盲目重跑。无法查询的外部系统进入 `outcomeUnknown / recoveryRequired`；Kit 不保证 exactly-once。
 
 cancel 意图必须先持久化。执行前可以取消；进入不可取消副作用提交区后必须完成 Receipt 或对账。App 被系统终止不会自动后台永久运行，下次启动 acquireLease 后恢复。
+
+## 未知副作用与授权终止的错误处理
+
+高风险 Tool 越过 `executionStarted` 后抛错（包括取消），管线返回 `outcomeUnknown`，Agent 返回 `toolOutcomeUnknown`；Tool 已返回但 Receipt 写入或提交未确认，分别返回 `recoveryRequired` / `toolRecoveryRequired`。这些错误不会被 `collectAll` 收集，必须停止后继工具与推理。Host 使用原 Effect identity 读取事实并先 reconcile，禁止把它们映射成“确定未执行”后创建新 identity 重试。
+
+等待授权的 Step 可以取消或失败，终态 checkpoint 会清除 ticket 并在提交前校验。waiting 不能直接 `finish(.succeeded)`；必须先通过匹配 ticket 的 `resumeAfterAuthorization`，再进入成功路径。取消后的迟到 progress 不可复活终态。

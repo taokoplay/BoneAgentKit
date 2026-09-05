@@ -314,6 +314,8 @@ public actor BoneAgent {
                     switch error {
                     case .cancelledBeforeExecution: throw CancellationError()
                     case .toolExecutionFailed: throw BoneAgentError.toolExecutionFailed
+                    case .outcomeUnknown: throw BoneAgentError.toolOutcomeUnknown
+                    case .recoveryRequired: throw BoneAgentError.toolRecoveryRequired
                     case .invalidContext, .pipelineUnavailable, .authorizationRejected, .effectStoreRejected:
                         throw BoneToolBatchAbortError.controlPlaneFailure
                     }
@@ -427,6 +429,10 @@ public actor BoneAgent {
             switch error {
             case .cancelledBeforeExecution:
                 throw CancellationError()
+            case .outcomeUnknown:
+                throw BoneAgentError.toolOutcomeUnknown
+            case .recoveryRequired:
+                throw BoneAgentError.toolRecoveryRequired
             default:
                 throw BoneAgentError.toolExecutionFailed
             }
