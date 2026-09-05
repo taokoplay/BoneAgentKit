@@ -34,7 +34,7 @@ Provider 渠道图片由 `BoneAgentKit` 内部资源 Target 管理，不作为�
 dependencies: [
     .package(
         url: "https://github.com/taokoplay/BoneAgentKit.git",
-        exact: "0.2.0-alpha.11"
+        exact: "0.2.0-alpha.12"
     )
 ]
 ```
