@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.13] - 2026-09-12
+
+### Added
+
+- 增加可注入日志记录器、级别过滤和显式 Debug 上下文输出，接入部分 Agent 运行与单 Tool 路径；完整请求日志可能含敏感正文，仅用于受控调试。
+- MiniMax Anthropic 兼容入口支持显式启用单请求结果 Tool 结构化输出；严格校验结果数量、完成状态和 Schema，不接受文本 JSON 回退、不隐式重试，默认仍拒绝。
+- 增加 Anthropic 兼容引擎结构化能力查询，区分普通 Tool、原生 Schema、结果 Tool 与强制选择，并考虑模型 profile 和调用方式。
+
+### Release scope
+
+- 预发布版本，MiniMax 仅完成本地 transport 回归，未完成线上模型 Smoke；不保证模型在 auto 策略下必然调用结果 Tool。
+- 真实 Host 验收、最低 Swift 5.9 工具链及远端 CI 需另行核验，不代表生产准入。
+
 ### Documentation
 
 - 对齐 Alpha.12 产品介绍、Package 接入版本、Host 验收入口与 API 名称；区分直接 Agent 调用、Workflow 恢复与 Host 所有权责任，追加版本化验证证据并修正生产成熟度表述。
