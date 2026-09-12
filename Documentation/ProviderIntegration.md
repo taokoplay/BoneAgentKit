@@ -104,3 +104,44 @@ Harness ──────────→ ProjectService
 图片生成的内容权利不由 Kit 保证。项目必须按供应商条款治理用户输入、参考图来源与允许用途，记录必要的来源/用途，并处理版权、商标、肖像和内容政策；外部发布前按项目风险进行用户确认或法律审查。
 
 详见 `LicensingAndProvenance.md` 与 `ThirdPartySources.md`。
+
+## MiniMax：显式启用受控 Tool 结构化输出
+
+MiniMax Anthropic 兼容入口只支持 `tool_choice: auto/none`，不支持强制指定结果 Tool。
+`nativeOrToolCall` 是允许回退的策略，不是供应商能力保证。默认配置仍在联网前拒绝
+MiniMax 的结构化请求；Host 可显式启用单次尝试：
+
+```swift
+let engine = BoneAnthropicInferenceEngine(
+    configuration: providerConfiguration, // kind: .miniMax
+    transport: transport,
+    allowsMiniMaxStructuredToolOutput: true
+)
+let support = try engine.structuredOutputSupport(for: request, invocation: .streaming)
+guard support.toolOutput else {
+    throw BoneInferenceError.unsupportedStructuredOutput
+}
+// request.responseFormat 使用 .jsonSchema(schema, fallback: .nativeOrToolCall)
+let result = try await engine.inferDetailedUsingStream(request: request, options: .init())
+```
+
+查询按实例开关、模型 profile 和调用方式计算：`toolCalling` 为普通 Tool 调用，
+`nativeJSONSchema` 为 responseFormat 原生 Schema，`toolOutput` 为受控结果 Tool 适配，
+`forcedToolSelection` 为能否强制选择 Tool。MiniMax 的后两项分别为显式启用后的支持值与 false。
+该查询属于 `BoneAnthropicInferenceEngine`，并非所有 Provider 的统一能力接口。
+它不承诺远端模型成功率，也不替代 Schema 与请求有效性校验。
+`outputConstraint` 是另一套约束契约，应继续用 `resolvedCapabilities` 查询。
+
+启用后请求只携带 `submit_structured_result` 结果 Tool，并使用 `tool_choice: auto`。
+SDK 只接受恰好一次指定 Tool 调用、Tool 完成状态、无同时正文且本地 Schema 校验通过的结果。
+纯文本 JSON、错误 Tool、多次调用、字段不符或不完整结果均不作为成功返回。
+`requireNative` 仍拒绝；不能同时传业务 Tools。其他供应商原有文本归一化行为不变。
+
+非流式、缓冲流式、详细结果流式和事件流入口共用严格验收边界，不追加 repair 或重试请求。
+取消和传输超时错误继续传播，流式 options 原样传入 transport。
+这里不新增预算机制；直接调用 engine 的预算由 Host 管理，不会隐式消耗第二次请求预算。
+现有 BoneAgent 只接受 text responseFormat，本次未扩大 Agent 的结构化运行范围。
+
+验证范围为本地 transport 替身和回归测试，未执行 MiniMax 真机/线上 Smoke，
+不能据此声明 MiniMax-M3 的实际成功率。上线前应使用无敏感内容的小型 Schema 验证。
+协议依据（2026-09-12）：[MiniMax Messages API](https://platform.minimax.io/docs/api-reference/text-chat-anthropic)。

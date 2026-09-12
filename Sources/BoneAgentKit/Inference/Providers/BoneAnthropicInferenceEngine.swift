@@ -11,6 +11,8 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
+    private let allowsMiniMaxStructuredToolOutput: Bool
+
     private let configuration: BoneInferenceProviderConfiguration
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
@@ -18,11 +20,32 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
-        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:]
+        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        allowsMiniMaxStructuredToolOutput: Bool = false
     ) {
+        self.allowsMiniMaxStructuredToolOutput = allowsMiniMaxStructuredToolOutput
         self.configuration = configuration
         self.transport = transport
         self.modelCapabilityProfiles = modelCapabilityProfiles
+    }
+
+    /// 查询当前请求与调用方式下的适配支持；不是远端模型成功率保证。
+    /// nativeJSONSchema 对应 responseFormat；outputConstraint 仍用 resolvedCapabilities 查询。
+    public func structuredOutputSupport(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocationMode
+    ) throws -> BoneAnthropicStructuredOutputSupport {
+        let resolved = try resolvedCapabilities(for: request, invocation: invocation)
+        let callable = resolved.capabilities.contains(.text)
+            && (invocation == .nonStreaming || resolved.capabilities.contains(.streaming))
+        let tools = callable && resolved.capabilities.contains(.toolCalling)
+        return .init(
+            invocation: invocation,
+            toolCalling: tools,
+            nativeJSONSchema: false,
+            toolOutput: tools && (configuration.kind != .miniMax || allowsMiniMaxStructuredToolOutput),
+            forcedToolSelection: tools && configuration.kind != .miniMax
+        )
     }
 
     public func resolvedCapabilities(
@@ -60,7 +83,9 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         )
         let prepared = try preparedRequest(request)
         let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
+        try Task.checkCancellation()
         let response = try await transport.send(urlRequest)
+        try Task.checkCancellation()
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
         let finalResponse: BoneInferenceResponse
         if let constraint = request.outputConstraint {
@@ -73,7 +98,8 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
             let parsed = try parseAnthropicToolResponse(json, definitions: [tool])
             finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                 from: parsed,
-                schema: request.responseFormat.schema?.root
+                schema: request.responseFormat.schema?.root,
+                allowsTextFallback: configuration.kind != .miniMax
             )
         } else if request.availableTools.isEmpty {
             finalResponse = .finish(
@@ -118,6 +144,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                         disclosure: request.reasoningDisclosure,
                         definitions: prepared.request.availableTools
                     )
+                    try Task.checkCancellation()
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
                         let mappedEvents = try mapper.consume(event)
@@ -136,7 +163,8 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                         let parsed = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: [tool])
                         response = try BoneStructuredOutputSupport.structuredResponse(
                             from: parsed,
-                            schema: request.responseFormat.schema?.root
+                            schema: request.responseFormat.schema?.root,
+                            allowsTextFallback: configuration.kind != .miniMax
                         )
                     } else if !request.availableTools.isEmpty {
                         response = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
@@ -174,7 +202,9 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         let urlRequest = try makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
         let response: BoneInferenceEventStreamResponse
         do {
+            try Task.checkCancellation()
             response = try await transport.sendEventStream(urlRequest, options: options)
+            try Task.checkCancellation()
         } catch let error as BoneInferenceTransportError {
             if case .httpStatus(let statusCode) = error {
                 throw BoneInferenceProviderResponseValidator.mappedError(statusCode: statusCode)
@@ -199,7 +229,8 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                 )
                 finalResponse = try BoneStructuredOutputSupport.structuredResponse(
                     from: parsed,
-                    schema: request.responseFormat.schema?.root
+                    schema: request.responseFormat.schema?.root,
+                    allowsTextFallback: configuration.kind != .miniMax
                 )
             } else if !request.availableTools.isEmpty {
                 finalResponse = try BoneAnthropicToolStreamAggregator.aggregate(
@@ -252,8 +283,8 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         guard format.fallbackPolicy == .nativeOrToolCall else {
             throw BoneInferenceError.unsupportedStructuredOutput
         }
-        // MiniMax 目前无法保证原生 Schema 或单次强制 Tool；普通文本 JSON 不属于已声明回退契约。
-        guard configuration.kind != .miniMax else {
+        // auto 不保证调用结果 Tool；显式启用后仅接受严格单次 Tool 结果。
+        guard try structuredOutputSupport(for: request, invocation: .nonStreaming).toolOutput else {
             throw BoneInferenceError.unsupportedStructuredOutput
         }
         let tool = try BoneStructuredOutputSupport.fallbackTool(for: format)

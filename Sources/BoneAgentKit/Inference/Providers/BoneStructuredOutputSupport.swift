@@ -82,7 +82,8 @@ enum BoneStructuredOutputSupport {
 
     static func structuredResponse(
         from response: BoneInferenceResponse,
-        schema: BoneToolSchema?
+        schema: BoneToolSchema?,
+        allowsTextFallback: Bool = true
     ) throws -> BoneInferenceResponse {
         let turn: BoneInferenceAssistantTurn
         let finishReason: BoneInferenceFinishReason
@@ -105,7 +106,7 @@ enum BoneStructuredOutputSupport {
             throw BoneInferenceTransportError.outputTruncated
         }
         let data: Data
-        if finishReason == .stop,
+        if allowsTextFallback, finishReason == .stop,
            turn.toolCalls.isEmpty,
            turn.structuredOutputs.isEmpty,
            let text = turn.text {

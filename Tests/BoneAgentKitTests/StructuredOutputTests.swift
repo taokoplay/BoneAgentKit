@@ -148,6 +148,94 @@ final class StructuredOutputTests: XCTestCase {
         XCTAssertNil(captured)
     }
 
+    func testMiniMaxControlledToolOptIn() async throws {
+        let transport = CapturingTransport(response: Self.anthropicToolResponse(arguments: ["characters": []]))
+        let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport, allowsMiniMaxStructuredToolOutput: true)
+        let request = request(format: .jsonSchema(schema, fallback: .nativeOrToolCall))
+        let support = try engine.structuredOutputSupport(for: request, invocation: .nonStreaming)
+        XCTAssertTrue(support.toolOutput)
+        XCTAssertFalse(support.forcedToolSelection)
+        XCTAssertFalse(support.nativeJSONSchema)
+        XCTAssertStructuredCharacters(try await engine.infer(request: request))
+        let body = try Self.requestBody(from: await transport.requestBodyData())
+        XCTAssertEqual((body["tool_choice"] as? [String: Any])?["type"] as? String, "auto")
+    }
+
+    func testMiniMaxControlledToolRejectsText() async throws {
+        let transport = CapturingTransport(response: Self.anthropicTextResponse(text: #"{"characters":[]}"#))
+        let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport, allowsMiniMaxStructuredToolOutput: true)
+        await assertInvalidStructuredResponse {
+            try await engine.infer(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)))
+        }
+    }
+
+    func testMiniMaxStreamPropagatesTimeoutAndCancellationWithoutRetry() async throws {
+        for failure: Error in [CancellationError(), BoneInferenceTransportError.idleTimedOut] {
+            let transport = CapturingTransport(failure: failure)
+            let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport, allowsMiniMaxStructuredToolOutput: true)
+            do {
+                _ = try await engine.inferDetailedUsingStream(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)), options: .init())
+                XCTFail("Expected failure")
+            } catch {
+                if failure is CancellationError { XCTAssertTrue(error is CancellationError) }
+                else { XCTAssertEqual(error as? BoneInferenceTransportError, .idleTimedOut) }
+            }
+            let count = await transport.sendCount
+            XCTAssertEqual(count, 1)
+        }
+    }
+
+    func testMiniMaxCapabilitiesHonorModelProfile() throws {
+        let profile = try BoneModelCapabilityProfile(capabilities: [.text, .toolCalling], source: .hostVerified, verifiedAt: "2026-09-12")
+        let req = request(format: .jsonSchema(schema, fallback: .nativeOrToolCall))
+        let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: CapturingTransport(), modelCapabilityProfiles: [req.modelID: profile], allowsMiniMaxStructuredToolOutput: true)
+        XCTAssertTrue(try engine.structuredOutputSupport(for: req, invocation: .nonStreaming).toolOutput)
+        XCTAssertFalse(try engine.structuredOutputSupport(for: req, invocation: .streaming).toolOutput)
+    }
+
+    func testMiniMaxDetailedStreamUsesSingleRequest() async throws {
+        let events: [BoneInferenceEventStreamEvent] = [
+            event("message_start", #"{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}"#),
+            event("content_block_start", #"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#),
+            event("content_block_delta", #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"private reasoning"}}"#),
+            event("content_block_delta", #"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque"}}"#),
+            event("content_block_stop", #"{"type":"content_block_stop","index":0}"#),
+            event("content_block_start", #"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call_1","name":"submit_structured_result","input":{}}}"#),
+            event("content_block_delta", #"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"characters\":[]}"}}"#),
+            event("content_block_stop", #"{"type":"content_block_stop","index":1}"#),
+            event("message_delta", #"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}"#),
+            event("message_stop", #"{"type":"message_stop"}"#),
+        ]
+        let transport = CapturingTransport(events: events)
+        let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport, allowsMiniMaxStructuredToolOutput: true)
+        let request = request(format: .jsonSchema(schema, fallback: .nativeOrToolCall))
+        XCTAssertTrue(try engine.structuredOutputSupport(for: request, invocation: .streaming).toolOutput)
+        let result = try await engine.inferDetailedUsingStream(request: request, options: .init())
+        XCTAssertStructuredCharacters(result.response)
+        let count = await transport.sendCount
+        XCTAssertEqual(count, 1)
+    }
+
+    func testMiniMaxRejectsInvalidToolResultsWithoutRetry() async throws {
+        let invalid: [Data] = [
+            Self.anthropicToolResponse(arguments: [:]),
+            Self.anthropicToolResponse(arguments: ["characters": "invalid"]),
+            Data(#"{"content":[],"stop_reason":"end_turn"}"#.utf8),
+            Data(#"{"content":[{"type":"tool_use","id":"1","name":"wrong","input":{"characters":[]}}],"stop_reason":"tool_use"}"#.utf8),
+            Data(#"{"content":[{"type":"tool_use","id":"1","name":"submit_structured_result","input":{"characters":[]}},{"type":"tool_use","id":"2","name":"submit_structured_result","input":{"characters":[]}}],"stop_reason":"tool_use"}"#.utf8)
+        ]
+        for payload in invalid {
+            let transport = CapturingTransport(response: payload)
+            let engine = BoneAnthropicInferenceEngine(configuration: configuration(kind: .miniMax, authentication: .anthropicDual), transport: transport, allowsMiniMaxStructuredToolOutput: true)
+            do {
+                _ = try await engine.infer(request: request(format: .jsonSchema(schema, fallback: .nativeOrToolCall)))
+                XCTFail("Invalid result accepted")
+            } catch { }
+            let count = await transport.sendCount
+            XCTAssertEqual(count, 1)
+        }
+    }
+
     func testAnthropicToolStreamIgnoresThinkingAndSignatureBlocks() throws {
         let tool = try BoneStructuredOutputSupport.fallbackTool(
             for: .jsonSchema(schema, fallback: .nativeOrToolCall)
@@ -385,23 +473,28 @@ final class StructuredOutputTests: XCTestCase {
 
 private actor CapturingTransport: BoneInferenceHTTPTransport {
     /// 非流式响应体。
+    private let failure: Error?
     private let response: Data
     /// 流式响应事件。
     private let events: [BoneInferenceEventStreamEvent]
     /// 最近一次真正发送的请求；预检失败时保持为空。
     private var request: URLRequest?
+    private(set) var sendCount = 0
 
     /// 创建同时支持同步与流式测试的传输替身。
     /// - Parameters:
     ///   - response: 非流式响应体。
     ///   - events: 流式响应事件。
-    init(response: Data = Data(), events: [BoneInferenceEventStreamEvent] = []) {
+    init(response: Data = Data(), events: [BoneInferenceEventStreamEvent] = [], failure: Error? = nil) {
+        self.failure = failure
         self.response = response
         self.events = events
     }
 
     func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
+        sendCount += 1
         self.request = request
+        if let failure { throw failure }
         return .init(statusCode: 200, data: response, headers: [:])
     }
 
@@ -409,7 +502,9 @@ private actor CapturingTransport: BoneInferenceHTTPTransport {
         _ request: URLRequest,
         options: BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceEventStreamResponse {
+        sendCount += 1
         self.request = request
+        if let failure { throw failure }
         return .init(statusCode: 200, events: events, headers: [:])
     }
 
