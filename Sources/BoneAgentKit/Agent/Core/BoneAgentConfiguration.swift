@@ -16,6 +16,7 @@ public struct BoneAgentConfiguration: Sendable {
     public let inferenceCostEstimator: BoneInferenceCostEstimator?
     public let toolExecutionPipeline: BoneWorkflowToolExecutionPipeline
     public let toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider?
+    public let logging: BoneAgentLoggerConfiguration
     /// 初始化时完成校验的 Tool 调度器，供 Agent 直接复用既有不变量。
     let toolScheduler: BoneToolCallScheduler
 
@@ -27,7 +28,8 @@ public struct BoneAgentConfiguration: Sendable {
         toolImpactPolicy: BoneToolImpactPolicy? = nil,
         inferenceCostEstimator: BoneInferenceCostEstimator? = nil,
         toolExecutionPipeline: BoneWorkflowToolExecutionPipeline = .init(),
-        toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider? = nil
+        toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider? = nil,
+        logging: BoneAgentLoggerConfiguration = .init()
     ) throws {
         guard maximumSteps > 0 else {
             throw BoneAgentError.invalidMaximumSteps
@@ -44,6 +46,7 @@ public struct BoneAgentConfiguration: Sendable {
         self.inferenceCostEstimator = inferenceCostEstimator
         self.toolExecutionPipeline = toolExecutionPipeline
         self.toolExecutionContextProvider = toolExecutionContextProvider
+        self.logging = logging
         self.toolScheduler = toolScheduler
     }
 }

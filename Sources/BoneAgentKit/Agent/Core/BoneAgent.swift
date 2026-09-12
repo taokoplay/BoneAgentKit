@@ -120,12 +120,14 @@ public actor BoneAgent {
         defer { isRunning = false }
 
         await eventSink.receive(.runStarted)
+        configuration.logging.write(.info, "run.started", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "messageCount": "\(preparedInitialRequest.messages.count)"]))
         do {
             let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0, startedAtUptime: monotonicClock()) }
             var messages = preparedInitialRequest.messages
             var providerContinuation: BoneInferenceProviderContinuation?
             for step in 1...configuration.maximumSteps {
                 try Task.checkCancellation()
+                configuration.logging.write(.debug, "inference.step.started", context: BoneAgentLogContext(["step": "\(step)", "messageCount": "\(messages.count)"]))
                 let response = try await infer(
                     template: preparedInitialRequest,
                     messages: messages,
@@ -177,9 +179,11 @@ public actor BoneAgent {
             }
             throw BoneAgentError.stepLimitReached
         } catch is CancellationError {
+            configuration.logging.write(.warning, "run.cancelled", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID]))
             await eventSink.receive(.runFinished(.cancelled))
             throw CancellationError()
         } catch let error as BoneAgentError {
+            configuration.logging.write(.error, "run.failed", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "error": String(describing: error)]))
             await eventSink.receive(.runFinished(.failed(error)))
             throw error
         } catch is BoneRunBudgetError {
@@ -208,7 +212,9 @@ public actor BoneAgent {
                 providerContinuation: providerContinuation,
                 reasoningDisclosure: template.reasoningDisclosure
             )
-            let inputBytes = try JSONEncoder().encode(request).count
+            let inputData = try JSONEncoder().encode(request)
+            let inputBytes = inputData.count
+            configuration.logging.write(.debug, "inference.request", context: BoneAgentLogContext(["modelID": request.modelID, "requestBytes": "\(inputBytes)", "request": String(decoding: inputData, as: UTF8.self)]))
             let estimatedCostMicrounits: Int64
             if budgetMeter != nil {
                 guard let estimator = configuration.inferenceCostEstimator else {
@@ -227,6 +233,7 @@ public actor BoneAgent {
                 nowUptime: monotonicClock()
             )
             let response = try await inferenceEngine.infer(request: request)
+            configuration.logging.write(.debug, "inference.response.received", context: BoneAgentLogContext(["modelID": request.modelID, "messageCount": "\(request.messages.count)", "responseBytes": "\(try JSONEncoder().encode(response).count)"]))
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             try await budgetMeter?.commitInference(outputBytes: JSONEncoder().encode(response).count)
@@ -289,6 +296,7 @@ public actor BoneAgent {
         try await progressSink.receive(.toolExecutionPrepared(toolID: call.toolID))
         try await budgetMeter?.reserveToolExecution(argumentsBytes: call.arguments.count, nowUptime: monotonicClock())
         await eventSink.receive(.toolCallStarted)
+        configuration.logging.write(.info, "tool.started", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "argumentBytes": "\(call.arguments.count)"]))
         let output: Data
         do {
             try Task.checkCancellation()
@@ -307,6 +315,7 @@ public actor BoneAgent {
         try await budgetMeter?.commitTool(resultBytes: output.count)
         try await progressSink.receive(.toolResultPrepared(step: messages.count + 1, ordinal: 0))
         await eventSink.receive(.toolCallFinished)
+        configuration.logging.write(.info, "tool.finished", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "resultBytes": "\(output.count)"]))
         try Task.checkCancellation()
         try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
         messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))

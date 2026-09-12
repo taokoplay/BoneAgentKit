@@ -6,6 +6,39 @@
 
 [返回文档地图](INDEX.md) · [查看架构说明](Architecture.md#agent-harness-架构定位)
 
+## 日志与 Debug 模式
+
+`BoneAgentConfiguration` 支持注入日志记录器，并控制 Debug 日志。默认关闭 Debug 日志。
+
+开启完整 Debug 上下文：
+
+```swift
+let configuration = try BoneAgentConfiguration(
+    maximumSteps: 10,
+    logging: .init(isDebugEnabled: true, minimumLevel: .debug)
+)
+```
+
+关闭 Debug 日志（默认配置）：
+
+```swift
+let configuration = try BoneAgentConfiguration(
+    maximumSteps: 10,
+    logging: .init(isDebugEnabled: false)
+)
+```
+
+设置最低日志级别，例如仅输出警告和错误：
+
+```swift
+let configuration = try BoneAgentConfiguration(
+    maximumSteps: 10,
+    logging: .init(minimumLevel: .warning)
+)
+```
+
+Debug 模式会记录运行、推理请求与响应、Tool 调用及失败/取消等上下文。请求内容可能包含用户消息和 Tool 参数，生产环境请谨慎开启。
+
 ## Model
 
 Model 通过 `BoneInferenceEngine` 接入。已有 SDK 只需包装为这个协议，不要把 SDK 源码复制进 Kit。
