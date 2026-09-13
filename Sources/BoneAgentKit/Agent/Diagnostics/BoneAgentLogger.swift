@@ -30,22 +30,26 @@ public struct BoneAgentLogContext: Codable, Equatable, Sendable {
 
 public struct BoneAgentLoggerConfiguration: Sendable {
     public var isDebugEnabled: Bool
+    /// 仅受控调试使用；开启 Debug 不自动允许记录正文。
+    public var includesSensitivePayloads: Bool
     public var minimumLevel: BoneAgentLogLevel
     public var logger: BoneAgentLogger
 
     public init(
         isDebugEnabled: Bool = false,
         minimumLevel: BoneAgentLogLevel = .info,
-        logger: BoneAgentLogger = BoneAgentConsoleLogger()
+        logger: BoneAgentLogger = BoneAgentConsoleLogger(),
+        includesSensitivePayloads: Bool = false
     ) {
         self.isDebugEnabled = isDebugEnabled
         self.minimumLevel = minimumLevel
         self.logger = logger
+        self.includesSensitivePayloads = includesSensitivePayloads
     }
 
-    public func write(_ level: BoneAgentLogLevel, _ message: @autoclosure @Sendable () -> String, context: BoneAgentLogContext? = nil) {
+    public func write(_ level: BoneAgentLogLevel, _ message: @autoclosure @Sendable () -> String, context: @autoclosure () -> BoneAgentLogContext? = nil) {
         guard (isDebugEnabled || level != .debug), level >= minimumLevel else { return }
-        logger.log(level, message: message(), context: context)
+        logger.log(level, message: message(), context: context())
     }
 }
 

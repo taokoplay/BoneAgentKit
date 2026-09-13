@@ -101,10 +101,24 @@ public actor BoneAgent {
             outputConstraint: initialRequest.outputConstraint,
             reasoningDisclosure: initialRequest.reasoningDisclosure
         )
+        let invocation: BoneInferenceInvocationMode
+        switch configuration.inferenceMode {
+        case .nonStreaming: invocation = .nonStreaming
+        case .bufferedStreaming(let options):
+            guard options.totalTimeout.map({ $0.isFinite && $0 > 0 }) != false,
+                  options.deadlineUptime.map({ $0.isFinite }) != false,
+                  options.totalTimeout != nil || options.deadlineUptime != nil || configuration.runBudget != nil else {
+                throw BoneAgentError.inferenceFailed
+            }
+            guard inferenceEngine is any BoneInferenceBufferedStreaming else {
+                throw BoneAgentError.unsupportedCapability(.streaming)
+            }
+            invocation = .streaming
+        }
         do {
             let resolved = try inferenceEngine.resolvedCapabilities(
                 for: preparedInitialRequest,
-                invocation: .nonStreaming
+                invocation: invocation
             )
             try BoneInferenceCapabilityValidator.validate(
                 request: preparedInitialRequest,
@@ -122,7 +136,9 @@ public actor BoneAgent {
         await eventSink.receive(.runStarted)
         configuration.logging.write(.info, "run.started", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "messageCount": "\(preparedInitialRequest.messages.count)"]))
         do {
-            let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0, startedAtUptime: monotonicClock()) }
+            let runStartedAt = monotonicClock()
+            let runDeadline = configuration.runBudget.map { runStartedAt + $0.maximumWallClockSeconds }
+            let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0, startedAtUptime: runStartedAt) }
             var messages = preparedInitialRequest.messages
             var providerContinuation: BoneInferenceProviderContinuation?
             for step in 1...configuration.maximumSteps {
@@ -132,7 +148,8 @@ public actor BoneAgent {
                     template: preparedInitialRequest,
                     messages: messages,
                     providerContinuation: providerContinuation,
-                    budgetMeter: budgetMeter
+                    budgetMeter: budgetMeter,
+                    runDeadline: runDeadline
                 )
                 try await progressSink.receive(.inferenceResponsePrepared(
                     step: step,
@@ -199,7 +216,8 @@ public actor BoneAgent {
         template: BoneInferenceRequest,
         messages: [BoneInferenceMessage],
         providerContinuation: BoneInferenceProviderContinuation?,
-        budgetMeter: BoneRunBudgetMeter?
+        budgetMeter: BoneRunBudgetMeter?,
+        runDeadline: TimeInterval?
     ) async throws -> BoneInferenceResponse {
         do {
             let request = BoneInferenceRequest(
@@ -214,7 +232,7 @@ public actor BoneAgent {
             )
             let inputData = try JSONEncoder().encode(request)
             let inputBytes = inputData.count
-            configuration.logging.write(.debug, "inference.request", context: BoneAgentLogContext(["modelID": request.modelID, "requestBytes": "\(inputBytes)", "request": String(decoding: inputData, as: UTF8.self)]))
+            configuration.logging.write(.debug, "inference.request", context: BoneAgentLogContext(["modelID": request.modelID, "requestBytes": "\(inputBytes)", "request": configuration.logging.includesSensitivePayloads ? String(decoding: inputData, as: UTF8.self) : "[omitted]"]))
             let estimatedCostMicrounits: Int64
             if budgetMeter != nil {
                 guard let estimator = configuration.inferenceCostEstimator else {
@@ -232,8 +250,27 @@ public actor BoneAgent {
                 estimatedCostMicrounits: estimatedCostMicrounits,
                 nowUptime: monotonicClock()
             )
-            let response = try await inferenceEngine.infer(request: request)
-            configuration.logging.write(.debug, "inference.response.received", context: BoneAgentLogContext(["modelID": request.modelID, "messageCount": "\(request.messages.count)", "responseBytes": "\(try JSONEncoder().encode(response).count)"]))
+            let response: BoneInferenceResponse
+            switch configuration.inferenceMode {
+            case .nonStreaming:
+                response = try await inferenceEngine.infer(request: request)
+            case .bufferedStreaming(let options):
+                guard let streaming = inferenceEngine as? any BoneInferenceBufferedStreaming else {
+                    throw BoneAgentError.unsupportedCapability(.streaming)
+                }
+                // 将测试可注入时钟的剩余额度转换为真实 uptime，不逐步重置 Run 预算。
+                let remaining = runDeadline.map { $0 - monotonicClock() }
+                let budgetDeadline = remaining.map { ProcessInfo.processInfo.systemUptime + $0 }
+                let deadline = [options.deadlineUptime, budgetDeadline].compactMap { $0 }.min()
+                if let remaining, remaining <= 0 { throw BoneRunBudgetError.wallClockLimitReached }
+                if let deadline, deadline <= ProcessInfo.processInfo.systemUptime { throw BoneInferenceStreamDeadlineExceeded() }
+                response = try await streaming.inferUsingStream(request: request, options: .init(
+                    firstEventTimeout: options.firstEventTimeout, idleTimeout: options.idleTimeout,
+                    maximumBytes: options.maximumBytes, totalTimeout: options.totalTimeout,
+                    deadlineUptime: deadline
+                ))
+            }
+            configuration.logging.write(.debug, "inference.result.validated", context: BoneAgentLogContext(["modelID": request.modelID, "messageCount": "\(request.messages.count)", "responseBytes": (try? JSONEncoder().encode(response)).map { String($0.count) } ?? "unknown"]))
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             try await budgetMeter?.commitInference(outputBytes: JSONEncoder().encode(response).count)

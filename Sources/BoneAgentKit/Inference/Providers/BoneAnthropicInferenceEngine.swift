@@ -14,6 +14,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
     private let allowsMiniMaxStructuredToolOutput: Bool
 
     private let configuration: BoneInferenceProviderConfiguration
+    private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
 
@@ -21,10 +22,12 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
-        allowsMiniMaxStructuredToolOutput: Bool = false
+        allowsMiniMaxStructuredToolOutput: Bool = false,
+        diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
         self.allowsMiniMaxStructuredToolOutput = allowsMiniMaxStructuredToolOutput
         self.configuration = configuration
+        self.diagnostics = diagnostics
         self.transport = transport
         self.modelCapabilityProfiles = modelCapabilityProfiles
     }
@@ -84,37 +87,48 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         let prepared = try preparedRequest(request)
         let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
         try Task.checkCancellation()
-        let response = try await transport.send(urlRequest)
-        try Task.checkCancellation()
-        let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
-        let finalResponse: BoneInferenceResponse
-        if let constraint = request.outputConstraint {
-            let text = try BoneAnthropicResponseAggregator.nonStreamingText(from: json)
-            finalResponse = try BoneAnthropicOutputConstraintAdapter().response(
-                from: Data(text.utf8),
-                constraint: constraint
+        let diagnosticID = UUID()
+        var receivedResponse = false
+        diagnostics.emit(diagnosticID, .transportAttempt, wire: .anthropic)
+        do {
+            let response = try await transport.send(urlRequest)
+            receivedResponse = true
+            diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .anthropic)
+            try Task.checkCancellation()
+            let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            let finalResponse: BoneInferenceResponse
+            if let constraint = request.outputConstraint {
+                let text = try BoneAnthropicResponseAggregator.nonStreamingText(from: json)
+                finalResponse = try BoneAnthropicOutputConstraintAdapter().response(
+                    from: Data(text.utf8),
+                    constraint: constraint
+                )
+            } else if let tool = prepared.tool {
+                let parsed = try parseAnthropicToolResponse(json, definitions: [tool])
+                finalResponse = try BoneStructuredOutputSupport.structuredResponse(
+                    from: parsed,
+                    schema: request.responseFormat.schema?.root,
+                    allowsTextFallback: configuration.kind != .miniMax
+                )
+            } else if request.availableTools.isEmpty {
+                finalResponse = .finish(
+                    .init(text: try BoneAnthropicResponseAggregator.nonStreamingText(from: json))
+                )
+            } else {
+                finalResponse = try parseAnthropicToolResponse(json, definitions: request.availableTools)
+            }
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .anthropic)
+            return .init(
+                response: finalResponse,
+                reasoning: BoneInferenceReasoningSupport.anthropic(
+                    json: json,
+                    disclosure: request.reasoningDisclosure
+                )
             )
-        } else if let tool = prepared.tool {
-            let parsed = try parseAnthropicToolResponse(json, definitions: [tool])
-            finalResponse = try BoneStructuredOutputSupport.structuredResponse(
-                from: parsed,
-                schema: request.responseFormat.schema?.root,
-                allowsTextFallback: configuration.kind != .miniMax
-            )
-        } else if request.availableTools.isEmpty {
-            finalResponse = .finish(
-                .init(text: try BoneAnthropicResponseAggregator.nonStreamingText(from: json))
-            )
-        } else {
-            finalResponse = try parseAnthropicToolResponse(json, definitions: request.availableTools)
+        } catch {
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .anthropic)
+            throw error
         }
-        return .init(
-            response: finalResponse,
-            reasoning: BoneInferenceReasoningSupport.anthropic(
-                json: json,
-                disclosure: request.reasoningDisclosure
-            )
-        )
     }
 
     public func inferUsingStream(

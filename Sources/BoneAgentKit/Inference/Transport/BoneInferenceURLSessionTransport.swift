@@ -129,6 +129,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
             )
         } catch is CancellationError {
             throw BoneInferenceTransportError.cancelled
+        } catch let error as BoneInferenceStreamDeadlineExceeded {
+            throw error
         } catch let error as BoneInferenceTransportError {
             throw error
         } catch let error as URLError where error.code == .cancelled {
@@ -156,6 +158,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
                     $0.key.caseInsensitiveCompare("Retry-After") == .orderedSame
                 }?.value
                 try await sleeper(BoneInferenceRetryPolicy.retryDelay(headerValue: retryAfter))
+            } catch let error as BoneInferenceStreamDeadlineExceeded {
+                throw error
             } catch let error as BoneInferenceTransportError {
                 let networkCode: Int?
                 if case .network(let diagnostic) = error { networkCode = diagnostic.code } else { networkCode = nil }
@@ -200,6 +204,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
             return response
         } catch is CancellationError {
             throw BoneInferenceTransportError.cancelled
+        } catch let error as BoneInferenceStreamDeadlineExceeded {
+            throw error
         } catch let error as BoneInferenceTransportError {
             throw error
         } catch let error as URLError where error.code == .cancelled {

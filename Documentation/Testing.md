@@ -111,3 +111,33 @@ suite 在未取消的独立 Task 中执行 cleanup，之后传播取消；不要
 这是行为探测，不是完整的线性化证明或进程崩溃/断电持久性认证。双任务 CAS 不保证触发数据库内部每种危险交错。重新打开与连接独立性由 Host 真实实现并声明，suite 无法验证物理存储拓扑。当前未提供真实 Adapter，跨连接和重开尚无真实持久层正例。
 
 2026-09-05 核验 `alpha.11` 提交及仓库最近 Actions 运行列表均为空；Actions 已启用，但没有远端通过证据。最低 Swift 5.9 工具链仍未实测。
+
+## 离线 SDK 环境模拟矩阵
+
+`SDKEnvironmentMatrixTests` 是正式回归测试，不使用 API Key 或真实网络。它在注入 Transport
+的边界模拟 OpenAI 兼容、Anthropic、Gemini 三种协议，覆盖：
+
+| 环境 | 验证内容 |
+| --- | --- |
+| 正常响应 | 单次发送、完整响应、有效结果、同一关联 ID |
+| HTTP 401/403/402/404/429/503 | 原错误映射、无隐式重试、失败响应仍有诊断 |
+| 长度终态 | outputTruncated 保留，不交付部分正文 |
+| 空响应/非法 JSON/数组根 | 诊断开启关闭不改变失败语义 |
+| 超时/断网/连接中断 | 无 HTTP 摘要，不补造用量 |
+| 执行中取消 | 先确认进入请求再取消，无重试 |
+| 敏感 canary | 请求、正文、凭据、Header 值不进入诊断事件 |
+
+矩阵由 6 个 XCTest 方法展开 52 个组合场景，不应把组合数量写成 XCTest 测试数量。
+
+```bash
+swift test --filter SDKEnvironmentMatrixTests
+swift test --filter EventStreamTransportTests
+swift test --filter AgentStreamingModeTests
+swift test --filter ServerReasoningTests
+swift test -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+```
+
+流式连接和截止时间另由 `EventStreamTransportTests` 使用 URLProtocol 模拟；Agent 模式选择、
+失败无回退和 Run 预算传递由 `AgentStreamingModeTests` 验证；Thinking 字段与预检由
+`ServerReasoningTests` 验证。模拟 Transport 的网络错误不等同于真实 DNS/TLS/网关故障复现，
+URLProtocol 也不能代替实际网络或供应商在线验收。生产准入仍需真实 Host 与最小线上 Smoke。

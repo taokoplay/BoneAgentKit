@@ -6,6 +6,37 @@ import XCTest
 @testable import BoneAgentKit
 
 final class EventStreamTransportTests: XCTestCase {
+    func testTotalDeadlineStopsOpenStream() async throws {
+        let fixture = StreamingURLProtocolFixture()
+        fixture.configure(handler: { client, instance in
+            let response = HTTPURLResponse(url: instance.request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+            client.urlProtocol(instance, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client.urlProtocol(instance, didLoad: Data("data: first\n\n".utf8))
+            // Keep connection open: idle limit is deliberately longer than total limit.
+        })
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StreamingURLProtocol.self]
+        StreamingURLProtocol.install(fixture)
+        let transport = BoneInferenceURLSessionTransport(configuration: config)
+        do {
+            _ = try await transport.sendEventStream(URLRequest(url: URL(string: "https://example.com/events")!), options: .init(firstEventTimeout: 5, idleTimeout: 5, totalTimeout: 0.05))
+            XCTFail("Expected total deadline")
+        } catch { XCTAssertTrue(error is BoneInferenceStreamDeadlineExceeded) }
+    }
+
+    func testPastHostDeadlineRejectsBeforeNetwork() async throws {
+        let fixture = StreamingURLProtocolFixture()
+        fixture.configure(handler: { _, _ in XCTFail("Must not start expired request") })
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StreamingURLProtocol.self]
+        StreamingURLProtocol.install(fixture)
+        let transport = BoneInferenceURLSessionTransport(configuration: config)
+        do {
+            _ = try await transport.sendEventStream(URLRequest(url: URL(string: "https://example.com/events")!), options: .init(deadlineUptime: ProcessInfo.processInfo.systemUptime - 1))
+            XCTFail("Expected expired deadline")
+        } catch { XCTAssertTrue(error is BoneInferenceStreamDeadlineExceeded) }
+    }
+
     func testFramerRejectsUnterminatedDataIncludingNewlineWithoutBlankLine() throws {
         for suffix in ["data: [DONE]", "data: [DONE]\n", "data: [DONE]\r\n"] {
             var framer = BoneInferenceEventStreamFramer(maximumBytes: 4096)

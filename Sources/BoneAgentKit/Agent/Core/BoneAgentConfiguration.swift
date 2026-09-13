@@ -7,7 +7,14 @@ public typealias BoneWorkflowToolExecutionContextProvider = @Sendable (
     BoneAgentToolDefinition
 ) async throws -> BoneWorkflowToolExecutionContext?
 
+/// 流式只在完整结果返回后进入 Tool 执行；失败不自动回退。
+public enum BoneAgentInferenceMode: Sendable {
+    case nonStreaming
+    case bufferedStreaming(BoneInferenceEventStreamOptions)
+}
+
 public struct BoneAgentConfiguration: Sendable {
+    public let inferenceMode: BoneAgentInferenceMode
     public let maximumSteps: Int
     public let toolSchedulingMode: BoneToolSchedulingMode
     public let toolFailureStrategy: BoneToolFailureStrategy
@@ -29,7 +36,8 @@ public struct BoneAgentConfiguration: Sendable {
         inferenceCostEstimator: BoneInferenceCostEstimator? = nil,
         toolExecutionPipeline: BoneWorkflowToolExecutionPipeline = .init(),
         toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider? = nil,
-        logging: BoneAgentLoggerConfiguration = .init()
+        logging: BoneAgentLoggerConfiguration = .init(),
+        inferenceMode: BoneAgentInferenceMode = .nonStreaming
     ) throws {
         guard maximumSteps > 0 else {
             throw BoneAgentError.invalidMaximumSteps
@@ -38,6 +46,7 @@ public struct BoneAgentConfiguration: Sendable {
             mode: toolSchedulingMode,
             failureStrategy: toolFailureStrategy
         )
+        self.inferenceMode = inferenceMode
         self.maximumSteps = maximumSteps
         self.toolSchedulingMode = toolSchedulingMode
         self.toolFailureStrategy = toolFailureStrategy

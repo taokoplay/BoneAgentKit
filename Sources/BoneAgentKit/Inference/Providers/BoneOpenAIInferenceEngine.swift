@@ -11,18 +11,44 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
+    private let serverReasoning: BoneInferenceServerReasoning
+    private let verifiedThinkingModelIDs: Set<String>
     private let configuration: BoneInferenceProviderConfiguration
+    private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
-        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:]
+        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        diagnostics: BoneInferenceDiagnosticSink = .init(),
+        serverReasoning: BoneInferenceServerReasoning = .providerDefault,
+        verifiedThinkingModelIDs: Set<String> = []
     ) {
+        self.serverReasoning = serverReasoning
+        self.verifiedThinkingModelIDs = verifiedThinkingModelIDs
         self.configuration = configuration
+        self.diagnostics = diagnostics
         self.transport = transport
         self.modelCapabilityProfiles = modelCapabilityProfiles
+    }
+
+    /// Host 核验集合需与此实例的站点、模型绑定；不由模型发现结果自动赋予。
+    /// 当前仅 Agnes OpenAI 兼容格式有 enabled 映射，disabled 尚无已核实契约。
+    public func supportedServerReasoning(
+        for request: BoneInferenceRequest,
+        invocation: BoneInferenceInvocationMode
+    ) throws -> Set<BoneInferenceServerReasoning> {
+        let resolved = try resolvedCapabilities(for: request, invocation: invocation)
+        var supported: Set<BoneInferenceServerReasoning> = [.providerDefault]
+        if configuration.kind == .agnes,
+           verifiedThinkingModelIDs.contains(request.modelID),
+           resolved.capabilities.contains(.text),
+           invocation == .nonStreaming || resolved.capabilities.contains(.streaming) {
+            supported.insert(.enabled)
+        }
+        return supported
     }
 
     public func resolvedCapabilities(
@@ -72,44 +98,55 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         )
         let prepared = try preparedRequest(request)
         let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
-        let response = try await transport.send(urlRequest)
-        let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
-        let finalResponse: BoneInferenceResponse
-        if let constraint = request.outputConstraint {
-            let text = try BoneOpenAIResponseAggregator.nonStreamingText(
-                from: json,
-                requiringSingleCompletedChoice: true
+        let diagnosticID = UUID()
+        var receivedResponse = false
+        diagnostics.emit(diagnosticID, .transportAttempt, wire: .openAI)
+        do {
+            let response = try await transport.send(urlRequest)
+            receivedResponse = true
+            diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .openAI)
+            let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            let finalResponse: BoneInferenceResponse
+            if let constraint = request.outputConstraint {
+                let text = try BoneOpenAIResponseAggregator.nonStreamingText(
+                    from: json,
+                    requiringSingleCompletedChoice: true
+                )
+                finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
+                    from: Data(text.utf8),
+                    constraint: constraint
+                )
+            } else if let tool = prepared.tool {
+                let parsed = try parseOpenAIToolResponse(json, definitions: [tool])
+                finalResponse = try BoneStructuredOutputSupport.structuredResponse(
+                    from: parsed,
+                    schema: request.responseFormat.schema?.root
+                )
+            } else if request.responseFormat.isStructured {
+                guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
+                let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
+                finalResponse = try BoneStructuredOutputSupport.structuredResponse(
+                    from: text,
+                    schema: request.responseFormat.schema?.root
+                )
+            } else if request.availableTools.isEmpty {
+                let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
+                finalResponse = .finish(.init(text: text))
+            } else {
+                finalResponse = try parseOpenAIToolResponse(json, definitions: request.availableTools)
+            }
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .openAI)
+            return .init(
+                response: finalResponse,
+                reasoning: BoneInferenceReasoningSupport.openAI(
+                    json: json,
+                    disclosure: request.reasoningDisclosure
+                )
             )
-            finalResponse = try BoneOpenAIOutputConstraintAdapter().response(
-                from: Data(text.utf8),
-                constraint: constraint
-            )
-        } else if let tool = prepared.tool {
-            let parsed = try parseOpenAIToolResponse(json, definitions: [tool])
-            finalResponse = try BoneStructuredOutputSupport.structuredResponse(
-                from: parsed,
-                schema: request.responseFormat.schema?.root
-            )
-        } else if request.responseFormat.isStructured {
-            guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
-            let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
-            finalResponse = try BoneStructuredOutputSupport.structuredResponse(
-                from: text,
-                schema: request.responseFormat.schema?.root
-            )
-        } else if request.availableTools.isEmpty {
-            let text = try BoneOpenAIResponseAggregator.nonStreamingText(from: json)
-            finalResponse = .finish(.init(text: text))
-        } else {
-            finalResponse = try parseOpenAIToolResponse(json, definitions: request.availableTools)
+        } catch {
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .openAI)
+            throw error
         }
-        return .init(
-            response: finalResponse,
-            reasoning: BoneInferenceReasoningSupport.openAI(
-                json: json,
-                disclosure: request.reasoningDisclosure
-            )
-        )
     }
 
     public func inferUsingStream(
@@ -314,6 +351,9 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         streaming: Bool,
         forcedTool: BoneAgentToolDefinition? = nil
     ) throws -> URLRequest {
+        guard try supportedServerReasoning(for: inferenceRequest, invocation: streaming ? .streaming : .nonStreaming).contains(serverReasoning) else {
+            throw BoneInferenceUnsupportedServerReasoning(requested: serverReasoning)
+        }
         guard !inferenceRequest.messages.isEmpty else {
             throw BoneInferenceError.invalidMessage
         }
@@ -342,6 +382,9 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             "model": inferenceRequest.modelID,
             "messages": messages,
         ]
+        if serverReasoning == .enabled {
+            body["chat_template_kwargs"] = ["enable_thinking": true]
+        }
         if !inferenceRequest.availableTools.isEmpty {
             body["tools"] = try BoneOpenAIToolWire.definitions(inferenceRequest.availableTools)
         }

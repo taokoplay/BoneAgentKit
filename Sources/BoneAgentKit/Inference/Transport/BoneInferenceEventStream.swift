@@ -103,6 +103,7 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var watchdog: DispatchWorkItem?
+    private var deadlineWatchdog: DispatchWorkItem?
     private var completed = false
     private var explicitlyCancelled = false
 
@@ -123,6 +124,12 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             guard !completed else {
                 lock.unlock()
                 continuation.resume(throwing: BoneInferenceTransportError.cancelled)
+                return
+            }
+            do { try scheduleDeadlineLocked() } catch {
+                completed = true
+                lock.unlock()
+                continuation.resume(throwing: error)
                 return
             }
             self.continuation = continuation
@@ -147,6 +154,12 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             guard !completed, eventContinuation == nil, self.continuation == nil else {
                 lock.unlock()
                 continuation.finish(throwing: BoneInferenceTransportError.cancelled)
+                return
+            }
+            do { try scheduleDeadlineLocked() } catch {
+                completed = true
+                lock.unlock()
+                continuation.finish(throwing: error)
                 return
             }
             eventContinuation = continuation
@@ -255,6 +268,22 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         }
     }
 
+    private func scheduleDeadlineLocked() throws {
+        guard options.totalTimeout.map({ $0.isFinite && $0 > 0 }) != false,
+              options.deadlineUptime.map({ $0.isFinite }) != false else {
+            throw BoneInferenceTransportError.invalidConfiguration
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let durations = [options.totalTimeout, options.deadlineUptime.map { $0 - now }].compactMap { $0 }
+        guard let seconds = durations.min() else { return }
+        guard seconds > 0 else { throw BoneInferenceStreamDeadlineExceeded() }
+        let item = DispatchWorkItem { [weak self] in
+            self?.finish(.failure(BoneInferenceStreamDeadlineExceeded()), cancelTask: true)
+        }
+        deadlineWatchdog = item
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + min(seconds, 315_360_000), execute: item)
+    }
+
     private func scheduleWatchdogLocked(error: BoneInferenceTransportError, duration: TimeInterval) {
         watchdog?.cancel()
         let seconds = max(0, duration)
@@ -268,6 +297,7 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         lock.lock()
         guard !completed else { lock.unlock(); return }
         completed = true
+        deadlineWatchdog?.cancel()
         watchdog?.cancel()
         let continuation = self.continuation
         self.continuation = nil

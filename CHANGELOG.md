@@ -4,6 +4,41 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.15] - 2026-09-13
+
+### Added
+
+- OpenAI Engine 新增与披露独立的服务端推理策略；仅对 Host 明确核验的 Agnes 模型开放 enabled，默认不发字段，不支持策略提前拒绝。
+
+- Agent 新增显式有界缓冲流式模式，URLSession 流增加独立总期限和 Host uptime deadline；不执行分片 Tool、不自动回退或重试。
+
+- OpenAI 兼容、Anthropic 和 Gemini 非流式推理新增默认关闭的安全诊断 sink：解析前响应摘要与调用关联阶段事件，不改变原错误或增加重试。流式及细分失败阶段尚未覆盖。
+- 补充 Host 动态模型发现迁移说明，区分目录来源、解析协议与用户配置合并。
+
+### Fixed
+
+- Agent 日志 context 改为惰性构造，响应日志编码失败不影响推理；完整请求载荷需额外启用 includesSensitivePayloads，默认 Debug 仅记录元数据。
+- 有效结果日志更名为 inference.result.validated，避免被误认为底层 HTTP 已收齐。
+
+### Testing
+
+- 新增非流式安全诊断、Agent 流式模式、总截止时间及 Thinking 配置回归。
+- 新增跨 OpenAI 兼容、Anthropic、Gemini 的离线环境矩阵：正常响应、HTTP 错误、截断、非法正文、断网、超时、取消与敏感 canary；6 个测试方法展开 52 个组合。
+
+### Migration
+
+- Debug 不再自动输出完整请求；受控排障需显式设置 `includesSensitivePayloads: true`。
+- 依赖旧日志名的收集器需将 `inference.response.received` 更新为 `inference.result.validated`；需要 HTTP 到达事实时改用安全诊断 sink。
+- Agent 流式模式为 opt-in，须提供整体时间边界；Host deadline 使用 systemUptime，不是 Unix 时间。
+- 服务端 Thinking 为实例级策略，核验模型集合不能直接由动态发现列表生成。
+
+### Release scope
+
+- 预发布，不承诺生产准入。非流式诊断未覆盖流式摘要、细分失败阶段或业务 Tool 独立计数。
+- 流式暂不向 Host 提供逐分片进度；自定义 Engine/Transport 仍需遵守取消与期限契约。
+- Agnes Thinking 仅开放有依据的 enabled；disabled、预算/强度及 Anthropic 映射未开放。
+- 未进行真实供应商在线调用、真实 Host/设备验收或最低 Swift 5.9 验证；远端 CI 需另外核验。
+
 ## [0.2.0-alpha.14] - 2026-09-13
 
 ### Changed

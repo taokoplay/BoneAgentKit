@@ -10,7 +10,7 @@
 
 `BoneAgentConfiguration` 支持注入日志记录器，并控制 Debug 日志。默认关闭 Debug 日志。
 
-开启完整 Debug 上下文：
+开启 Debug 元数据日志（默认不记录完整请求正文）：
 
 ```swift
 let configuration = try BoneAgentConfiguration(
@@ -37,7 +37,11 @@ let configuration = try BoneAgentConfiguration(
 )
 ```
 
-Debug 模式会记录运行、推理请求与响应、Tool 调用及失败/取消等上下文。请求内容可能包含用户消息和 Tool 参数，生产环境请谨慎开启。
+Debug 模式默认不记录完整请求正文。若确需受控调试，可显式设置
+`logging: .init(isDebugEnabled: true, minimumLevel: .debug, includesSensitivePayloads: true)`。
+该选项可能记录用户消息与 Tool 参数，不应在生产环境常开。
+响应成功日志名称为 `inference.result.validated`，表示 Engine 返回有效结果，不能作为收到 HTTP 响应的证据。
+解析前的安全响应诊断见 [Provider 接入](ProviderIntegration.md#非流式安全响应诊断)。
 
 ## Model
 

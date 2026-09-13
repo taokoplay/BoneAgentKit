@@ -168,3 +168,123 @@ SDK 不新增持久配置库，也不将同一供应商所有模型套用一个�
 自定的保守业务预算应作为请求输出预算，而非伪造官方模型能力。
 上下文窗口、独立最大输入、最大输出与单次请求预算分别管理；完整输入仍需扣除输出与安全余量。
 已有 Host 缓存需自行刷新，不会被 SDK 静默删除或迁移。
+
+## 非流式安全响应诊断
+
+OpenAI（含 Agnes 等兼容入口）、Anthropic 和 Gemini Engine 的 `diagnostics` 参数默认关闭。
+它与 Agent Debug 日志独立，不要求开启完整载荷日志：
+
+```swift
+let diagnostics = BoneInferenceDiagnosticSink { event in
+    // 快速交给 Host 的线程安全指标收集器；不要等待当前推理结束。
+    // event.invocationID 是本地关联 UUID，不是服务端请求凭据。
+    switch event.phase {
+    case .httpResponseReceived:
+        if let summary = event.response {
+            // statusCode、bodyBytes、stop、toolCount 与 Token 用量均为受限元数据。
+            // BoneDiagnosticCount 的 unknown / invalid / value(0) 含义不同。
+            _ = summary
+        }
+    default: break
+    }
+}
+let engine = BoneOpenAIInferenceEngine(
+    configuration: providerConfiguration,
+    transport: transport,
+    diagnostics: diagnostics
+)
+```
+
+事件顺序为 transportAttempt → httpResponseReceived → resultValidated 或 responseValidationFailed。
+未收齐 HTTPResponse 的失败只产生 transportFailed，不补造停止原因和用量。
+预检失败没有 transportAttempt；未知停止原因归为 other，原值不记录。
+摘要最大处理 1 MiB JSON、最多检查 128 个 Tool/内容块，停止原因最多 64 UTF-8 字节；
+超限为 tooLarge 或 invalid，不影响原响应解析的上限与业务行为。
+不输出正文、参数、Header、供应商 ID 或错误原始文案，不修改原错误，不增加请求。
+wireProtocol 表示所选适配器协议，不表示已经验证响应协议合法。
+
+Host 可按事件分别统计传输接口调用、完整 HTTP 响应和有效结果，不能使用完成步骤数代替。
+transportAttempt 只表示调用了一次注入的 send，无法观测自定义 Transport 内部重试或服务端受理，
+不能作为计费凭据。本次未提供业务 Tool 执行计数或持久预算存储。
+responseValidationFailed 暂时覆盖 HTTP 状态校验、协议及结果校验，尚未细分全部失败阶段。
+回调同步且非抛错；Host 回调若阻塞仍会增加时延，应快速返回。
+
+安全诊断当前仅覆盖非流式 infer / inferDetailed；流式摘要尚未接入。总 deadline 和 Agent 流式模式见下文。
+关闭 sink 不解析诊断载荷。Agent 日志 context 改为过滤后构造，响应日志编码失败也不影响推理。
+
+## Host 从静态 Agnes 目录迁移
+
+`remote` 是模型目录来源，不是 NewAPI 响应协议。Agnes 使用标准 OpenAI 列表，
+应调用 `discoverAgnesModels()`，不要要求 `success: true`；NewAPI 原有校验不要为此放宽。
+
+建议 Host 执行以下显式合并流程：
+
+1. 保留原 Base URL、凭据引用及用户已选模型，按当前站点请求发现。
+2. 用“站点身份 + 模型 ID”匹配已保存记录，不仅按显示名匹配。
+3. 已有记录仅更新发现状态/名称等目录字段；保留用户预算、协议变体、图片参数、启停和身份。
+4. 新记录只保存 ID/名称及来源，不猜 Tool/视觉能力或 Token 限制，不自动启用全部模型。
+5. 本次未出现的旧模型标记为未发现，交给用户处理，不直接删除配置。
+6. 发现失败保持错误；若展示缓存，应标注缓存时间与失败状态，不作为新发现成功。
+
+SDK 不管理 Host 数据库或目录管理标记。升级测试应覆盖 alpha.13 旧缓存、国际地址、
+图片模型参数保留、未知能力及发现失败，并与 NewAPI 专用协议测试独立。
+
+## Agent 显式缓冲流式模式
+
+```swift
+let configuration = try BoneAgentConfiguration(
+    maximumSteps: 8,
+    inferenceMode: .bufferedStreaming(.init(
+        firstEventTimeout: 30,
+        idleTimeout: 30,
+        totalTimeout: 150,
+        deadlineUptime: hostDeadlineUptime
+    ))
+)
+```
+
+`hostDeadlineUptime` 为 Host 可选的绝对单调截止时间，必须与
+`ProcessInfo.processInfo.systemUptime` 使用同一时基，不是 Unix 时间戳。
+默认仍为 nonStreaming。Agent 流式模式必须指定 totalTimeout、deadlineUptime 或 Run 墙钟预算之一，
+无整体边界时在发送前拒绝。不支持 BoneInferenceBufferedStreaming 的 Engine 不回退非流式。
+
+URLSession Transport 的总超时从流请求启动计时，Host deadline 与局部总超时取较早边界，
+独立于首事件/空闲 watchdog，不因分片到达重置。首事件指第一个完整 SSE 帧；首帧前的零散字节
+不会刷新首事件计时；首帧之后非空数据到达会刷新空闲计时。整体期限到达会取消底层任务，
+直接 Transport 调用抛 BoneInferenceStreamDeadlineExceeded，Agent 继续沿现有 inferenceFailed 契约映射。
+已存在的 Run 墙钟预算以 Run 起点计算并转换剩余期限，不在每个 Tool 回合重置。
+
+Provider 完整聚合与校验成功后才返回 Agent，Tool 仍走原 Schema、授权、预算和执行流水线。
+不执行半截 Tool，不隐式重试或回退。自定义 Engine/Transport 必须自行遵守流式 options 和取消，
+SDK 无法强制终止不合作的第三方实现。
+
+此模式暂不向 Host 暴露逐片段进度；非流式安全诊断 sink 尚未扩展到流式。
+Thinking 服务端控制也未在本次变更中添加。
+
+## 服务端 Thinking 与内容披露独立
+
+`reasoningDisclosure: .hidden` 只处理返回内容，不表示已向服务端关闭 Thinking。
+OpenAI Engine 新增实例级 `serverReasoning`，默认 `.providerDefault` 不发送字段。
+目前仅支持 Agnes OpenAI 兼容格式的显式 enabled：
+
+```swift
+let engine = BoneOpenAIInferenceEngine(
+    configuration: providerConfiguration, // kind: .agnes
+    transport: transport,
+    serverReasoning: .enabled,
+    verifiedThinkingModelIDs: ["agnes-2.5-flash"]
+)
+let supported = try engine.supportedServerReasoning(for: request, invocation: .nonStreaming)
+```
+
+Host 应仅将依据官方文档或实际验证确认支持的模型加入集合；集合与当前实例的站点绑定，
+不能直接使用整个动态发现列表。更换站点时需重新核验。不按模型名称推断能力。
+启用映射为 `chat_template_kwargs: { enable_thinking: true }`，不自动披露返回的推理正文。
+默认不发字段；disabled、未经声明的模型、其他供应商上的 enabled 在网络发送前抛
+`BoneInferenceUnsupportedServerReasoning`。Agent 沿现有 inferenceFailed 契约映射该错误，
+Host 应在启动 Agent 前查询支持情况。
+
+本次没有证据确认 Agnes 的 false/省略字段语义，所以 disabled 暂不开放；不提供预算或强度
+映射，不扩展 Anthropic 入口。实例级策略适用于该实例各次调用，如需不同策略应分别构造实例。
+本地回归不代表线上成功率或延迟改善；Thinking 不是超时问题的通用修复。
+依据（2026-09-13）：https://wiki.agnes-ai.com/en/docs/agnes-25-flash 的 Thinking Mode 示例。

@@ -12,15 +12,18 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let configuration: BoneInferenceProviderConfiguration
+    private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
-        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:]
+        modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
         self.configuration = configuration
+        self.diagnostics = diagnostics
         self.transport = transport
         self.modelCapabilityProfiles = modelCapabilityProfiles
     }
@@ -59,33 +62,44 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             invocation: resolved.invocation
         )
         let urlRequest = try makeRequest(request, streaming: false)
-        let response = try await transport.send(urlRequest)
-        let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
-        let finalResponse: BoneInferenceResponse
-        if let constraint = request.outputConstraint {
-            let text = try BoneGeminiResponseAggregator.text(from: json)
-            finalResponse = try BoneGeminiOutputConstraintAdapter().response(
-                from: Data(text.utf8),
-                constraint: constraint
+        let diagnosticID = UUID()
+        var receivedResponse = false
+        diagnostics.emit(diagnosticID, .transportAttempt, wire: .gemini)
+        do {
+            let response = try await transport.send(urlRequest)
+            receivedResponse = true
+            diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .gemini)
+            let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            let finalResponse: BoneInferenceResponse
+            if let constraint = request.outputConstraint {
+                let text = try BoneGeminiResponseAggregator.text(from: json)
+                finalResponse = try BoneGeminiOutputConstraintAdapter().response(
+                    from: Data(text.utf8),
+                    constraint: constraint
+                )
+            } else if request.responseFormat.isStructured {
+                guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
+                finalResponse = try BoneStructuredOutputSupport.structuredResponse(
+                    from: BoneGeminiResponseAggregator.text(from: json),
+                    schema: request.responseFormat.schema?.root
+                )
+            } else if request.availableTools.isEmpty {
+                finalResponse = .finish(.init(text: try BoneGeminiResponseAggregator.text(from: json)))
+            } else {
+                finalResponse = try BoneGeminiToolWire.parseResponse(json, definitions: request.availableTools)
+            }
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .gemini)
+            return .init(
+                response: finalResponse,
+                reasoning: BoneInferenceReasoningSupport.gemini(
+                    json: json,
+                    disclosure: request.reasoningDisclosure
+                )
             )
-        } else if request.responseFormat.isStructured {
-            guard request.availableTools.isEmpty else { throw BoneInferenceError.invalidStructuredOutputContract }
-            finalResponse = try BoneStructuredOutputSupport.structuredResponse(
-                from: BoneGeminiResponseAggregator.text(from: json),
-                schema: request.responseFormat.schema?.root
-            )
-        } else if request.availableTools.isEmpty {
-            finalResponse = .finish(.init(text: try BoneGeminiResponseAggregator.text(from: json)))
-        } else {
-            finalResponse = try BoneGeminiToolWire.parseResponse(json, definitions: request.availableTools)
+        } catch {
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .gemini)
+            throw error
         }
-        return .init(
-            response: finalResponse,
-            reasoning: BoneInferenceReasoningSupport.gemini(
-                json: json,
-                disclosure: request.reasoningDisclosure
-            )
-        )
     }
 
     public func inferUsingStream(
