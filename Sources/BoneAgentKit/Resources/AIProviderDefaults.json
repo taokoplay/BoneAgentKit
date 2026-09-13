@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": 6,
+  "catalogVersion": 7,
   "verifiedAt": "2026-08-28",
   "providers": [
     {
@@ -918,127 +918,14 @@
       "defaultBaseURL": "https://apihub.agnes-ai.cn/v1",
       "inviteURL": "https://platform.agnes-ai.cn",
       "documentationURL": "https://agnes-ai.cn/zh-Hans/docs/overview",
-      "modelCatalogMode": "local",
+      "modelCatalogMode": "remote",
       "sortOrder": 175,
-      "modelDiscovery": {
-        "endpoint": "https://apihub.agnes-ai.cn/v1/models",
-        "adapter": "openAI",
-        "authenticationMode": "bearer"
-      },
       "apiPaths": {
         "chat": "/chat/completions",
+        "models": "/models",
         "image": "/images/generations"
       },
-      "models": [
-        {
-          "id": "agnes-2.0-flash",
-          "displayName": "Agnes 2.0 Flash",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "openAI",
-          "parameters": {
-            "temperature": 0.2,
-            "max_tokens": 4096
-          },
-          "deprecated": false
-        },
-        {
-          "id": "agnes-2.5-flash",
-          "displayName": "Agnes 2.5 Flash",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "openAI",
-          "parameters": {
-            "temperature": 0.2,
-            "max_tokens": 4096
-          },
-          "deprecated": false
-        },
-        {
-          "id": "agnes-2.5-pro-alpha",
-          "displayName": "Agnes 2.5 Pro Alpha",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "openAI",
-          "parameters": {
-            "temperature": 0.2,
-            "max_tokens": 4096
-          },
-          "deprecated": false,
-          "tokenLimits": {
-            "contextWindowTokens": 1000000,
-            "maximumOutputTokens": 65536,
-            "source": "official",
-            "verifiedAt": "2026-08-28",
-            "documentationURL": "https://wiki.agnes-ai.com/zh-Hans/docs/agnes-25-pro-alpha"
-          }
-        },
-        {
-          "id": "agnes-image-2.1-flash",
-          "displayName": "Agnes Image 2.1 Flash",
-          "capabilities": [
-            "image"
-          ],
-          "protocolVariant": "agnesImageGeneration",
-          "supportedImageSizes": [
-            {
-              "width": 1024,
-              "height": 1024,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "1:1"
-            },
-            {
-              "width": 864,
-              "height": 1152,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "3:4"
-            },
-            {
-              "width": 1152,
-              "height": 864,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "4:3"
-            },
-            {
-              "width": 1312,
-              "height": 736,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "16:9"
-            },
-            {
-              "width": 736,
-              "height": 1312,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "9:16"
-            },
-            {
-              "width": 832,
-              "height": 1248,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "2:3"
-            },
-            {
-              "width": 1248,
-              "height": 832,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "3:2"
-            },
-            {
-              "width": 1568,
-              "height": 672,
-              "requestSizeValue": "1K",
-              "requestRatioValue": "21:9"
-            }
-          ],
-          "supportedImageCounts": [
-            1
-          ],
-          "deprecated": false
-        }
-      ]
+      "models": []
     },
     {
       "ident": "NewApi",

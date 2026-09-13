@@ -18,11 +18,33 @@ public struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, 
         self.transport = transport
     }
 
+    /// 从当前 Agnes Base URL 获取模型 ID/名称；不提供内置回退或推断 Token 限制。
+    public func discoverAgnesModels() async throws -> [BoneInferenceModelDescriptor] {
+        guard configuration.kind == .agnes, !configuration.usesFullEndpointURL else {
+            throw BoneInferenceTransportError.invalidConfiguration
+        }
+        return try await discover(using: .init(
+            endpoint: configuration.baseURL.appendingPathComponent("models"),
+            protocol: .openAI,
+            authenticationMode: configuration.authenticationMode
+        ))
+    }
+
     public func discover(
         using discovery: BoneInferenceProviderCatalog.Discovery
     ) async throws -> [BoneInferenceModelDescriptor] {
+        // Agnes 的模型列表属于用户配置的站点，不将国际/网关凭据发送至内置国内地址。
+        let endpoint: URL
+        if configuration.kind == .agnes {
+            guard !configuration.usesFullEndpointURL else {
+                throw BoneInferenceTransportError.invalidConfiguration
+            }
+            endpoint = configuration.baseURL.appendingPathComponent("models")
+        } else {
+            endpoint = discovery.endpoint
+        }
         let request = try makeRequest(
-            endpoint: discovery.endpoint,
+            endpoint: endpoint,
             method: "GET",
             authenticationMode: discovery.authenticationMode,
             fixedHeaders: discovery.protocol == .anthropic

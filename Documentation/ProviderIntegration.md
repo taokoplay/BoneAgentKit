@@ -145,3 +145,26 @@ SDK 只接受恰好一次指定 Tool 调用、Tool 完成状态、无同时正�
 验证范围为本地 transport 替身和回归测试，未执行 MiniMax 真机/线上 Smoke，
 不能据此声明 MiniMax-M3 的实际成功率。上线前应使用无敏感内容的小型 Schema 验证。
 协议依据（2026-09-12）：[MiniMax Messages API](https://platform.minimax.io/docs/api-reference/text-chat-anthropic)。
+
+## Agnes：动态模型列表与独立限制
+
+Agnes 目录使用 remote 模式，不再内置文本或图片模型列表。默认 Base URL 仍为
+`https://apihub.agnes-ai.cn/v1`；国际站可由 Host 填写 `https://apihub.agnes-ai.com/v1`。
+用户配置应为 API Base URL 而非完整 chat endpoint。
+
+```swift
+let client = BoneInferenceModelDiscoveryClient(configuration: providerConfiguration)
+let models = try await client.discoverAgnesModels()
+```
+
+发现请求使用当前 Base URL 下的 `/models`，不固定请求国内域名；失败传播错误，
+不回退到已废弃的内置模型。返回值仅提供 ID/名称，不据名称猜测 Tool、视觉能力或 Token 限制。
+远端图片模型的协议、画幅等仍需 Host 配置，不能将所有发现结果默认作为聊天模型。
+
+Token 限制复用 `BoneModelContextLimits`（或 `decodeFromExtraConfiguration` 的 `tokenLimits`），
+由 Host 按站点与模型单独保存、编辑，再交给 `BoneContextWindowPlanner` 使用。
+SDK 不新增持久配置库，也不将同一供应商所有模型套用一个上限。
+无证据的限制保持未知，不自动填入 1M/64K；该类型的 source 为 official/gateway，
+自定的保守业务预算应作为请求输出预算，而非伪造官方模型能力。
+上下文窗口、独立最大输入、最大输出与单次请求预算分别管理；完整输入仍需扣除输出与安全余量。
+已有 Host 缓存需自行刷新，不会被 SDK 静默删除或迁移。

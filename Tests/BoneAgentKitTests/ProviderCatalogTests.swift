@@ -6,7 +6,7 @@ final class ProviderCatalogTests: XCTestCase {
     func testBundledCatalogExposesSemanticIconIDsWithoutBundlingBrandAssets() throws {
         let catalog = try BoneInferenceProviderCatalog.bundled()
         XCTAssertEqual(catalog.schemaVersion, 1)
-        XCTAssertEqual(catalog.catalogVersion, 6)
+        XCTAssertEqual(catalog.catalogVersion, 7)
         XCTAssertEqual(catalog.providers.count, 21)
         XCTAssertEqual(catalog.provider(ident: "openai")?.providerKind, .openAI)
         XCTAssertEqual(catalog.provider(ident: "openai")?.iconID, "icon_ai_openAI")
@@ -30,7 +30,6 @@ final class ProviderCatalogTests: XCTestCase {
             ("MiMo", "mimo-v2-pro", 1_000_000, nil, nil),
             ("MiMo", "mimo-v2.5", 1_000_000, nil, nil),
             ("MiMo", "mimo-v2-omni", 256_000, nil, nil),
-            ("Agnes", "agnes-2.5-pro-alpha", 1_000_000, nil, 65_536),
         ]
         for (providerID, modelID, context, input, output) in knownLimits {
             let model = try XCTUnwrap(

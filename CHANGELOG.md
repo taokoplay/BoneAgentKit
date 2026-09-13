@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.14] - 2026-09-13
+
+### Changed
+
+- Agnes 改用远端模型列表，移除内置文本与图片模型清单；默认保留国内地址，模型发现跟随 Host 的 Base URL，不使用静态模型回退。
+- 新增 `discoverAgnesModels()` 便捷入口；Token 限制继续由 Host 按站点与模型独立配置，发现结果不推断能力或限制。
+- 目录版本更新为 7，并补充发现测试、缓存与图片参数迁移说明。
+
+### Release scope
+
+- 预发布版本，未调用真实 Agnes API；真实 Host、线上 Provider、最低 Swift 5.9 工具链与远端 CI 尚待验收。
+
 ## [0.2.0-alpha.13] - 2026-09-12
 
 ### Added
