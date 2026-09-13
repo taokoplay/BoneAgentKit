@@ -4,12 +4,20 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.16] - 2026-09-13
+
 ### Fixed
 
 - OpenAI Tool 流在语义终态之后拒绝后续 choice（仍允许独立 usage trailer 和 DONE）；Anthropic 在 stop_reason 后拒绝内容块追加，只允许 ping 和 message_stop。非法序列不得进入 Tool 执行。
 - Agent 将 Transport cancelled 传播为 CancellationError，发布 cancelled 终态，不再误报 inferenceFailed。
 - 安全摘要将非法 completion_tokens_details、functionCall/type 标记 invalid，并将 max_output_tokens 归为 length。
 - 新增 alpha.15 定向回归，包含两协议真实 Provider→Agent 的零 Tool 执行断言；未改变重试、Thinking 或超时策略。
+
+### Release scope
+
+- 定向修复版本，不扩展重试、Thinking 或超时策略；正常流与 OpenAI usage trailer 保持兼容。
+- 454 项严格 Swift 6 测试通过，包含 alpha.15 定向回归及两协议 Provider→Agent 零 Tool 执行验证。
+- 未重新完成 Host 真实 URLSession 取消验收、设备或在线供应商验证；不代表 Agnes 150 秒超时已解决。
 
 ## [0.2.0-alpha.15] - 2026-09-13
 
