@@ -41,7 +41,9 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
                     if let message = choice["message"] as? [String: Any] { tools = countArray(message["tool_calls"]) }
                 }
                 usage = root["usage"] as? [String: Any] ?? [:]
-                reasoning = (usage["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"]
+                if let details = usage["completion_tokens_details"] {
+                    reasoning = (details as? [String: Any]).map { $0["reasoning_tokens"] } ?? NSNull()
+                }
             case .anthropic:
                 rawStop = root["stop_reason"]
                 tools = countBlocks(root["content"], key: "type", value: "tool_use")
@@ -62,7 +64,7 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
                     switch value {
                     case "stop", "end_turn", "STOP": stop = .stop
                     case "tool_calls", "tool_use": stop = .toolCalls
-                    case "length", "max_tokens", "MAX_TOKENS": stop = .length
+                    case "length", "max_tokens", "max_output_tokens", "MAX_TOKENS": stop = .length
                     case "content_filter", "safety", "SAFETY", "refusal": stop = .blocked
                     default: stop = .other
                     }
@@ -96,10 +98,17 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
     private static func countBlocks(_ raw: Any?, key: String, value: String?) -> BoneDiagnosticCount {
         guard let raw else { return .unknown }
         guard let blocks = raw as? [[String: Any]], blocks.count <= 128 else { return .invalid }
-        return .value(blocks.filter { block in
-            if let value { return block[key] as? String == value }
-            return block[key] is [String: Any]
-        }.count)
+        var count = 0
+        for block in blocks {
+            if let value {
+                guard let kind = block[key] as? String else { return .invalid }
+                if kind == value { count += 1 }
+            } else if let raw = block[key] {
+                guard raw is [String: Any] else { return .invalid }
+                count += 1
+            }
+        }
+        return .value(count)
     }
 }
 

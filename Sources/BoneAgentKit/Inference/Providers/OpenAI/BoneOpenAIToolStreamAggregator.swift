@@ -32,6 +32,7 @@ enum BoneOpenAIToolStreamAggregator {
                 return .choicesShape
             }
             guard let choice = choices.first else { continue }
+            guard finishReason == nil else { return .streamCompletion }
             guard (choice["index"] as? Int ?? 0) == 0 else { return .choiceIndex }
             if let reason = choice["finish_reason"] as? String {
                 guard finishReason == nil else { return .finishReason }
@@ -98,6 +99,7 @@ enum BoneOpenAIToolStreamAggregator {
                 throw BoneInferenceTransportError.invalidResponse
             }
             guard let choice = choices.first else { continue }
+            guard finishReason == nil else { throw BoneInferenceTransportError.invalidResponse }
             guard (choice["index"] as? Int ?? 0) == 0 else {
                 throw BoneInferenceTransportError.invalidResponse
             }

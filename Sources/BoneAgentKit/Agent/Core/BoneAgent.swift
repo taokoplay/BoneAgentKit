@@ -275,6 +275,8 @@ public actor BoneAgent {
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             try await budgetMeter?.commitInference(outputBytes: JSONEncoder().encode(response).count)
             return response
+        } catch BoneInferenceTransportError.cancelled {
+            throw CancellationError()
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BoneRunBudgetError {

@@ -24,6 +24,9 @@ enum BoneAnthropicToolStreamAggregator {
                   event.event != "error", type != "error" else {
                 throw BoneInferenceTransportError.invalidResponse
             }
+            guard stopReason == nil || type == "message_stop" || type == "ping" else {
+                throw BoneInferenceTransportError.invalidResponse
+            }
             switch type {
             case "ping":
                 continue

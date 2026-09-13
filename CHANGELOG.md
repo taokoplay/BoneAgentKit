@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenAI Tool 流在语义终态之后拒绝后续 choice（仍允许独立 usage trailer 和 DONE）；Anthropic 在 stop_reason 后拒绝内容块追加，只允许 ping 和 message_stop。非法序列不得进入 Tool 执行。
+- Agent 将 Transport cancelled 传播为 CancellationError，发布 cancelled 终态，不再误报 inferenceFailed。
+- 安全摘要将非法 completion_tokens_details、functionCall/type 标记 invalid，并将 max_output_tokens 归为 length。
+- 新增 alpha.15 定向回归，包含两协议真实 Provider→Agent 的零 Tool 执行断言；未改变重试、Thinking 或超时策略。
+
 ## [0.2.0-alpha.15] - 2026-09-13
 
 ### Added
