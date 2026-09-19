@@ -35,9 +35,11 @@ Provider 凭据只应由 Host composition root 临时注入，不得进入 Check
 
 需要按对话留存“这次会话用了哪个模型”时，Host 通过初始化 `BoneAgent` 时传入的 `BoneAgentModelSnapshotSink` 接收每个 Run 的 `BoneAgentRunModelSnapshot`，再按自己的会话标识累加 `usageByResponse` 与计数并落盘。Kit 不持久化快照、不知道会话边界，也不提供跨 Run 聚合。
 
-快照在 Run 返回值或错误抛出之前交付且只交付一次，因此成功分支与 `catch` 分支都可以安全地假设快照已到达。投递是 `await` 的：闭包内的耗时会计入 Run 自身时间并占用 Agent 的串行执行上下文，写库或写文件应放到 Host 自己的任务里。
+快照在 Run 返回值或错误抛出之前交付且只交付一次，因此成功分支与 `catch` 分支都可以安全地假设快照已到达。投递是 `await` 的：闭包内的耗时会计入 Run 自身时间并占用 Agent 的串行执行上下文，写库或写文件应放到 Host 自己的任务里。Kit 不为投递设超时，也不在投递期间释放 Run 占用：sink 挂死会让该 Agent 之后的每次 `run` 直接得到 `runAlreadyInProgress`，所以 sink 必须尽快返回。
 
-Host 通过 `BoneAgentModelSnapshotContext` 按 Run 注入 Provider 身份、模型显示名与别名、能力 Profile、上下文限制、目录版本和生效的服务端推理策略，因为这些事实不在 `BoneInferenceEngine` 协议上。未提供的字段保持未知，Host 不得自行用显示名或默认值补全；显示名与别名只做空白归一，空串等于未提供。会话记录只应保存模型身份、证据来源、限制、参数回显、计数与用量，不得把 Prompt、响应正文或 Tool 内容一并写入。
+快照的 `terminalState` 只描述 Agent Run 本身。使用 `runWorkflowStep` 时，快照在 `controller` 提交 step 终态之前就已投递，因此 step 的持久化失败会表现为“快照是 succeeded、调用方拿到错误”；会话记录不能把快照终态当作 workflow step 的权威终态，后者以 Host 的 checkpoint 为准。
+
+Host 通过 `BoneAgentModelSnapshotContext` 按 Run 注入 Provider 身份、模型显示名与别名、能力 Profile、上下文限制、目录版本和生效的服务端推理策略，因为这些事实不在 `BoneInferenceEngine` 协议上。未提供的字段保持未知，Host 不得自行用显示名或默认值补全；显示名与别名只做空白归一，空串等于未提供，且只能写模型目录名称，不得把用户内容或对话文本传入。会话记录只应保存模型身份、证据来源、限制、参数回显、计数与用量，不得把 Prompt、响应正文或 Tool 内容一并写入。
 
 ## 灰度与产品状态
 

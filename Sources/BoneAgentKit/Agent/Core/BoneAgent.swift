@@ -182,13 +182,13 @@ public actor BoneAgent {
                     messages: messages,
                     providerContinuation: providerContinuation,
                     budgetMeter: budgetMeter,
-                    runDeadline: runDeadline
+                    runDeadline: runDeadline,
+                    onResponseDelivered: { runSnapshot.record(response: $0) }
                 )
                 try await progressSink.receive(.inferenceResponsePrepared(
                     step: step,
                     kind: response.workflowCheckpointKind
                 ))
-                runSnapshot.inferenceResponseCount += 1
                 try Task.checkCancellation()
 
                 switch response {
@@ -202,10 +202,7 @@ public actor BoneAgent {
                     if boundary == .afterFirstToolTurn {
                         return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                     }
-                case let .assistantTurn(turn, finishReason, usage, refusal, continuation):
-                    // 终止原因与用量在任何分支抛出前记录，失败 Run 也能解释发生了什么。
-                    runSnapshot.finishReason = finishReason
-                    runSnapshot.record(usage: usage)
+                case let .assistantTurn(turn, finishReason, _, refusal, continuation):
                     guard refusal == nil else { throw BoneAgentError.inferenceFailed }
                     let calls = turn.toolCalls
                     switch finishReason {
@@ -223,7 +220,12 @@ public actor BoneAgent {
                     case .toolCalls:
                         guard !calls.isEmpty else { throw BoneAgentError.inferenceFailed }
                         providerContinuation = continuation
-                        runSnapshot.toolResultCount += try await executeTurn(turn, messages: &messages, budgetMeter: budgetMeter)
+                        try await executeTurn(
+                            turn,
+                            messages: &messages,
+                            budgetMeter: budgetMeter,
+                            onResultsReceived: { runSnapshot.toolResultCount += $0 }
+                        )
                         if boundary == .afterFirstToolTurn {
                             return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                         }
@@ -259,7 +261,8 @@ public actor BoneAgent {
         messages: [BoneInferenceMessage],
         providerContinuation: BoneInferenceProviderContinuation?,
         budgetMeter: BoneRunBudgetMeter?,
-        runDeadline: TimeInterval?
+        runDeadline: TimeInterval?,
+        onResponseDelivered: (BoneInferenceResponse) -> Void
     ) async throws -> BoneInferenceResponse {
         do {
             let request = BoneInferenceRequest(
@@ -312,6 +315,9 @@ public actor BoneAgent {
                     deadlineUptime: deadline
                 ))
             }
+            // Engine 已交付该响应，Provider 调用已经发生；先记录事实，再做取消、预算与
+            // checkpoint 判定，之后任何失败都不能把已计费的响应从记录里抹掉。
+            onResponseDelivered(response)
             configuration.logging.write(.debug, "inference.result.validated", context: BoneAgentLogContext(["modelID": request.modelID, "messageCount": "\(request.messages.count)", "responseBytes": (try? JSONEncoder().encode(response)).map { String($0.count) } ?? "unknown"]))
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
@@ -402,12 +408,14 @@ public actor BoneAgent {
         messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
     }
 
-    /// 执行一个完整 Assistant Tool Turn，并返回本次已发布的 Tool 结果数。
+    /// 执行一个完整 Assistant Tool Turn；已受理的结果数通过 `onResultsReceived` 立即上报，
+    /// 因此结果发布中途失败时，已经执行的 Tool 仍然计入快照。
     private func executeTurn(
         _ turn: BoneInferenceAssistantTurn,
         messages: inout [BoneInferenceMessage],
-        budgetMeter: BoneRunBudgetMeter?
-    ) async throws -> Int {
+        budgetMeter: BoneRunBudgetMeter?,
+        onResultsReceived: (Int) -> Void
+    ) async throws {
         messages.append(.assistant(turn))
         let results: [BoneInferenceToolResult]
         let impactPolicy = configuration.toolImpactPolicy
@@ -489,6 +497,7 @@ public actor BoneAgent {
                 await eventSink.receive(.toolCallFinished)
                 return .json(output)
             }
+            onResultsReceived(results.count)
             for result in results {
                 try Task.checkCancellation()
                 try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
@@ -500,7 +509,6 @@ public actor BoneAgent {
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             messages.append(.toolResults(try .init(results: results)))
-            return results.count
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BoneAgentError {
@@ -649,10 +657,20 @@ private struct BoneAgentRunSnapshotBuilder {
     var finishReason: BoneInferenceFinishReason?
     var usageByResponse: [BoneInferenceUsage] = []
 
+    /// 记录一次 Engine 已交付响应的可读事实；在取消、预算与 checkpoint 判定之前调用。
+    ///
+    /// `finishReason` 始终跟随最后一次响应：legacy 单结果形态不携带终止原因，
+    /// 因此该次记录会把它重置为 nil（未知），而不是保留上一次 Assistant Turn 的值。
     /// 未报告用量的响应不产生条目，也不按 0 计入合计。
-    mutating func record(usage: BoneInferenceUsage?) {
-        guard let usage else { return }
-        usageByResponse.append(usage)
+    mutating func record(response: BoneInferenceResponse) {
+        inferenceResponseCount += 1
+        switch response {
+        case .finish, .structured, .toolCall:
+            finishReason = nil
+        case let .assistantTurn(_, finishReason, usage, _, _):
+            self.finishReason = finishReason
+            if let usage { usageByResponse.append(usage) }
+        }
     }
 
     func snapshot(

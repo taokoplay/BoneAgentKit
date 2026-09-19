@@ -46,16 +46,17 @@ public struct BoneAgentModelSnapshotContext: Equatable, Sendable {
 ///
 /// 只包含白名单事实：模型身份、解析后的能力与证据来源、上下文限制证据、请求参数回显、
 /// 终态与用量计数、产出时间。不得携带 Prompt、模型响应正文、Tool 参数或结果、凭据、
-/// 完整 Provider UUID 或敏感 URL。
+/// 完整 Provider UUID 或敏感 URL；唯一允许出现的 URL 是 `contextLimits.documentationURL`，
+/// 它必须是 Host 声明的公开厂商文档地址，不能带签名、Token 或用户资源路径。
 ///
 /// Kit 只交付快照：不落盘、不跨 Run 聚合会话。会话级记录由 Host 把同一次对话的多次
 /// Run 快照累加而成，`inferenceResponseCount` 与 `usageByResponse` 是判断覆盖度的依据。
 public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
     /// 实际发出的请求模型 ID，而不是目录显示名或别名。
     public let modelID: String
-    /// Host 配置的模型显示名；只用于回看，不参与请求。
+    /// Host 配置的模型显示名；只允许来自模型目录，不能携带用户内容，不参与请求。
     public let modelDisplayName: String?
-    /// Host 配置的模型别名（显示用短名）；`modelID` 才是实际请求值。
+    /// Host 配置的模型别名（显示用短名）；`modelID` 才是实际请求值，同样不能携带用户内容。
     public let modelAlias: String?
     public let providerKind: BoneInferenceProviderKind?
     public let invocation: BoneInferenceInvocationMode
@@ -75,16 +76,18 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
     /// Runtime 实际提供的 Tool 数量，不是模型自行声明的能力。
     public let availableToolCount: Int
     public let terminalState: BoneAgentRunTerminalState
-    /// 最后一次推理响应的终止原因；Provider 未以完整 Assistant Turn 交付时为 nil。
+    /// 最后一次推理响应的终止原因；该次响应以 legacy 单结果形态交付时为 nil（形态本身不带原因）。
     public let finishReason: BoneInferenceFinishReason?
-    /// 本次 Run 已交付的推理响应数；用量覆盖度以它为准。
+    /// Engine 已交付的推理响应数，包含随后被取消或未提交 checkpoint 的响应；用量覆盖度以它为准。
     public let inferenceResponseCount: Int
+    /// 本次 Run 已受理的 Tool 结果数；副作用不确定（`toolOutcomeUnknown`）时不计入。
     public let toolResultCount: Int
     /// 各次推理响应报告的用量，按发生顺序；未报告用量的响应不产生条目。
     public let usageByResponse: [BoneInferenceUsage]
     /// 已报告用量的合计；可选字段只在其全部报告者都提供时才给出，否则保持未知。
     /// 该值由 `usageByResponse` 推导，不参与编解码，避免出现自相矛盾的记录。
     public let totalUsage: BoneInferenceUsage?
+    /// Run 自身耗时；从能力门禁之后开始计，不包含快照投递耗时。
     public let wallClockSeconds: TimeInterval?
     /// ISO 8601 UTC 产出一致时间戳，格式 `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`。
     public let generatedAt: String
@@ -211,6 +214,7 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
 
     /// 只聚合实际报告过用量的响应：没有报告用量的响应不产生条目，也不按 0 参与。
     /// 可选字段一旦有报告者缺失，合计保持 nil，而不是把未知当成 0。
+    /// 必填字段使用饱和加法：溢出停在 Int 边界，不回绕成看起来合法的负数。
     private static func aggregate(_ usages: [BoneInferenceUsage]) -> BoneInferenceUsage? {
         guard !usages.isEmpty else { return nil }
         var inputTokens = 0
@@ -218,12 +222,11 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
         var cachedInputTokens: Int? = 0
         var reasoningTokens: Int? = 0
         for usage in usages {
-            // 供应商上报的计数字段有界，使用回绕加法避免损坏记录触发算术陷阱。
-            inputTokens = inputTokens &+ usage.inputTokens
-            outputTokens = outputTokens &+ usage.outputTokens
-            cachedInputTokens = cachedInputTokens.map { $0 &+ (usage.cachedInputTokens ?? 0) }
+            inputTokens = saturatedAdd(inputTokens, usage.inputTokens)
+            outputTokens = saturatedAdd(outputTokens, usage.outputTokens)
+            cachedInputTokens = cachedInputTokens.map { saturatedAdd($0, usage.cachedInputTokens ?? 0) }
             if usage.cachedInputTokens == nil { cachedInputTokens = nil }
-            reasoningTokens = reasoningTokens.map { $0 &+ (usage.reasoningTokens ?? 0) }
+            reasoningTokens = reasoningTokens.map { saturatedAdd($0, usage.reasoningTokens ?? 0) }
             if usage.reasoningTokens == nil { reasoningTokens = nil }
         }
         return BoneInferenceUsage(
@@ -232,6 +235,12 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
             cachedInputTokens: cachedInputTokens,
             reasoningTokens: reasoningTokens
         )
+    }
+
+    private static func saturatedAdd(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        guard overflow else { return sum }
+        return rhs >= 0 ? Int.max : Int.min
     }
 }
 

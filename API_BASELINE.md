@@ -93,6 +93,7 @@
 - OpenAI 普通文本也必须单 choice、stop；流式另需 DONE。length → outputTruncated，过滤/拒绝/缺失/未知终态 → invalidResponse。保留 requiringSingleCompletedChoice 参数但不再允许宽松模式。
 - SSE 未成帧 EOF 返回 invalidResponse；LF/CRLF 及逐字节 UTF-8 保留，未扩展 CR-only/BOM/Last-Event-ID。
 - BoneAgent 两个 initializer 及 `run(modelID:messages:)`、`run(request:)`、`runUntilBoundary(request:boundary:)`、`runWorkflowStep(modelID:messages:controller:)` 追加默认 `snapshotContext:` 与 `modelSnapshotSink:`；带标签调用源码兼容。
+- 追加默认参数后旧签名不再是协议 witness：把 `run(modelID:messages:)` 等签名抽成协议并要求 `BoneAgent` 满足的调用方需同步更新协议要求。
 - 模型快照在返回值或错误抛出之前投递；能力门禁之前的拒绝不产出快照。
 
 
