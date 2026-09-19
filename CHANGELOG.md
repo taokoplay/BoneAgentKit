@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.17] - 2026-09-19
+
 ### Added
 
 - Agent 新增 Run 终态模型使用快照：`BoneAgentRunModelSnapshot` 记录实际请求的模型 ID、模型显示名与别名、Provider 种类、调用方式、门禁解析出的能力与证据来源、带来源的上下文限制、生成参数回显、服务端推理策略、终态与用量计数。
@@ -36,6 +38,12 @@
 - 新增默认参数后，旧签名不再是协议 witness：把 `run(modelID:messages:)` 之类签名抽成协议并要求 `BoneAgent` 满足的 Host 需要同步更新协议要求（普通带标签调用不受影响）。
 - 错误分类变化：命中 `max_tokens` 的非流式 Tool 响应现在报 `outputTruncated`，HTTP 403 现在报 `httpStatus(403)`。调用方若按 `invalidResponse` 或 `invalidCredential` 分支处理这两种场景，需要按新分类复核；枚举 case 未增减，既有 switch 保持可编译。
 - Anthropic 的 `stop_reason: max_tokens` 且带完整 `tool_use` 的响应此前会作为成功的 Assistant Turn（`.other(providerCode: "max_tokens")`）交付，现在直接抛 `outputTruncated`：经 `BoneAgent` 运行的调用方两种情况下都失败，直接调用 Engine 的调用方需要处理新增的抛出。
+
+### Release scope
+
+- 本版本包含 Run 级模型使用快照（含 `schemaVersion` 与格式演化约定）、Agent 控制面失败分类收敛，以及非流式 Tool 截断判定与 403 分类对齐。
+- 480 项严格 Swift 6 测试、公开文档检查、离线 Smoke dry-run 与 diff 检查通过。
+- 未发起任何真实 Provider 请求，未完成真机或设备验收；发布检查清单中的真实 Host Debug/Release 构建、Store lease 与跨进程恢复、最低 Swift 5.9 工具链、Provider 资产权利核验仍未关闭，不代表生产准入。
 
 ## [0.2.0-alpha.16] - 2026-09-13
 
