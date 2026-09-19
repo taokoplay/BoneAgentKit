@@ -41,6 +41,8 @@ Provider 凭据只应由 Host composition root 临时注入，不得进入 Check
 
 Host 通过 `BoneAgentModelSnapshotContext` 按 Run 注入 Provider 身份、模型显示名与别名、能力 Profile、上下文限制、目录版本和生效的服务端推理策略，因为这些事实不在 `BoneInferenceEngine` 协议上。未提供的字段保持未知，Host 不得自行用显示名或默认值补全；显示名与别名只做空白归一，空串等于未提供，且只能写模型目录名称，不得把用户内容或对话文本传入。会话记录只应保存模型身份、证据来源、限制、参数回显、计数与用量，不得把 Prompt、响应正文或 Tool 内容一并写入。
 
+落盘记录带 `schemaVersion`（当前为 `BoneAgentRunModelSnapshot.currentSchemaVersion`）。读到更高版本的记录必须 fail closed：旧读取方不能假定自己看得懂新形状，应提示升级或先保留原记录。Kit 的格式演化约定是：新增字段一律 `decodeIfPresent` 加显式默认、不改变已有字段语义，只有形状不兼容时才递增版本号；Host 的会话存储应遵循同一约定。
+
 ## 灰度与产品状态
 
 是否启用 Agent 路由、如何回退旧链路、如何展示任务、何时允许停止或重试，均由 Host 的 Feature Flag 和产品策略决定。事件流不是业务事实源；页面应以 Host 持久化事实和 Kit 稳定状态为准。

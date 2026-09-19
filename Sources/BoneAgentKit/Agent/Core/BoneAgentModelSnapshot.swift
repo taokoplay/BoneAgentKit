@@ -52,6 +52,14 @@ public struct BoneAgentModelSnapshotContext: Equatable, Sendable {
 /// Kit 只交付快照：不落盘、不跨 Run 聚合会话。会话级记录由 Host 把同一次对话的多次
 /// Run 快照累加而成，`inferenceResponseCount` 与 `usageByResponse` 是判断覆盖度的依据。
 public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
+    /// 当前快照格式版本。
+    ///
+    /// 读取到更高版本的记录必须 fail closed：旧读取方不能假定自己看得懂新形状。
+    /// 新增字段一律走 `decodeIfPresent` 加显式默认，且不改变已有字段语义；只有形状不兼容时递增。
+    public static let currentSchemaVersion = 1
+
+    /// 快照格式版本；由类型自身维护，调用方不能改写。
+    public let schemaVersion: Int
     /// 实际发出的请求模型 ID，而不是目录显示名或别名。
     public let modelID: String
     /// Host 配置的模型显示名；只允许来自模型目录，不能携带用户内容，不参与请求。
@@ -116,6 +124,7 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
         wallClockSeconds: TimeInterval? = nil,
         generatedAt: String
     ) {
+        schemaVersion = Self.currentSchemaVersion
         self.modelID = modelID
         self.modelDisplayName = Self.normalized(modelDisplayName)
         self.modelAlias = Self.normalized(modelAlias)
@@ -143,6 +152,7 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
 
     /// `totalUsage` 故意不参与编解码：读取时重算，避免持久化记录里出现与明细矛盾的合计。
     private enum CodingKeys: String, CodingKey {
+        case schemaVersion
         case modelID, modelDisplayName, modelAlias, providerKind, invocation, resolvedCapabilities
         case capabilityProfileSource, capabilityProfileVerifiedAt
         case contextLimits, catalogVersion, catalogVerifiedAt
@@ -153,6 +163,14 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: container,
+                debugDescription: "Unsupported model snapshot schema version: \(schemaVersion)"
+            )
+        }
         self.init(
             modelID: try container.decode(String.self, forKey: .modelID),
             modelDisplayName: try container.decodeIfPresent(String.self, forKey: .modelDisplayName),

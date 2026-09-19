@@ -9,6 +9,7 @@
 - Agent 新增 Run 终态模型使用快照：`BoneAgentRunModelSnapshot` 记录实际请求的模型 ID、模型显示名与别名、Provider 种类、调用方式、门禁解析出的能力与证据来源、带来源的上下文限制、生成参数回显、服务端推理策略、终态与用量计数。
 - `BoneAgentModelSnapshotSink` 在 Run 终态确定之后、返回值或错误抛出之前投递且只投递一次；`BoneAgentModelSnapshotContext` 按 Run 注入 Kit 无法从 Engine 协议推断的模型元数据，未提供字段保持未知。
 - Kit 只交付快照：不落盘、不跨 Run 聚合会话，也不包含 Prompt、响应正文、Tool 参数与结果、凭据、完整 Provider UUID 或敏感 URL；唯一允许出现的 URL 是 Host 声明的公开厂商文档地址（`contextLimits.documentationURL`）。
+- 快照携带 `schemaVersion`（当前 1）并定下格式演化约定：新增字段一律 `decodeIfPresent` 加显式默认、不改变已有字段语义，读取更高版本 fail closed。
 
 ### Fixed
 
@@ -23,10 +24,10 @@
 
 ### Testing
 
-- 新增模型快照回归：投递早于结果、失败与取消仍产出快照、用量合计保持未知语义、能力门禁拒绝时不产出快照、快照不含 Prompt 与 Tool 参数正文、显示名与别名只做空白归一、混合响应形态不复用陈旧终止原因、checkpoint 失败保留已交付响应、Tool 结果部分发布失败仍计数、取消后仍统计已交付响应、stepLimitReached 与 afterFirstToolTurn 终态、编码键集合等于白名单、Codable 往返不持久化派生合计。
+- 新增模型快照回归：投递早于结果、失败与取消仍产出快照、用量合计保持未知语义、能力门禁拒绝时不产出快照、快照不含 Prompt 与 Tool 参数正文、显示名与别名只做空白归一、混合响应形态不复用陈旧终止原因、checkpoint 失败保留已交付响应、Tool 结果部分发布失败仍计数、取消后仍统计已交付响应、stepLimitReached 与 afterFirstToolTurn 终态、编码键集合等于白名单、Codable 往返不持久化派生合计、`schemaVersion` 写入与未知或缺失版本 fail closed。
 - 新增非流式 Tool 截断回归：两协议覆盖无 tool call、带完整 tool call、被截断的参数、仅 thinking 块、空内容块；并把 OpenAI、Anthropic、Gemini 输出约束测试中的 `invalidResponse || outputTruncated` 松断言改为逐载荷精确期望。
 - 新增 Tool 结果提交失败回归：assistantTurn 与 legacy 单 Tool 两条路径均断言 `toolRecoveryRequired`，且已执行 Tool 仍计入快照。
-- 479 项严格 Swift 6 测试通过。
+- 480 项严格 Swift 6 测试通过。
 
 ### Migration
 

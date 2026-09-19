@@ -601,6 +601,7 @@ final class ModelSnapshotTests: XCTestCase {
     }
 
     private static let documentedSnapshotKeys: Set<String> = [
+        "schemaVersion",
         "modelID", "modelDisplayName", "modelAlias", "providerKind", "invocation",
         "resolvedCapabilities", "capabilityProfileSource", "capabilityProfileVerifiedAt",
         "contextLimits", "catalogVersion", "catalogVerifiedAt", "generationOptions",
@@ -608,6 +609,43 @@ final class ModelSnapshotTests: XCTestCase {
         "finishReason", "inferenceResponseCount", "toolResultCount", "usageByResponse",
         "wallClockSeconds", "generatedAt",
     ]
+
+    func testSchemaVersionIsWrittenAndUnknownVersionsFailClosed() throws {
+        let snapshot = BoneAgentRunModelSnapshot(
+            modelID: "model",
+            invocation: .nonStreaming,
+            resolvedCapabilities: [.text],
+            generationOptions: .init(),
+            usesOutputConstraint: false,
+            availableToolCount: 0,
+            terminalState: .succeeded,
+            inferenceResponseCount: 0,
+            toolResultCount: 0,
+            usageByResponse: [],
+            generatedAt: "2026-09-19T00:00:00.000Z"
+        )
+        XCTAssertEqual(snapshot.schemaVersion, BoneAgentRunModelSnapshot.currentSchemaVersion)
+
+        let data = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["schemaVersion"] as? Int, 1)
+        XCTAssertEqual(try JSONDecoder().decode(BoneAgentRunModelSnapshot.self, from: data), snapshot)
+
+        // 更高版本必须 fail closed：旧读取方不能假定自己看得懂新形状。
+        object["schemaVersion"] = 2
+        let newer = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertThrowsError(try JSONDecoder().decode(BoneAgentRunModelSnapshot.self, from: newer))
+
+        // 缺少版本位视为不符合本契约的记录，同样拒绝。
+        object.removeValue(forKey: "schemaVersion")
+        let missing = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertThrowsError(try JSONDecoder().decode(BoneAgentRunModelSnapshot.self, from: missing))
+
+        // 恢复为当前版本后可以正常读回，确认上面两次失败来自版本位本身。
+        object["schemaVersion"] = BoneAgentRunModelSnapshot.currentSchemaVersion
+        let restored = try JSONSerialization.data(withJSONObject: object)
+        XCTAssertEqual(try JSONDecoder().decode(BoneAgentRunModelSnapshot.self, from: restored), snapshot)
+    }
 
     private static func assistantTurn(
         text: String,
