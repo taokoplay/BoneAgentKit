@@ -39,12 +39,13 @@ final class GeminiOutputConstraintTests: XCTestCase {
 
     func testRejectsInvalidTruncatedAndMultipleCandidates() async throws {
         let configuration = Self.configuration(kind: .google)
-        let responses = [
-            Self.response(text: #"{"value":"Approve"}"#),
-            Self.response(text: #"{"value":"approve"}"#, finishReason: "MAX_TOKENS"),
-            Self.response(text: #"{"value":"approve"}"#, candidateCount: 2),
+        let cases: [(String, Data, BoneInferenceTransportError)] = [
+            ("enum case drift", Self.response(text: #"{"value":"Approve"}"#), .invalidResponse),
+            // MAX_TOKENS 必须只归结为截断。
+            ("truncation", Self.response(text: #"{"value":"approve"}"#, finishReason: "MAX_TOKENS"), .outputTruncated),
+            ("multiple candidates", Self.response(text: #"{"value":"approve"}"#, candidateCount: 2), .invalidResponse),
         ]
-        for response in responses {
+        for (label, response, expected) in cases {
             let transport = GeminiConstraintTransport(response: response)
             let engine = BoneGeminiInferenceEngine(
                 configuration: configuration,
@@ -53,9 +54,9 @@ final class GeminiOutputConstraintTests: XCTestCase {
             )
             do {
                 _ = try await engine.infer(request: request())
-                XCTFail("invalid constrained output must fail")
+                XCTFail("invalid constrained output must fail: \(label)")
             } catch let error as BoneInferenceTransportError {
-                XCTAssertTrue([.invalidResponse, .outputTruncated].contains(error))
+                XCTAssertEqual(error, expected, label)
             }
         }
     }

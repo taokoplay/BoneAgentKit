@@ -127,6 +127,12 @@ enum BoneAnthropicToolWire {
     ) throws -> BoneInferenceResponse {
         let definitions = try validated(definitions)
         let stableIDs = Dictionary(uniqueKeysWithValues: definitions.map { ($0.wireName!, $0.id) })
+        // 截断判定先于内容形态判定，与流式聚合器保持一致：max_tokens 截断可能只留下 thinking block，
+        // 或者根本没有任何可交付 block；而 hasCalls 分支又会把 stop_reason 吞成 .other，
+        // 因此这里用不受 hasCalls 影响的判定，先给出可执行的 outputTruncated。
+        if finishReason(json["stop_reason"] as? String, hasCalls: false) == .length {
+            throw BoneInferenceTransportError.outputTruncated
+        }
         guard let blocks = json["content"] as? [[String: Any]], !blocks.isEmpty else {
             throw BoneInferenceTransportError.invalidResponse
         }
@@ -158,8 +164,8 @@ enum BoneAnthropicToolWire {
         let turn: BoneInferenceAssistantTurn
         do { turn = try .init(content: content) }
         catch { throw BoneInferenceTransportError.invalidResponse }
+        // hasCalls 为 true 时 finishReason 不会产出 .length，截断已在上方统一拦截。
         let reason = finishReason(json["stop_reason"] as? String, hasCalls: !turn.toolCalls.isEmpty)
-        if reason == .length { throw BoneInferenceTransportError.outputTruncated }
         let usage = try usage(json["usage"] as? [String: Any])
         return .init(
             assistantTurn: turn,

@@ -63,8 +63,9 @@ final class SDKEnvironmentMatrixTests: XCTestCase {
     }
 
     func testHTTPFailureMatrixPreservesErrorsAndNeverRetries() async throws {
+        // 403 不是凭据错误：网关、WAF 或风控也会返回 403，只保留状态码供调用方判断。
         let failures: [(Int, BoneInferenceTransportError)] = [
-            (401, .invalidCredential), (403, .invalidCredential), (402, .quotaExceeded),
+            (401, .invalidCredential), (403, .httpStatus(403)), (402, .quotaExceeded),
             (404, .unsupportedModel), (429, .rateLimited), (503, .httpStatus(503))
         ]
         for provider in Provider.allCases {

@@ -17,18 +17,23 @@
 - Tool 结果数改为在结果受理时上报，发布中途失败不再丢失已执行的 Tool 计数。
 - usage 合计改用饱和加法，溢出不再回绕成看起来合法的负数。
 - 控制面失败分类收敛：Tool 已执行并返回、失败只发生在 Agent Step 结果提交或组装时，Agent 返回 `toolRecoveryRequired`（原先在 assistantTurn 路径报 `toolExecutionFailed`、在 legacy 路径报 `inferenceFailed`）；预执行控制面拒绝（授权、Schema 或 Effect Intent 未持久化）保持 `toolExecutionFailed`。
+- OpenAI 兼容非流式 Tool 响应在命中 `finish_reason=length` 时先报 `outputTruncated`：输出预算耗尽且没有任何 tool call 的常见形态不再被误报成 `invalidResponse`，参数 JSON 被截断时也不再报成协议形态错误。
+- Anthropic 非流式 Tool 响应的截断判定提前到内容块形态校验之前，并不再受 `hasCalls` 分支影响：`stop_reason` 为 `max_tokens` / `max_output_tokens` 时，无论是否带 `tool_use`、是否只剩 thinking 块、是否没有可交付内容块，一律报 `outputTruncated`，不再被吞成成功轮次（`.other(providerCode: "max_tokens")`）或 `invalidResponse`。
+- HTTP 403 不再归类为 `invalidCredential`：403 也可能来自网关、WAF、路由或风控，现在保留为 `httpStatus(403)`；只有 401 视为凭据错误。
 
 ### Testing
 
 - 新增模型快照回归：投递早于结果、失败与取消仍产出快照、用量合计保持未知语义、能力门禁拒绝时不产出快照、快照不含 Prompt 与 Tool 参数正文、显示名与别名只做空白归一、混合响应形态不复用陈旧终止原因、checkpoint 失败保留已交付响应、Tool 结果部分发布失败仍计数、取消后仍统计已交付响应、stepLimitReached 与 afterFirstToolTurn 终态、编码键集合等于白名单、Codable 往返不持久化派生合计。
+- 新增非流式 Tool 截断回归：两协议覆盖无 tool call、带完整 tool call、被截断的参数、仅 thinking 块、空内容块；并把 OpenAI、Anthropic、Gemini 输出约束测试中的 `invalidResponse || outputTruncated` 松断言改为逐载荷精确期望。
 - 新增 Tool 结果提交失败回归：assistantTurn 与 legacy 单 Tool 两条路径均断言 `toolRecoveryRequired`，且已执行 Tool 仍计入快照。
-- 469 项严格 Swift 6 测试通过。
+- 479 项严格 Swift 6 测试通过。
 
 ### Migration
 
 - `BoneAgent` 两个初始化方法、`run(modelID:messages:)`、`run(request:)`、`runUntilBoundary(request:boundary:)` 和 `runWorkflowStep(modelID:messages:controller:)` 追加带默认值的 `snapshotContext:` 与 `modelSnapshotSink:` 参数，普通源码调用保持兼容。
 - 能力门禁之前的拒绝（`runAlreadyInProgress`、`unsupportedCapability`、`invalidMaximumSteps`）不产出快照：此时还没有可记录的模型事实。
 - 新增默认参数后，旧签名不再是协议 witness：把 `run(modelID:messages:)` 之类签名抽成协议并要求 `BoneAgent` 满足的 Host 需要同步更新协议要求（普通带标签调用不受影响）。
+- 错误分类变化：命中 `max_tokens` 的非流式 Tool 响应现在报 `outputTruncated`，HTTP 403 现在报 `httpStatus(403)`。调用方若按 `invalidResponse` 或 `invalidCredential` 分支处理这两种场景，需要按新分类复核；枚举 case 未增减，既有 switch 保持可编译。
 
 ## [0.2.0-alpha.16] - 2026-09-13
 

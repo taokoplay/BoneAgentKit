@@ -94,13 +94,15 @@ final class OpenAIOutputConstraintTests: XCTestCase {
 
     func testRejectsInvalidTruncatedAndAmbiguousConstraintResponses() async throws {
         let configuration = Self.configuration(kind: .openAI)
-        for data in [
-            Self.response(text: #"{"value":"Approve"}"#),
-            Self.response(text: #"{"value":"approve"}"#, finishReason: "length"),
-            Self.response(text: #"{"value":"approve"}"#, finishReason: "content_filter"),
-            Self.response(text: #"{"value":"approve"}"#, index: 1),
-            Self.multipleChoiceResponse(),
-        ] {
+        let cases: [(String, Data, BoneInferenceTransportError)] = [
+            ("enum case drift", Self.response(text: #"{"value":"Approve"}"#), .invalidResponse),
+            // 命中 max_tokens 必须只归结为截断，不能与形状错误混为一类。
+            ("truncation", Self.response(text: #"{"value":"approve"}"#, finishReason: "length"), .outputTruncated),
+            ("content filter", Self.response(text: #"{"value":"approve"}"#, finishReason: "content_filter"), .invalidResponse),
+            ("non-zero index", Self.response(text: #"{"value":"approve"}"#, index: 1), .invalidResponse),
+            ("multiple choices", Self.multipleChoiceResponse(), .invalidResponse),
+        ]
+        for (label, data, expected) in cases {
             let transport = OpenAIConstraintTransport(response: data)
             let engine = BoneOpenAIInferenceEngine(
                 configuration: configuration,
@@ -109,9 +111,9 @@ final class OpenAIOutputConstraintTests: XCTestCase {
             )
             do {
                 _ = try await engine.infer(request: request())
-                XCTFail("invalid constrained output must fail")
+                XCTFail("invalid constrained output must fail: \(label)")
             } catch let error as BoneInferenceTransportError {
-                XCTAssertTrue(error == .invalidResponse || error == .outputTruncated)
+                XCTAssertEqual(error, expected, label)
             }
         }
     }

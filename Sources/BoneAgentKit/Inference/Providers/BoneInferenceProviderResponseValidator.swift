@@ -19,7 +19,9 @@ public enum BoneInferenceProviderResponseValidator {
 
     public static func mappedError(statusCode: Int) -> BoneInferenceTransportError {
         switch statusCode {
-        case 401, 403: return .invalidCredential
+        // 403 不必然是凭据问题：网关、WAF、路由或风控都可能返回 403，Provider 官方错误码表
+        // 也可能不含 403。只把 401 视为凭据错误，403 保留状态码交给调用方判断。
+        case 401: return .invalidCredential
         case 402: return .quotaExceeded
         case 404: return .unsupportedModel
         case 429: return .rateLimited

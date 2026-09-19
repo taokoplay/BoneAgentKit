@@ -48,12 +48,13 @@ final class AnthropicOutputConstraintTests: XCTestCase {
 
     func testRejectsEnumCaseDriftAndTruncation() async throws {
         let configuration = Self.configuration(kind: .anthropic)
-        let responses = [
-            Self.response(text: #"{"value":"Approve"}"#),
-            Self.response(text: #"{"value":"approve"}"#, stopReason: "max_tokens"),
-            Self.response(text: #"{"value":"approve"}"#, stopReason: "tool_use"),
+        let cases: [(String, Data, BoneInferenceTransportError)] = [
+            ("enum case drift", Self.response(text: #"{"value":"Approve"}"#), .invalidResponse),
+            // max_tokens 必须只归结为截断。
+            ("truncation", Self.response(text: #"{"value":"approve"}"#, stopReason: "max_tokens"), .outputTruncated),
+            ("unexpected stop reason", Self.response(text: #"{"value":"approve"}"#, stopReason: "tool_use"), .invalidResponse),
         ]
-        for response in responses {
+        for (label, response, expected) in cases {
             let transport = AnthropicConstraintTransport(response: response)
             let engine = BoneAnthropicInferenceEngine(
                 configuration: configuration,
@@ -62,9 +63,9 @@ final class AnthropicOutputConstraintTests: XCTestCase {
             )
             do {
                 _ = try await engine.infer(request: request())
-                XCTFail("invalid constrained output must fail")
+                XCTFail("invalid constrained output must fail: \(label)")
             } catch let error as BoneInferenceTransportError {
-                XCTAssertTrue([.invalidResponse, .outputTruncated].contains(error))
+                XCTAssertEqual(error, expected, label)
             }
         }
     }

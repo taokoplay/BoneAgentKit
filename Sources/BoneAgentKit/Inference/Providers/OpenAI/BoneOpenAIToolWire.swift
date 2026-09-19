@@ -138,6 +138,13 @@ enum BoneOpenAIToolWire {
             throw BoneInferenceTransportError.invalidResponse
         }
 
+        // 截断判定先于内容完整性判定，与流式聚合器保持一致：命中 max_tokens 时最常见的形态就是
+        // 没有任何 tool call、可交付正文为空，旧顺序会先被 invalidResponse 吃掉，调用方拿不到
+        // "提高 max_tokens 后重试" 这个可执行信号。
+        if finishReason(choice["finish_reason"] as? String, hasCalls: false) == .length {
+            throw BoneInferenceTransportError.outputTruncated
+        }
+
         var content: [BoneInferenceAssistantContent] = []
         if let text = textContent(message["content"]), !text.isEmpty { content.append(.text(text)) }
         if let calls = message["tool_calls"] as? [[String: Any]] {
@@ -161,8 +168,8 @@ enum BoneOpenAIToolWire {
         let turn: BoneInferenceAssistantTurn
         do { turn = try .init(content: content) }
         catch { throw BoneInferenceTransportError.invalidResponse }
+        // OpenAI 的 "length" 映射与 hasCalls 无关，截断已在上方统一拦截，这里不会再产出 .length。
         let reason = finishReason(choice["finish_reason"] as? String, hasCalls: !turn.toolCalls.isEmpty)
-        if reason == .length { throw BoneInferenceTransportError.outputTruncated }
         let usage = try usage(json["usage"] as? [String: Any])
         let refusal = refusal(message["refusal"])
         return .init(
