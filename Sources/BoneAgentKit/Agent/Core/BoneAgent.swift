@@ -92,21 +92,60 @@ public actor BoneAgent {
         controller: BoneWorkflowAgentStepController,
         snapshotContext: BoneAgentModelSnapshotContext? = nil
     ) async throws -> BoneAgentRunResult {
+        guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
+        isRunning = true
+        defer { isRunning = false }
+
+        let result: BoneAgentBoundaryResult
         do {
-            let result = try await run(
-                modelID: modelID,
-                messages: messages,
+            result = try await executeRunUntilBoundary(
+                request: .init(modelID: modelID, messages: messages),
+                boundary: .untilModelFinish,
                 snapshotContext: snapshotContext
             )
-            try await controller.finish(.succeeded)
-            return result
-        } catch is CancellationError {
-            try await controller.finish(.cancelled)
-            throw CancellationError()
         } catch {
-            try await controller.finish(.failed)
+            try await propagateWorkflowFailure(error, controller: controller)
+        }
+        // 成功终态提交不在执行 catch 中：提交结果未知时不得再写 failed。
+        do { try await controller.finish(.succeeded) }
+        catch {
+            if await controller.checkpoint.state == .cancelled { throw CancellationError() }
+            if await controller.hasUnconfirmedCommit { throw BoneAgentError.toolRecoveryRequired }
             throw error
         }
+        guard case .modelFinished(let output) = result.completion else {
+            throw BoneAgentError.inferenceFailed
+        }
+        return .init(output: output, steps: result.steps)
+    }
+
+    private func propagateWorkflowFailure(
+        _ error: Error,
+        controller: BoneWorkflowAgentStepController
+    ) async throws -> Never {
+        // 先保留副作用恢复分类；正常的已确认取消则不重复写终态。
+        if let recovery = error as? BoneAgentError,
+           recovery == .toolOutcomeUnknown || recovery == .toolRecoveryRequired {
+            if !(await controller.hasUnconfirmedCommit) {
+                try? await controller.requireRecovery()
+            }
+            throw recovery
+        }
+        if await controller.checkpoint.state == .cancelled { throw CancellationError() }
+        if await controller.hasUnconfirmedCommit { throw BoneAgentError.toolRecoveryRequired }
+        if let agentError = error as? BoneAgentError {
+            switch agentError {
+            case .unsupportedCapability, .invalidMaximumSteps, .runAlreadyInProgress: throw agentError
+            default: break
+            }
+        }
+        do { try await controller.finish(error is CancellationError ? .cancelled : .failed) }
+        catch {
+            if await controller.checkpoint.state == .cancelled { throw CancellationError() }
+            if await controller.hasUnconfirmedCommit { throw BoneAgentError.toolRecoveryRequired }
+            throw error
+        }
+        throw error
     }
 
     /// 运行至调用方指定的通用边界；Tool 集合和 continuation 始终由 Runtime 管理。
@@ -117,6 +156,19 @@ public actor BoneAgent {
         snapshotContext: BoneAgentModelSnapshotContext? = nil
     ) async throws -> BoneAgentBoundaryResult {
         guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
+        isRunning = true
+        defer { isRunning = false }
+        return try await executeRunUntilBoundary(
+            request: initialRequest, boundary: boundary, snapshotContext: snapshotContext
+        )
+    }
+
+    /// 调用者持有运行所有权；Workflow 入口还须覆盖最终 checkpoint 提交。
+    private func executeRunUntilBoundary(
+        request initialRequest: BoneInferenceRequest,
+        boundary: BoneAgentRunBoundary,
+        snapshotContext: BoneAgentModelSnapshotContext?
+    ) async throws -> BoneAgentBoundaryResult {
         guard initialRequest.responseFormat == .text else { throw BoneAgentError.inferenceFailed }
         let preparedInitialRequest = BoneInferenceRequest(
             modelID: initialRequest.modelID,
@@ -157,9 +209,6 @@ public actor BoneAgent {
         } catch {
             throw BoneAgentError.inferenceFailed
         }
-        isRunning = true
-        defer { isRunning = false }
-
         await eventSink.receive(.runStarted)
         configuration.logging.write(.info, "run.started", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "messageCount": "\(preparedInitialRequest.messages.count)"]))
         let runStartedAt = monotonicClock()

@@ -56,3 +56,13 @@ PersistenceContractTests、AuthorizationContractTests、WorkflowRecoveryTests �
 `BoneWorkflowPersistence.acquireLease` 当前表达基于 revision CAS 的 generation 接管，不包含 owner、时间有效期或续租接口。Host 必须另行决定谁有权接管以及何时允许接管；generation 用于拒绝旧 worker，不能替代这一所有权策略。验收套件不会把 generation 递增声称为 lease 到期验证，也不修改 Core 接口。
 
 可用 `BoneWorkflowPersistenceContractSuite` 验证 Adapter 的快照提交、CAS 和 fencing 行为，接入方式见 [Testing](Testing.md)。Intent/Receipt 的真实进程崩溃恢复、数据库事务、租约有效期与外部副作用对账仍需独立 Host 验收；首批套件未覆盖 Effect Store，不承诺 exactly-once 或自动重试未知副作用。
+
+## Agent Step 提交边界
+
+`runWorkflowStep` 持有 Agent 运行所有权直到最终 checkpoint 提交及事件投递结束。重复调用返回 `runAlreadyInProgress`，不修改原 Step；progress sink 必须绑定同一个 Controller。
+
+Tool 的 `toolOutcomeUnknown` 或 `toolRecoveryRequired` 不得写成普通失败。`requireRecovery()` 写入 `commitUncertain`，保留 `terminalState == nil` 并发布 `recoveryRequired` 事件。若提交失败仍返回原恢复错误，不能仅按旧 checkpoint 的 running 状态重跑。
+
+Store 提交抛错（包括取消）或返回无效回执后，Controller 保留最后确认的快照并阻止后继写入。直接方法保留 Store 错误，标准 progress sink 映射为 `toolRecoveryRequired`。Host 必须读取持久化事实、核对 lease/revision 并重建 Controller，不能盲写 failed/cancelled 或重执行 Tool。已确认取消优先于迟到 progress；真实副作用未知仍保留恢复分类。
+
+`.skipped`、成功、失败、取消及 `commitUncertain` 都不能由原 Controller 继续推进；恢复/重试由 Host 明确调和并管理 Attempt。

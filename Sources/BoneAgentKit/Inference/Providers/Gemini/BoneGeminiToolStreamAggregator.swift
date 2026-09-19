@@ -6,7 +6,8 @@ enum BoneGeminiToolStreamAggregator {
 
     static func aggregate(
         events: [BoneInferenceEventStreamEvent],
-        definitions: [BoneAgentToolDefinition]
+        definitions: [BoneAgentToolDefinition],
+        localCallNamespace: String = UUID().uuidString
     ) throws -> BoneInferenceResponse {
         guard !events.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
         var totalBytes = 0
@@ -30,6 +31,7 @@ enum BoneGeminiToolStreamAggregator {
             if let content = candidate["content"] as? [String: Any],
                let chunkParts = content["parts"] as? [[String: Any]] {
                 for part in chunkParts {
+                    try BoneGeminiToolWire.validatePartShape(part)
                     guard let fragment = part["text"] as? String else {
                         parts.append(part)
                         continue
@@ -51,13 +53,15 @@ enum BoneGeminiToolStreamAggregator {
             if let reason = candidate["finishReason"] as? String {
                 terminalReason = reason
             }
-            if let value = json["usageMetadata"] as? [String: Any] { usage = value }
+            if let value = try BoneGeminiToolWire.usageObject(json["usageMetadata"]) { usage = value }
         }
         guard let terminalReason else { throw BoneInferenceTransportError.invalidResponse }
-        let synthetic: [String: Any] = [
+        var synthetic: [String: Any] = [
             "candidates": [["finishReason": terminalReason, "content": ["role": "model", "parts": parts]]],
-            "usageMetadata": usage ?? [:],
         ]
-        return try BoneGeminiToolWire.parseResponse(synthetic, definitions: definitions)
+        if let usage { synthetic["usageMetadata"] = usage }
+        return try BoneGeminiToolWire.parseResponse(
+            synthetic, definitions: definitions, localCallNamespace: localCallNamespace
+        )
     }
 }

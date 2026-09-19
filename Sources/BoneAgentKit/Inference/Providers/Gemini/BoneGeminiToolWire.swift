@@ -22,8 +22,9 @@ enum BoneGeminiToolWire {
         let names = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
         var calls: [String: String] = [:]
         var output: [[String: Any]] = []
-        let continuationParts = try BoneGeminiContinuation.modelParts(from: continuation)
-        let continuationTargetIndex = continuationParts == nil ? nil : messages.lastIndex(where: { $0.assistantTurn != nil })
+        let continuationParts = try BoneGeminiContinuation.partsByMessage(
+            from: continuation, messages: messages
+        )
 
         for (messageIndex, message) in messages.enumerated() {
             if let text = message.content {
@@ -38,7 +39,7 @@ enum BoneGeminiToolWire {
                     throw BoneInferenceError.invalidMessage
                 }
                 let parts: [[String: Any]]
-                if messageIndex == continuationTargetIndex, let continuationParts {
+                if let continuationParts = continuationParts[messageIndex] {
                     try validateContinuationParts(
                         continuationParts,
                         against: turn,
@@ -99,9 +100,23 @@ enum BoneGeminiToolWire {
         return output
     }
 
+    static func validatePartShape(_ part: [String: Any]) throws {
+        guard !(part["thought"] as? Bool == true && part["functionCall"] != nil),
+              !(part["text"] != nil && part["functionCall"] != nil) else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+    }
+
+    static func usageObject(_ raw: Any?) throws -> [String: Any]? {
+        guard let raw, !(raw is NSNull) else { return nil }
+        guard let value = raw as? [String: Any] else { throw BoneInferenceTransportError.invalidResponse }
+        return value
+    }
+
     static func parseResponse(
         _ json: [String: Any],
-        definitions: [BoneAgentToolDefinition]
+        definitions: [BoneAgentToolDefinition],
+        localCallNamespace: String = UUID().uuidString
     ) throws -> BoneInferenceResponse {
         let definitions = try validated(definitions)
         let stableIDs = Dictionary(uniqueKeysWithValues: definitions.map { ($0.wireName!, $0.id) })
@@ -127,6 +142,7 @@ enum BoneGeminiToolWire {
         var blocks: [BoneInferenceAssistantContent] = []
         var localIndex = 0
         for part in parts {
+            try validatePartShape(part)
             if part["thought"] as? Bool != true,
                let text = part["text"] as? String,
                !text.isEmpty {
@@ -138,7 +154,7 @@ enum BoneGeminiToolWire {
                       let args = function["args"] as? [String: Any] else {
                     throw BoneInferenceTransportError.invalidResponse
                 }
-                let id = function["id"] as? String ?? "gemini-local-\(localIndex)"
+                let id = function["id"] as? String ?? "gemini-local-\(localCallNamespace)-\(localIndex)"
                 let data = try JSONSerialization.data(withJSONObject: args, options: [.sortedKeys])
                 blocks.append(.toolCall(.init(id: id, toolID: stableID, arguments: data)))
                 localIndex += 1
@@ -150,7 +166,7 @@ enum BoneGeminiToolWire {
         catch { throw BoneInferenceTransportError.invalidResponse }
         let hasCalls = !turn.toolCalls.isEmpty
         guard !hasCalls || finish == "STOP" else { throw BoneInferenceTransportError.invalidResponse }
-        let usage = try parseUsage(json["usageMetadata"] as? [String: Any])
+        let usage = try parseUsage(usageObject(json["usageMetadata"]))
         let continuation = try BoneGeminiContinuation.make(parts: parts)
         return .init(
             assistantTurn: turn,
@@ -201,7 +217,10 @@ private extension BoneGeminiToolWire {
     ) throws {
         let names = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
         // thought/thoughtSignature 必须保留在 opaque continuation 中，但不属于正式 Assistant Turn。
-        let deliverableParts = parts.filter { $0["thought"] as? Bool != true }
+        let deliverableParts = parts.filter {
+            $0["thought"] as? Bool != true &&
+                (($0["text"] as? String)?.isEmpty == false || $0["functionCall"] != nil)
+        }
         guard deliverableParts.count == turn.content.count else {
             throw BoneInferenceError.invalidProviderContinuation
         }

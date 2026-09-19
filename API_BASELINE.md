@@ -102,3 +102,9 @@
 `BoneAgentTesting` 新增 `BoneWorkflowPersistenceContractSuite`、`BoneWorkflowPersistenceContractFixture`、`BoneWorkflowPersistenceContractFixtureFactory`、`BoneWorkflowPersistenceContractCase`、`BoneWorkflowPersistenceContractObservation`、`BoneWorkflowPersistenceContractOutcome`、`BoneWorkflowPersistenceContractFailure` 和 `BoneWorkflowPersistenceContractCapability`。
 
 `run(factory:) async throws` 返回固定白名单 observations；fixture 提供 Store、cleanup 和可选的 reopen/独立连接回调。六个场景的 passed 仅代表相应行为探测通过，skipped 必须单独处理；取消抛出 CancellationError，原始 Host 错误不进入报告。Core Persistence API 与租约语义保持不变。
+
+## Unreleased 正确性修复兼容说明
+
+- 新增 `BoneWorkflowAgentStepController.requireRecovery()` 与 `BoneWorkflowAgentStepEventKind.recoveryRequired`；事件穷尽 switch 需更新。
+- Controller 提交异常/无效回执后禁止继续写入；直接调用保留 Store 错误，标准 progress sink 报 `toolRecoveryRequired`。Host 重读后重建，不把未确认提交当作普通业务失败。
+- Gemini call ID 仍为 String，但 fallback 不再跨轮重复；opaque continuation 的累计格式为 Provider 私有实现，不构成稳定解码接口。

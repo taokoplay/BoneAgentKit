@@ -5,8 +5,10 @@ struct BoneGeminiNormalizedEventMapper {
     private let toolIDsByWireName: [String: String]
     private var reasoningActive = false
     private var localCallIndex = 0
+    private let localCallNamespace: String
 
-    init(disclosure: BoneInferenceReasoningDisclosure, definitions: [BoneAgentToolDefinition]) {
+    init(disclosure: BoneInferenceReasoningDisclosure, definitions: [BoneAgentToolDefinition], localCallNamespace: String = UUID().uuidString) {
+        self.localCallNamespace = localCallNamespace
         self.disclosure = disclosure
         toolIDsByWireName = Dictionary(uniqueKeysWithValues: definitions.compactMap { definition in
             guard let name = definition.wireName else { return nil }
@@ -23,6 +25,7 @@ struct BoneGeminiNormalizedEventMapper {
         if let content = candidate["content"] as? [String: Any],
            let parts = content["parts"] as? [[String: Any]] {
             for part in parts {
+                try BoneGeminiToolWire.validatePartShape(part)
                 if part["thought"] as? Bool == true {
                     if disclosure == .providerReadable,
                        let text = part["text"] as? String, !text.isEmpty {
@@ -40,7 +43,7 @@ struct BoneGeminiNormalizedEventMapper {
                    let name = function["name"] as? String,
                    let toolID = toolIDsByWireName[name],
                    let args = function["args"] as? [String: Any] {
-                    let id = function["id"] as? String ?? "gemini-local-\(localCallIndex)"
+                    let id = function["id"] as? String ?? "gemini-local-\(localCallNamespace)-\(localCallIndex)"
                     localCallIndex += 1
                     result.append(.toolCallStarted(id: id, toolID: toolID))
                     result.append(.toolArgumentsDelta(

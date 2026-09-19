@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `runWorkflowStep` 运行所有权覆盖最终 checkpoint 提交；重复/重入调用不再将正在运行的 Step 写成失败。
+- 恢复必需错误保留原分类，可提交时写 `commitUncertain`。最终提交失败不再补写另一终态；中途提交异常/无效回执后 Controller 阻止后继盲写，Host 必须重读后重建。已确认取消及迟到 progress 的 CAS 冲突仍传播取消。
+- `.skipped` Step 不再允许通过 Controller 改写为其他终态。
+- Gemini 无原生 call ID 时使用响应级唯一命名空间，流事件与最终响应共享 ID；有界 opaque continuation 累积签名轮次，后续无签名轮次及 stop 不清空旧签名，旧单轮 envelope 仍可读。
+- Gemini 缺省/null usage 保持未知，非法载荷拒绝；签名元数据不计正式 blocks，thought functionCall 与混合 text/functionCall 在文本合并前拒绝。
+
+### Added
+
+- `BoneWorkflowAgentStepController.requireRecovery()` 和 `BoneWorkflowAgentStepEventKind.recoveryRequired`，提交 `commitUncertain` 并发布安全事件。
+- Workflow wrapper、真实 Effect pipeline、checkpoint 故障/取消交错，以及 Gemini 多轮/签名/ID/用量/累计容量回归测试。
+
+### Migration
+
+- Host 对 `BoneWorkflowAgentStepEventKind` 的穷尽 switch 需处理新增 `recoveryRequired`；它不是业务成功/失败终态。
+- `progressSink()` 将已尝试但未确认的 Store 提交映射为 `toolRecoveryRequired`；直接 Controller 操作保留原 Store 错误，但同一实例禁止后继写入。Host 必须重读/调和，不得自动重试 Tool。
+- Gemini fallback call ID 是不透明标识，不能依赖旧编号形态。continuation 累计上限仍为 256 KiB，不得记日志或存入普通 checkpoint；绑定不认证 user/tool-result 正文。
+- 本轮为本地正确性修复，不代表真实 Host、数据库、Provider、真机或最低 Swift 5.9 已完成生产验收。
+
 ## [0.2.0-alpha.17] - 2026-09-19
 
 ### Added

@@ -119,6 +119,7 @@ public enum BoneWorkflowAgentStepEventKind: String, Codable, Equatable, Sendable
     case waitingForAuthorization
     case resumed
     case paused
+    case recoveryRequired
     case succeeded
     case failed
     case cancelled
@@ -151,6 +152,8 @@ public actor BoneWorkflowAgentStepController {
     public private(set) var checkpoint: BoneWorkflowAgentStepCheckpoint
     private let persistence: BoneWorkflowAgentStepCheckpointStore
     private let eventSink: BoneWorkflowAgentStepEventSink
+    /// 一旦提交尝试未获有效回执，本实例不能盲写后继状态；Host 必须重读后重建 controller。
+    private(set) var hasUnconfirmedCommit = false
 
     public init(
         runID: BoneRunID,
@@ -224,6 +227,12 @@ public actor BoneWorkflowAgentStepController {
         try await commit(copy(state: .running), event: .resumed)
     }
 
+    /// 外部副作用或控制面提交结果未知；保留无业务终态的 checkpoint 等待 Host 调和。
+    public func requireRecovery() async throws {
+        try ensureNotTerminal()
+        try await commit(copy(state: .commitUncertain, clearAuthorizationTicket: true), event: .recoveryRequired)
+    }
+
     public func cancel() async throws {
         try ensureNotTerminal()
         try await commit(copy(state: .cancelled, clearAuthorizationTicket: true, cancellationPersisted: true, terminalState: .cancelled), event: .cancelled)
@@ -248,31 +257,45 @@ public actor BoneWorkflowAgentStepController {
     public nonisolated func progressSink() -> BoneAgentProgressSink {
         BoneAgentProgressSink { [weak self] progress in
             guard let self else { throw CancellationError() }
-            try await self.receive(progress)
+            do { try await self.receive(progress) }
+            catch {
+                if await self.hasUnconfirmedCommit {
+                    // 在途 progress 可能输给已确认的取消；这不是新的副作用未知。
+                    if await self.checkpoint.state == .cancelled { throw CancellationError() }
+                    throw BoneAgentError.toolRecoveryRequired
+                }
+                throw error
+            }
         }
     }
 
     private func commit(_ next: BoneWorkflowAgentStepCheckpoint, event: BoneWorkflowAgentStepEventKind) async throws {
         // Reject inconsistent candidates before the Host can persist them.
         try Self.validate(next)
-        let stored = try await persistence.commit(
-            next,
-            expectedRevision: checkpoint.persistenceRevision,
-            leaseGeneration: checkpoint.leaseGeneration
-        )
-        try Self.validate(stored)
-        guard stored.runID == next.runID,
-              stored.stepID == next.stepID,
-              stored.attemptID == next.attemptID,
-              stored.state == next.state,
-              stored.inferenceResponseCount == next.inferenceResponseCount,
-              stored.toolResultCount == next.toolResultCount,
-              stored.pendingAuthorizationTicketID == next.pendingAuthorizationTicketID,
-              stored.cancellationPersisted == next.cancellationPersisted,
-              stored.terminalState == next.terminalState,
-              stored.leaseGeneration == checkpoint.leaseGeneration,
-              stored.persistenceRevision == checkpoint.persistenceRevision + 1 else {
-            throw BoneWorkflowAgentStepError.invalidState
+        let stored: BoneWorkflowAgentStepCheckpoint
+        do {
+            stored = try await persistence.commit(
+                next,
+                expectedRevision: checkpoint.persistenceRevision,
+                leaseGeneration: checkpoint.leaseGeneration
+            )
+            try Self.validate(stored)
+            guard stored.runID == next.runID,
+                  stored.stepID == next.stepID,
+                  stored.attemptID == next.attemptID,
+                  stored.state == next.state,
+                  stored.inferenceResponseCount == next.inferenceResponseCount,
+                  stored.toolResultCount == next.toolResultCount,
+                  stored.pendingAuthorizationTicketID == next.pendingAuthorizationTicketID,
+                  stored.cancellationPersisted == next.cancellationPersisted,
+                  stored.terminalState == next.terminalState,
+                  stored.leaseGeneration == next.leaseGeneration,
+                  stored.persistenceRevision == next.persistenceRevision + 1 else {
+                throw BoneWorkflowAgentStepError.invalidState
+            }
+        } catch {
+            hasUnconfirmedCommit = true
+            throw error
         }
         checkpoint = stored
         await eventSink.receive(.init(kind: event))
@@ -308,9 +331,10 @@ public actor BoneWorkflowAgentStepController {
 
     private func ensureNotTerminal() throws {
         guard checkpoint.terminalState == nil,
-              checkpoint.state != .commitUncertain else {
+              checkpoint.state != .commitUncertain, checkpoint.state != .skipped else {
             throw BoneWorkflowAgentStepError.terminalState
         }
+        guard !hasUnconfirmedCommit else { throw BoneWorkflowAgentStepError.invalidState }
     }
 
     private func copy(

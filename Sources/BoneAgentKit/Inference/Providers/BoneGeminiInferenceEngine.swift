@@ -90,7 +90,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .gemini)
             return .init(
-                response: finalResponse,
+                response: try BoneGeminiContinuation.accumulating(finalResponse, after: request),
                 reasoning: BoneInferenceReasoningSupport.gemini(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -124,9 +124,11 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                     )
                     let urlRequest = try makeRequest(request, streaming: true)
                     var events: [BoneInferenceEventStreamEvent] = []
+                    let localCallNamespace = UUID().uuidString
                     var mapper = BoneGeminiNormalizedEventMapper(
                         disclosure: request.reasoningDisclosure,
-                        definitions: request.availableTools
+                        definitions: request.availableTools,
+                        localCallNamespace: localCallNamespace
                     )
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
@@ -135,7 +137,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                             for mapped in mappedEvents { continuation.yield(mapped) }
                         }
                     }
-                    let aggregated = try BoneGeminiToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
+                    let aggregated = try BoneGeminiToolStreamAggregator.aggregate(events: events, definitions: request.availableTools, localCallNamespace: localCallNamespace)
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {
                         guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
@@ -159,7 +161,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         response = aggregated
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: response,
+                        response: try BoneGeminiContinuation.accumulating(response, after: request),
                         reasoning: BoneInferenceReasoningSupport.gemini(events: events, disclosure: request.reasoningDisclosure)
                     )
                     continuation.yield(.completed(result))
@@ -228,7 +230,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             )
         }
         return .init(
-            response: finalResponse,
+            response: try BoneGeminiContinuation.accumulating(finalResponse, after: request),
             reasoning: BoneInferenceReasoningSupport.gemini(
                 events: response.events,
                 disclosure: request.reasoningDisclosure

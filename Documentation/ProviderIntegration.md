@@ -288,3 +288,11 @@ Host 应在启动 Agent 前查询支持情况。
 映射，不扩展 Anthropic 入口。实例级策略适用于该实例各次调用，如需不同策略应分别构造实例。
 本地回归不代表线上成功率或延迟改善；Thinking 不是超时问题的通用修复。
 依据（2026-09-13）：https://wiki.agnes-ai.com/en/docs/agnes-25-flash 的 Thinking Mode 示例。
+
+## Gemini 多轮 continuation
+
+无原生 call ID 时，SDK 为每次响应分配独立命名空间，流事件与最终响应使用相同 ID。调用方仅以不透明 ID 关联 Tool Result，不解析其格式。
+
+带签名的原始 model parts 保存在有界 opaque continuation 中，累计绑定非 system 消息索引及精确 assistant turn。后续工具轮或 stop 没有新签名时仍保留历史签名。直接使用 Engine 继续对话时，应追加原 assistant turn 并传递最新 continuation，不自行重建或丢弃签名。已绑定 turn 被移动、修改或裁剪会拒绝；绑定不认证 user/tool-result 正文，也不替代 Host 历史治理。
+
+累计上限仍为 256 KiB，超限拒绝而非截断签名。不得将其放入日志、普通 checkpoint 或安全报告。旧单轮 envelope 可读，内部 JSON 不是公共接口。缺省/null usage 保持未知，非法计数载荷拒绝；签名元数据不属于正式文本或 Tool Call。

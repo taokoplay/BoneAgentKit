@@ -138,6 +138,44 @@ final class WorkflowEffectExecutionTests: XCTestCase {
         return await (task.value, fixture, engine)
     }
 
+    func testWorkflowWrapperPreservesRecoveryAfterRealEffectPipelineFailure() async throws {
+        for legacy in [false, true] {
+            for mode in [EffectMode.throwsAfterWrite, .rejectReceipt, .rejectCommit] {
+                let fixture = EffectFixture(mode)
+                let engine = try EffectEngine(legacy: legacy, readOnly: false)
+                let controller = try BoneWorkflowAgentStepController(
+                    runID: .init("run"), stepID: .init("step"), attemptID: .init("attempt"),
+                    persistence: .init { n, revision, generation in
+                        .init(runID: n.runID, stepID: n.stepID, attemptID: n.attemptID, state: n.state,
+                              inferenceResponseCount: n.inferenceResponseCount, toolResultCount: n.toolResultCount,
+                              pendingAuthorizationTicketID: n.pendingAuthorizationTicketID,
+                              cancellationPersisted: n.cancellationPersisted, terminalState: n.terminalState,
+                              persistenceRevision: revision + 1, leaseGeneration: generation)
+                    })
+                let agent = BoneAgent(inferenceEngine: engine,
+                    toolRegistry: try .init(tools: [BoneAnyAgentTool(EffectWriteTool(fixture: fixture))]),
+                    toolContext: BoneAgentEmptyContext(), configuration: try .init(maximumSteps: 3,
+                        toolImpactPolicy: .init(maximumAllowed: EffectWriteTool.definition.impact!),
+                        toolExecutionPipeline: .init(effectStore: fixture),
+                        toolExecutionContextProvider: { call, _ in try Self.makeContext(call) }),
+                    workflowController: controller)
+                do {
+                    _ = try await agent.runWorkflowStep(modelID: "model", messages: [], controller: controller)
+                    XCTFail("Effect failure must require recovery")
+                } catch {
+                    XCTAssertEqual(error as? BoneAgentError, mode == .throwsAfterWrite ? .toolOutcomeUnknown : .toolRecoveryRequired)
+                }
+                let checkpoint = await controller.checkpoint
+                XCTAssertEqual(checkpoint.state, .commitUncertain)
+                XCTAssertNil(checkpoint.terminalState)
+                let observations = await fixture.observations()
+                XCTAssertEqual(observations.0, 1)
+                let count = await engine.calls()
+                XCTAssertEqual(count, 1)
+            }
+        }
+    }
+
     func testUnknownWriteStopsBatchAndNextInference() async throws {
         let (error, fixture, engine) = try await run(.throwsAfterWrite)
         XCTAssertEqual(error as? BoneAgentError, .toolOutcomeUnknown)
