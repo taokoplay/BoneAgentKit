@@ -13,7 +13,7 @@ public enum BoneAgentError: Error, Codable, Equatable, Sendable {
     case toolArgumentsInvalid
     /// 副作用可能已经发生但结果未知；Host 必须按原 Effect identity 恢复/对账。
     case toolOutcomeUnknown
-    /// Tool 已返回，但 Receipt 持久化/提交未确认；不得直接重试 Tool。
+    /// Tool 已返回，但 Receipt 或 Agent Step 结果提交/组装未确认；不得直接重试 Tool。
     case toolRecoveryRequired
     case toolExecutionFailed
     case budgetExceeded

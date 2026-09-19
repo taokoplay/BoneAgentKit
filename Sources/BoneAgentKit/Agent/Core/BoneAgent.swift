@@ -394,18 +394,30 @@ public actor BoneAgent {
             throw error
         }
         await budgetMeter?.releaseConcurrentTool()
-        try Task.checkCancellation()
-        try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-        guard output.count <= BoneInferenceToolResult.maximumResultByteCount else {
-            throw BoneAgentError.toolPayloadTooLarge
+        do {
+            try Task.checkCancellation()
+            try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+            guard output.count <= BoneInferenceToolResult.maximumResultByteCount else {
+                throw BoneAgentError.toolPayloadTooLarge
+            }
+            try await budgetMeter?.commitTool(resultBytes: output.count)
+            try await progressSink.receive(.toolResultPrepared(step: messages.count + 1, ordinal: 0))
+            await eventSink.receive(.toolCallFinished)
+            configuration.logging.write(.info, "tool.finished", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "resultBytes": "\(output.count)"]))
+            try Task.checkCancellation()
+            try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+            messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as BoneAgentError {
+            throw error
+        } catch let error as BoneRunBudgetError {
+            throw error
+        } catch {
+            // Tool 已执行并返回结果；Agent Step 结果提交或组装失败必须走恢复语义，
+            // 不得归为 Tool 执行失败，也不允许 Host 直接重试 Tool。
+            throw BoneAgentError.toolRecoveryRequired
         }
-        try await budgetMeter?.commitTool(resultBytes: output.count)
-        try await progressSink.receive(.toolResultPrepared(step: messages.count + 1, ordinal: 0))
-        await eventSink.receive(.toolCallFinished)
-        configuration.logging.write(.info, "tool.finished", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "resultBytes": "\(output.count)"]))
-        try Task.checkCancellation()
-        try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-        messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
     }
 
     /// 执行一个完整 Assistant Tool Turn；已受理的结果数通过 `onResultsReceived` 立即上报，
@@ -497,18 +509,6 @@ public actor BoneAgent {
                 await eventSink.receive(.toolCallFinished)
                 return .json(output)
             }
-            onResultsReceived(results.count)
-            for result in results {
-                try Task.checkCancellation()
-                try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-                try await progressSink.receive(.toolResultPrepared(
-                    step: messages.count,
-                    ordinal: result.ordinal
-                ))
-            }
-            try Task.checkCancellation()
-            try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-            messages.append(.toolResults(try .init(results: results)))
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BoneAgentError {
@@ -516,6 +516,8 @@ public actor BoneAgent {
         } catch let error as BoneRunBudgetError {
             throw error
         } catch is BoneToolBatchAbortError {
+            // 预执行控制面拒绝（授权、Schema 或 Effect Intent 未持久化）：Tool 未运行，
+            // 归类为 Tool 失败是安全的；不得声称“已返回、禁止重试”。
             throw BoneAgentError.toolExecutionFailed
         } catch let error as BoneToolSchedulerError {
             switch error {
@@ -530,6 +532,29 @@ public actor BoneAgent {
             }
         } catch {
             throw BoneAgentError.toolExecutionFailed
+        }
+        // Tool 已执行、结果已受理；此后失败属于结果提交或组装，走恢复语义。
+        onResultsReceived(results.count)
+        do {
+            for result in results {
+                try Task.checkCancellation()
+                try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+                try await progressSink.receive(.toolResultPrepared(
+                    step: messages.count,
+                    ordinal: result.ordinal
+                ))
+            }
+            try Task.checkCancellation()
+            try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+            messages.append(.toolResults(try .init(results: results)))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as BoneRunBudgetError {
+            throw error
+        } catch {
+            // Tool 已执行、结果已受理；Agent Step 结果提交或组装失败必须走恢复语义，
+            // 不得归为 Tool 执行失败，也不允许 Host 直接重试 Tool。
+            throw BoneAgentError.toolRecoveryRequired
         }
     }
 

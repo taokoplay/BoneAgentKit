@@ -427,13 +427,13 @@ final class ModelSnapshotTests: XCTestCase {
             _ = try await agent.run(modelID: "model", messages: [])
             XCTFail("expected publish failure")
         } catch {
-            // executeTurn 将未识别的进度错误归为 Tool 执行失败（现有行为，未在本次改动范围内）。
-            XCTAssertEqual(error as? BoneAgentError, .toolExecutionFailed)
+            // Tool 已执行、结果已受理；结果提交失败走恢复语义，不再归为 Tool 执行失败。
+            XCTAssertEqual(error as? BoneAgentError, .toolRecoveryRequired)
         }
 
         let published = await log.values()
         let snapshot = try XCTUnwrap(published.first)
-        XCTAssertEqual(snapshot.terminalState, .failed(.toolExecutionFailed))
+        XCTAssertEqual(snapshot.terminalState, .failed(.toolRecoveryRequired))
         // 两个 Tool 都已执行，第二个结果发布失败不能把第一个丢掉。
         XCTAssertEqual(snapshot.toolResultCount, 2)
         XCTAssertEqual(snapshot.inferenceResponseCount, 1)
@@ -478,6 +478,38 @@ final class ModelSnapshotTests: XCTestCase {
         // 响应已在取消判定之前交付，仍是已计费的一次调用。
         XCTAssertEqual(snapshot.inferenceResponseCount, 1)
         XCTAssertEqual(snapshot.usageByResponse, [usage])
+    }
+
+    func testLegacyToolResultSubmitFailureReportsRecoveryRequired() async throws {
+        let call = BoneInferenceToolCall(
+            id: "call-1",
+            toolID: SnapshotEchoTool.definition.id,
+            arguments: try JSONEncoder().encode(SnapshotEchoTool.Input(value: "ok"))
+        )
+        let engine = SnapshotScriptedEngine(capabilities: [.text, .toolCalling], script: [.toolCall(call)])
+        let log = SnapshotLog()
+        let progress = SnapshotProgressRecorder(failOnToolResultOrdinal: 1)
+        let agent = BoneAgent(
+            inferenceEngine: engine,
+            toolRegistry: try .init(tools: [BoneAnyAgentTool(SnapshotEchoTool())]),
+            toolContext: BoneAgentEmptyContext(),
+            configuration: try BoneAgentConfiguration(maximumSteps: 2),
+            progressSink: progress.sink(),
+            modelSnapshotSink: log.sink()
+        )
+
+        do {
+            _ = try await agent.run(modelID: "model", messages: [])
+            XCTFail("expected publish failure")
+        } catch {
+            // legacy 单结果路径同样不得把已执行的 Tool 报成失败，也不得报成推理失败。
+            XCTAssertEqual(error as? BoneAgentError, .toolRecoveryRequired)
+        }
+
+        let legacySnapshots = await log.values()
+        let snapshot = try XCTUnwrap(legacySnapshots.first)
+        XCTAssertEqual(snapshot.terminalState, .failed(.toolRecoveryRequired))
+        XCTAssertEqual(snapshot.inferenceResponseCount, 1)
     }
 
     func testStepLimitAndToolTurnBoundaryReportTerminalState() async throws {
