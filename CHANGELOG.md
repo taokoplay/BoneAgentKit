@@ -16,11 +16,13 @@
 - 已交付响应的事实（响应数、终止原因、用量）改为在取消、预算与 checkpoint 判定之前记录，checkpoint 提交失败不再把已计费的调用记成 0。
 - Tool 结果数改为在结果受理时上报，发布中途失败不再丢失已执行的 Tool 计数。
 - usage 合计改用饱和加法，溢出不再回绕成看起来合法的负数。
+- 控制面失败分类收敛：Tool 已执行并返回、失败只发生在 Agent Step 结果提交或组装时，Agent 返回 `toolRecoveryRequired`（原先在 assistantTurn 路径报 `toolExecutionFailed`、在 legacy 路径报 `inferenceFailed`）；预执行控制面拒绝（授权、Schema 或 Effect Intent 未持久化）保持 `toolExecutionFailed`。
 
 ### Testing
 
 - 新增模型快照回归：投递早于结果、失败与取消仍产出快照、用量合计保持未知语义、能力门禁拒绝时不产出快照、快照不含 Prompt 与 Tool 参数正文、显示名与别名只做空白归一、混合响应形态不复用陈旧终止原因、checkpoint 失败保留已交付响应、Tool 结果部分发布失败仍计数、取消后仍统计已交付响应、stepLimitReached 与 afterFirstToolTurn 终态、编码键集合等于白名单、Codable 往返不持久化派生合计。
-- 468 项严格 Swift 6 测试通过。
+- 新增 Tool 结果提交失败回归：assistantTurn 与 legacy 单 Tool 两条路径均断言 `toolRecoveryRequired`，且已执行 Tool 仍计入快照。
+- 469 项严格 Swift 6 测试通过。
 
 ### Migration
 
