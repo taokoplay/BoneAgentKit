@@ -14,6 +14,8 @@
 
 允许记录的最小白名单是：运行阶段、稳定错误分类、安全短 ID、HTTP 状态类别、响应长度、载荷类别、byteCount、MIME、候选/持久化计数。短 ID 必须不可逆且不输出完整 Provider UUID。
 
+`BoneAgentRunModelSnapshot` 是 Run 级模型使用事实的安全载体：只包含模型 ID、模型显示名与别名、Provider 种类、调用方式、门禁解析出的能力与证据来源、带来源的上下文限制、目录版本、生成参数回显、服务端推理策略、终态、用量明细与计数。它不包含 Prompt、模型响应正文、Tool 参数与结果、凭据、完整 Provider UUID 或 URL，因此可以作为 Host 会话记录的输入；跨 Run 聚合与落盘仍由 Host 完成。
+
 标准 `BoneWorkflowCheckpoint` 必须显式声明 `BoneCheckpointDataClassification` 与 `BoneCheckpointRetention`，只接受 `.safeState` 或 `.opaqueReference`。`.userPrivate`、`.credential`、`.providerContinuation` 与 `.rawModelExchange` 通过标准构造入口 fail-closed；若未来 Host 需要保存此类内容，必须另建具有加密、隔离、到期和删除能力协商的专用 Store，不能借普通 JSON payload 绕过。
 
 ## 运行数据边界

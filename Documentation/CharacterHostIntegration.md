@@ -31,6 +31,14 @@ Adapter 可使用 [Host 持久化契约验收套件](Testing.md#host-持久化�
 
 Provider 凭据只应由 Host composition root 临时注入，不得进入 Checkpoint、日志、事件或安全报告。
 
+## 模型使用记录
+
+需要按对话留存“这次会话用了哪个模型”时，Host 通过初始化 `BoneAgent` 时传入的 `BoneAgentModelSnapshotSink` 接收每个 Run 的 `BoneAgentRunModelSnapshot`，再按自己的会话标识累加 `usageByResponse` 与计数并落盘。Kit 不持久化快照、不知道会话边界，也不提供跨 Run 聚合。
+
+快照在 Run 返回值或错误抛出之前交付且只交付一次，因此成功分支与 `catch` 分支都可以安全地假设快照已到达。投递是 `await` 的：闭包内的耗时会计入 Run 自身时间并占用 Agent 的串行执行上下文，写库或写文件应放到 Host 自己的任务里。
+
+Host 通过 `BoneAgentModelSnapshotContext` 按 Run 注入 Provider 身份、模型显示名与别名、能力 Profile、上下文限制、目录版本和生效的服务端推理策略，因为这些事实不在 `BoneInferenceEngine` 协议上。未提供的字段保持未知，Host 不得自行用显示名或默认值补全；显示名与别名只做空白归一，空串等于未提供。会话记录只应保存模型身份、证据来源、限制、参数回显、计数与用量，不得把 Prompt、响应正文或 Tool 内容一并写入。
+
 ## 灰度与产品状态
 
 是否启用 Agent 路由、如何回退旧链路、如何展示任务、何时允许停止或重试，均由 Host 的 Feature Flag 和产品策略决定。事件流不是业务事实源；页面应以 Host 持久化事实和 Kit 稳定状态为准。

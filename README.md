@@ -96,7 +96,8 @@ let result = try await agent.run(
 - OpenAI、Anthropic、Gemini 请求和事件聚合，并为经过真实 Smoke 绑定身份的精确模型提供原生 Output Constraint seam；
 - 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地由受信任 Compiler 将精确 Enum 或受支持的 `BoneToolSchema` 子集编译为 GBNF，并交给真实 Grammar Sampler；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
-- 默认串行、显式只读并行的确定性调度。
+- 默认串行、显式只读并行的确定性调度；
+- Run 终态模型使用快照：模型身份、能力与证据来源、上下文限制、参数回显、终态与用量，只回传不落盘。
 
 ### Workflow 与恢复
 

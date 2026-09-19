@@ -105,6 +105,8 @@ Capability metadata 不替代 Provider 自身的模型目录、鉴权、额度�
 
 `BoneAgentEvent` 提供 `runStarted → toolCallStarted → toolCallFinished → runFinished` 四类生命周期事件。另有 `BoneAgentProgressSink` 接收准备检查点、工具校验和白名单失败诊断等进度；Inference Streaming 使用自己的事件协议。它们用于单次 Run 的观察，不是持久事实源；数据库状态、用户确认票据和恢复依据仍由 App 管理。
 
+`BoneAgentModelSnapshotSink` 单独交付 Run 级模型使用快照（`BoneAgentRunModelSnapshot`）。投递发生在终态确定之后、返回值或错误抛出之前且只发生一次，只含白名单字段；它是给 Host 会话记录用的输入，同样不是事实源，也不由 Kit 落盘或跨 Run 聚合。
+
 ## Developer Experience Targets
 
 | 使用动作 | 目标 |

@@ -8,6 +8,7 @@ public actor BoneAgent {
     private let configuration: BoneAgentConfiguration
     private let eventSink: BoneAgentEventSink
     private let progressSink: BoneAgentProgressSink
+    private let modelSnapshotSink: BoneAgentModelSnapshotSink
     private let toolScheduler: BoneToolCallScheduler
     private let monotonicClock: @Sendable () -> TimeInterval
     private var isRunning = false
@@ -21,10 +22,12 @@ public actor BoneAgent {
         configuration: BoneAgentConfiguration,
         eventSink: BoneAgentEventSink = BoneAgentEventSink(),
         progressSink: BoneAgentProgressSink = BoneAgentProgressSink(),
-        monotonicClock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        monotonicClock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        modelSnapshotSink: BoneAgentModelSnapshotSink = BoneAgentModelSnapshotSink()
     ) {
 
         self.monotonicClock = monotonicClock
+        self.modelSnapshotSink = modelSnapshotSink
         self.inferenceEngine = inferenceEngine
         self.toolRegistry = toolRegistry
         self.toolContext = toolContext
@@ -41,7 +44,8 @@ public actor BoneAgent {
         toolContext: any BoneAgentToolContext,
         configuration: BoneAgentConfiguration,
         workflowController: BoneWorkflowAgentStepController,
-        eventSink: BoneAgentEventSink = BoneAgentEventSink()
+        eventSink: BoneAgentEventSink = BoneAgentEventSink(),
+        modelSnapshotSink: BoneAgentModelSnapshotSink = BoneAgentModelSnapshotSink()
     ) {
         self.init(
             inferenceEngine: inferenceEngine,
@@ -49,17 +53,32 @@ public actor BoneAgent {
             toolContext: toolContext,
             configuration: configuration,
             eventSink: eventSink,
-            progressSink: workflowController.progressSink()
+            progressSink: workflowController.progressSink(),
+            modelSnapshotSink: modelSnapshotSink
         )
     }
 
-    public func run(modelID: String, messages: [BoneInferenceMessage]) async throws -> BoneAgentRunResult {
-        try await run(request: BoneInferenceRequest(modelID: modelID, messages: messages))
+    public func run(
+        modelID: String,
+        messages: [BoneInferenceMessage],
+        snapshotContext: BoneAgentModelSnapshotContext? = nil
+    ) async throws -> BoneAgentRunResult {
+        try await run(
+            request: BoneInferenceRequest(modelID: modelID, messages: messages),
+            snapshotContext: snapshotContext
+        )
     }
 
     /// 使用调用方的文本生成参数运行传统自治 Agent；保持现有模型终态输出契约。
-    public func run(request initialRequest: BoneInferenceRequest) async throws -> BoneAgentRunResult {
-        let result = try await runUntilBoundary(request: initialRequest, boundary: .untilModelFinish)
+    public func run(
+        request initialRequest: BoneInferenceRequest,
+        snapshotContext: BoneAgentModelSnapshotContext? = nil
+    ) async throws -> BoneAgentRunResult {
+        let result = try await runUntilBoundary(
+            request: initialRequest,
+            boundary: .untilModelFinish,
+            snapshotContext: snapshotContext
+        )
         guard case .modelFinished(let output) = result.completion else {
             throw BoneAgentError.inferenceFailed
         }
@@ -70,10 +89,15 @@ public actor BoneAgent {
     public func runWorkflowStep(
         modelID: String,
         messages: [BoneInferenceMessage],
-        controller: BoneWorkflowAgentStepController
+        controller: BoneWorkflowAgentStepController,
+        snapshotContext: BoneAgentModelSnapshotContext? = nil
     ) async throws -> BoneAgentRunResult {
         do {
-            let result = try await run(modelID: modelID, messages: messages)
+            let result = try await run(
+                modelID: modelID,
+                messages: messages,
+                snapshotContext: snapshotContext
+            )
             try await controller.finish(.succeeded)
             return result
         } catch is CancellationError {
@@ -86,9 +110,11 @@ public actor BoneAgent {
     }
 
     /// 运行至调用方指定的通用边界；Tool 集合和 continuation 始终由 Runtime 管理。
+    /// 快照覆盖能力门禁之后的完整生命周期：门禁本身拒绝时不产出快照。
     public func runUntilBoundary(
         request initialRequest: BoneInferenceRequest,
-        boundary: BoneAgentRunBoundary
+        boundary: BoneAgentRunBoundary,
+        snapshotContext: BoneAgentModelSnapshotContext? = nil
     ) async throws -> BoneAgentBoundaryResult {
         guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
         guard initialRequest.responseFormat == .text else { throw BoneAgentError.inferenceFailed }
@@ -115,8 +141,9 @@ public actor BoneAgent {
             }
             invocation = .streaming
         }
+        let resolved: BoneResolvedInferenceCapabilities
         do {
-            let resolved = try inferenceEngine.resolvedCapabilities(
+            resolved = try inferenceEngine.resolvedCapabilities(
                 for: preparedInitialRequest,
                 invocation: invocation
             )
@@ -135,8 +162,14 @@ public actor BoneAgent {
 
         await eventSink.receive(.runStarted)
         configuration.logging.write(.info, "run.started", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "messageCount": "\(preparedInitialRequest.messages.count)"]))
+        let runStartedAt = monotonicClock()
+        var runSnapshot = BoneAgentRunSnapshotBuilder(
+            request: preparedInitialRequest,
+            resolved: resolved,
+            context: snapshotContext,
+            startedAt: runStartedAt
+        )
         do {
-            let runStartedAt = monotonicClock()
             let runDeadline = configuration.runBudget.map { runStartedAt + $0.maximumWallClockSeconds }
             let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0, startedAtUptime: runStartedAt) }
             var messages = preparedInitialRequest.messages
@@ -155,39 +188,44 @@ public actor BoneAgent {
                     step: step,
                     kind: response.workflowCheckpointKind
                 ))
+                runSnapshot.inferenceResponseCount += 1
                 try Task.checkCancellation()
 
                 switch response {
                 case .finish(let finish):
-                    return try await succeedBoundary(completion: .modelFinished(.text(finish.text)), steps: step, budgetMeter: budgetMeter)
+                    return try await succeedBoundary(completion: .modelFinished(.text(finish.text)), steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                 case .structured(let structured):
-                    return try await succeedBoundary(completion: .modelFinished(.structured(structured.data)), steps: step, budgetMeter: budgetMeter)
+                    return try await succeedBoundary(completion: .modelFinished(.structured(structured.data)), steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                 case .toolCall(let call):
                     try await executeLegacySingle(call, messages: &messages, budgetMeter: budgetMeter)
+                    runSnapshot.toolResultCount += 1
                     if boundary == .afterFirstToolTurn {
-                        return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter)
+                        return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                     }
-                case let .assistantTurn(turn, finishReason, _, refusal, continuation):
+                case let .assistantTurn(turn, finishReason, usage, refusal, continuation):
+                    // 终止原因与用量在任何分支抛出前记录，失败 Run 也能解释发生了什么。
+                    runSnapshot.finishReason = finishReason
+                    runSnapshot.record(usage: usage)
                     guard refusal == nil else { throw BoneAgentError.inferenceFailed }
                     let calls = turn.toolCalls
                     switch finishReason {
                     case .stop:
                         guard calls.isEmpty else { throw BoneAgentError.inferenceFailed }
                         if let text = turn.text, turn.structuredOutputs.isEmpty {
-                            return try await succeedBoundary(completion: .modelFinished(.text(text)), steps: step, budgetMeter: budgetMeter)
+                            return try await succeedBoundary(completion: .modelFinished(.text(text)), steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                         }
                         if turn.text == nil,
                            turn.structuredOutputs.count == 1,
                            let structured = turn.structuredOutputs.first {
-                            return try await succeedBoundary(completion: .modelFinished(.structured(structured)), steps: step, budgetMeter: budgetMeter)
+                            return try await succeedBoundary(completion: .modelFinished(.structured(structured)), steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                         }
                         throw BoneAgentError.inferenceFailed
                     case .toolCalls:
                         guard !calls.isEmpty else { throw BoneAgentError.inferenceFailed }
                         providerContinuation = continuation
-                        try await executeTurn(turn, messages: &messages, budgetMeter: budgetMeter)
+                        runSnapshot.toolResultCount += try await executeTurn(turn, messages: &messages, budgetMeter: budgetMeter)
                         if boundary == .afterFirstToolTurn {
-                            return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter)
+                            return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
                         }
                     case .length, .contentFilter, .safety, .refusal, .other:
                         throw BoneAgentError.inferenceFailed
@@ -198,16 +236,20 @@ public actor BoneAgent {
         } catch is CancellationError {
             configuration.logging.write(.warning, "run.cancelled", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID]))
             await eventSink.receive(.runFinished(.cancelled))
+            await deliverSnapshot(runSnapshot, terminalState: .cancelled)
             throw CancellationError()
         } catch let error as BoneAgentError {
             configuration.logging.write(.error, "run.failed", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "error": String(describing: error)]))
             await eventSink.receive(.runFinished(.failed(error)))
+            await deliverSnapshot(runSnapshot, terminalState: .failed(error))
             throw error
         } catch is BoneRunBudgetError {
             await eventSink.receive(.runFinished(.failed(.budgetExceeded)))
+            await deliverSnapshot(runSnapshot, terminalState: .failed(.budgetExceeded))
             throw BoneAgentError.budgetExceeded
         } catch {
             await eventSink.receive(.runFinished(.failed(.inferenceFailed)))
+            await deliverSnapshot(runSnapshot, terminalState: .failed(.inferenceFailed))
             throw BoneAgentError.inferenceFailed
         }
     }
@@ -360,11 +402,12 @@ public actor BoneAgent {
         messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
     }
 
+    /// 执行一个完整 Assistant Tool Turn，并返回本次已发布的 Tool 结果数。
     private func executeTurn(
         _ turn: BoneInferenceAssistantTurn,
         messages: inout [BoneInferenceMessage],
         budgetMeter: BoneRunBudgetMeter?
-    ) async throws {
+    ) async throws -> Int {
         messages.append(.assistant(turn))
         let results: [BoneInferenceToolResult]
         let impactPolicy = configuration.toolImpactPolicy
@@ -457,6 +500,7 @@ public actor BoneAgent {
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             messages.append(.toolResults(try .init(results: results)))
+            return results.count
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BoneAgentError {
@@ -566,15 +610,79 @@ public actor BoneAgent {
     }
 
     /// runFinished delivery 的开始是成功 Run 的线性化点；此后不再读取取消/截止状态。
+    /// 快照在同一个线性化点之后、返回值之前投递，因此调用方拿到结果时快照已交付。
     private func succeedBoundary(
         completion: BoneAgentBoundaryCompletion,
         steps: Int,
-        budgetMeter: BoneRunBudgetMeter?
+        budgetMeter: BoneRunBudgetMeter?,
+        snapshot: BoneAgentRunSnapshotBuilder
     ) async throws -> BoneAgentBoundaryResult {
         try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
         try Task.checkCancellation()
         await eventSink.receive(.runFinished(.succeeded))
+        await deliverSnapshot(snapshot, terminalState: .succeeded)
         return BoneAgentBoundaryResult(completion: completion, steps: steps)
+    }
+
+    /// 终态快照的唯一投递点：必须在返回结果或抛出错误之前 await。
+    private func deliverSnapshot(
+        _ builder: BoneAgentRunSnapshotBuilder,
+        terminalState: BoneAgentRunTerminalState
+    ) async {
+        await modelSnapshotSink.receive(
+            builder.snapshot(
+                terminalState: terminalState,
+                wallClockSeconds: max(0, monotonicClock() - builder.startedAt)
+            )
+        )
+    }
+}
+
+/// Run 期间的模型事实累加器；只保存白名单事实，不保存 Prompt、响应正文或 Tool 内容。
+private struct BoneAgentRunSnapshotBuilder {
+    let request: BoneInferenceRequest
+    let resolved: BoneResolvedInferenceCapabilities
+    let context: BoneAgentModelSnapshotContext?
+    let startedAt: TimeInterval
+    var inferenceResponseCount = 0
+    var toolResultCount = 0
+    var finishReason: BoneInferenceFinishReason?
+    var usageByResponse: [BoneInferenceUsage] = []
+
+    /// 未报告用量的响应不产生条目，也不按 0 计入合计。
+    mutating func record(usage: BoneInferenceUsage?) {
+        guard let usage else { return }
+        usageByResponse.append(usage)
+    }
+
+    func snapshot(
+        terminalState: BoneAgentRunTerminalState,
+        wallClockSeconds: TimeInterval?
+    ) -> BoneAgentRunModelSnapshot {
+        BoneAgentRunModelSnapshot(
+            modelID: request.modelID,
+            modelDisplayName: context?.modelDisplayName,
+            modelAlias: context?.modelAlias,
+            providerKind: context?.providerKind,
+            invocation: resolved.invocation,
+            resolvedCapabilities: resolved.capabilities,
+            capabilityProfileSource: context?.capabilityProfile?.source,
+            capabilityProfileVerifiedAt: context?.capabilityProfile?.verifiedAt,
+            contextLimits: context?.contextLimits,
+            catalogVersion: context?.catalogVersion,
+            catalogVerifiedAt: context?.catalogVerifiedAt,
+            generationOptions: request.generationOptions,
+            serverReasoning: context?.serverReasoning,
+            usesOutputConstraint: request.outputConstraint != nil,
+            availableToolCount: request.availableTools.count,
+            terminalState: terminalState,
+            finishReason: finishReason,
+            inferenceResponseCount: inferenceResponseCount,
+            toolResultCount: toolResultCount,
+            usageByResponse: usageByResponse,
+            wallClockSeconds: wallClockSeconds,
+            generatedAt: BoneAgentRunModelSnapshot.currentUTCTimestamp()
+        )
     }
 }
 

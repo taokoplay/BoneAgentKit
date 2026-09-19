@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- Agent 新增 Run 终态模型使用快照：`BoneAgentRunModelSnapshot` 记录实际请求的模型 ID、模型显示名与别名、Provider 种类、调用方式、门禁解析出的能力与证据来源、带来源的上下文限制、生成参数回显、服务端推理策略、终态与用量计数。
+- `BoneAgentModelSnapshotSink` 在 Run 终态确定之后、返回值或错误抛出之前投递且只投递一次；`BoneAgentModelSnapshotContext` 按 Run 注入 Kit 无法从 Engine 协议推断的模型元数据，未提供字段保持未知。
+- Kit 只交付快照：不落盘、不跨 Run 聚合会话，也不包含 Prompt、响应正文、Tool 参数与结果、凭据或 URL。
+
+### Testing
+
+- 新增模型快照回归：投递早于结果、失败与取消仍产出快照、用量合计保持未知语义、能力门禁拒绝时不产出快照、快照不含 Prompt 与 Tool 参数正文、显示名与别名只做空白归一、Codable 往返不持久化派生合计。
+- 462 项严格 Swift 6 测试通过。
+
+### Migration
+
+- `BoneAgent` 两个初始化方法、`run(modelID:messages:)`、`run(request:)`、`runUntilBoundary(request:boundary:)` 和 `runWorkflowStep(modelID:messages:controller:)` 追加带默认值的 `snapshotContext:` 与 `modelSnapshotSink:` 参数，普通源码调用保持兼容。
+- 能力门禁之前的拒绝（`runAlreadyInProgress`、`unsupportedCapability`、`invalidMaximumSteps`）不产出快照：此时还没有可记录的模型事实。
+
 ## [0.2.0-alpha.16] - 2026-09-13
 
 ### Fixed

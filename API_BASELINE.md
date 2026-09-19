@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 328 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 345 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -19,6 +19,7 @@
 - `BoneInferenceEngine`、`BoneInferenceBufferedStreaming`、`BoneInferenceDetailedBufferedStreaming`、`BoneInferenceEventStreaming`
 - `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`、`BoneInferenceOutputConstraint`
 - `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`
+- `BoneAgentRunModelSnapshot`、`BoneAgentModelSnapshotContext`、`BoneAgentModelSnapshotSink`
 - `BoneLocalExecutionVerificationIdentity`、`BoneProviderCapabilityVerificationIdentity`、`BoneInferenceInvocationMode`
 - `BoneLiveConstraintSmoke`、`BoneLiveConstraintSmokeReport`、`BoneLiveConstraintSmokeFailure`
 - `BoneAgentTool`、`BoneAgentToolDefinition`、`BoneAgentToolRegistry`
@@ -91,6 +92,8 @@
 - 原子 turn/tool execution reserve 为 internal；公开 Meter 方法与预算错误枚举不变。
 - OpenAI 普通文本也必须单 choice、stop；流式另需 DONE。length → outputTruncated，过滤/拒绝/缺失/未知终态 → invalidResponse。保留 requiringSingleCompletedChoice 参数但不再允许宽松模式。
 - SSE 未成帧 EOF 返回 invalidResponse；LF/CRLF 及逐字节 UTF-8 保留，未扩展 CR-only/BOM/Last-Event-ID。
+- BoneAgent 两个 initializer 及 `run(modelID:messages:)`、`run(request:)`、`runUntilBoundary(request:boundary:)`、`runWorkflowStep(modelID:messages:controller:)` 追加默认 `snapshotContext:` 与 `modelSnapshotSink:`；带标签调用源码兼容。
+- 模型快照在返回值或错误抛出之前投递；能力门禁之前的拒绝不产出快照。
 
 
 ## Host 持久化契约测试 API
