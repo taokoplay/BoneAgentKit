@@ -34,6 +34,7 @@
 - 能力门禁之前的拒绝（`runAlreadyInProgress`、`unsupportedCapability`、`invalidMaximumSteps`）不产出快照：此时还没有可记录的模型事实。
 - 新增默认参数后，旧签名不再是协议 witness：把 `run(modelID:messages:)` 之类签名抽成协议并要求 `BoneAgent` 满足的 Host 需要同步更新协议要求（普通带标签调用不受影响）。
 - 错误分类变化：命中 `max_tokens` 的非流式 Tool 响应现在报 `outputTruncated`，HTTP 403 现在报 `httpStatus(403)`。调用方若按 `invalidResponse` 或 `invalidCredential` 分支处理这两种场景，需要按新分类复核；枚举 case 未增减，既有 switch 保持可编译。
+- Anthropic 的 `stop_reason: max_tokens` 且带完整 `tool_use` 的响应此前会作为成功的 Assistant Turn（`.other(providerCode: "max_tokens")`）交付，现在直接抛 `outputTruncated`：经 `BoneAgent` 运行的调用方两种情况下都失败，直接调用 Engine 的调用方需要处理新增的抛出。
 
 ## [0.2.0-alpha.16] - 2026-09-13
 
