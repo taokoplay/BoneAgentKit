@@ -51,17 +51,37 @@ public struct BoneWorkflowPersistenceContractSuite: Sendable {
         guard condition else { throw Violation(failure: failure) }
     }
 
-    private func seed(_ store: any BoneWorkflowPersistence) async throws -> BoneWorkflowRunSnapshot {
+    // Classify only the operation being attempted, never infer a private schema from Error.
+    private func observed<T>(
+        _ failure: BoneWorkflowPersistenceContractFailure,
+        operation: () async throws -> T
+    ) async throws -> T {
+        do { return try await operation() }
+        catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            throw Violation(failure: failure)
+        }
+    }
+
+    private func seed(
+        _ store: any BoneWorkflowPersistence,
+        id: String = "contract-run",
+        generation: UInt64 = 1,
+        payload: Data = Data("{\"value\":0}".utf8),
+        classification: BoneCheckpointDataClassification = .safeState,
+        retention: BoneCheckpointRetention = .untilRunTerminal,
+        createFailure: BoneWorkflowPersistenceContractFailure = .seedCreateRejected
+    ) async throws -> BoneWorkflowRunSnapshot {
         let plan = try BoneWorkflowPlan(identity: "persistence-contract", revision: 1,
             steps: [.init(id: .init("step"), kind: "test", revision: 1)])
-        let run = try BoneWorkflowRunRecord(id: .init("contract-run"), plan: plan, state: .pending, revision: 0, leaseGeneration: 1)
+        let run = try BoneWorkflowRunRecord(id: .init(id), plan: plan, state: .pending, revision: 0, leaseGeneration: generation)
         let checkpoint = try BoneWorkflowCheckpoint(
             descriptor: .init(formatVersion: 1, workflowIdentity: plan.identity, workflowRevision: plan.revision),
-            payload: Data("{\"value\":0}".utf8), dataClassification: .safeState)
+            payload: payload, dataClassification: classification, retention: retention)
         let initial = BoneWorkflowRunSnapshot(run: run, checkpoint: checkpoint)
-        let created = try await store.create(run: run, checkpoint: checkpoint)
+        let created = try await observed(createFailure) { try await store.create(run: run, checkpoint: checkpoint) }
         try require(created == copy(initial, revision: 1))
-        let loaded = try await store.load(runID: run.id)
+        let loaded = try await observed(.seedLoadFailed) { try await store.load(runID: run.id) }
         try require(loaded == created)
         return created
     }
@@ -111,8 +131,21 @@ public struct BoneWorkflowPersistenceContractSuite: Sendable {
         if scenario == .reopenedRead && fixture.reopenAfterClosingPrimary == nil { return .skipped(.reopenAfterClosingPrimary) }
         if scenario == .independentConnectionConsistency && fixture.openIndependentConnection == nil { return .skipped(.independentConnection) }
         let store = fixture.persistence
+        // These probes must not depend on the generation-1 seed they are diagnosing.
+        if scenario == .opaqueCheckpointPayload {
+            try await checkOpaquePayload(store)
+            try Task.checkCancellation()
+            return .passed
+        }
+        if scenario == .creationLeaseGeneration {
+            try await checkCreationGeneration(store)
+            try Task.checkCancellation()
+            return .passed
+        }
         let old = try await seed(store)
         switch scenario {
+        case .opaqueCheckpointPayload, .creationLeaseGeneration:
+            preconditionFailure("Dedicated probes return before the shared seed")
         case .createLoad:
             let proposed = try next(old)
             let saved = try await commit(proposed, to: store)
@@ -151,6 +184,45 @@ public struct BoneWorkflowPersistenceContractSuite: Sendable {
         }
         try Task.checkCancellation()
         return .passed
+    }
+
+    private func checkOpaquePayload(_ store: any BoneWorkflowPersistence) async throws {
+        // All are legal checkpoint JSON, including fragments; no Host wire discriminator.
+        // Whitespace and numeric spelling deliberately expose decode/re-encode adapters.
+        let payloads = [" { \"z\": 1.00, \"a\": [true, null] } ", "[1, \"two\", null]", "\"opaque reference\"", "42", "true", "null"]
+        for (classIndex, classification) in [BoneCheckpointDataClassification.safeState, .opaqueReference].enumerated() {
+            for (index, text) in payloads.enumerated() {
+                try Task.checkCancellation()
+                let old = try await seed(store, id: "opaque-\(classIndex)-\(index)", generation: 0,
+                    payload: Data(text.utf8), classification: classification,
+                    retention: index.isMultiple(of: 2) ? .untilRunTerminal : .untilExplicitCleanup,
+                    createFailure: .opaquePayloadRejected)
+                // Persistence writes do not execute Effects or acquire ownership.
+                let proposed = try copy(old, payload: Data(payloads[(index + 1) % payloads.count].utf8))
+                let saved = try await observed(.opaquePayloadRejected) { try await commit(proposed, to: store) }
+                try require(saved == copy(proposed, revision: 2))
+                let loaded = try await store.load(runID: old.run.id)
+                try require(loaded == saved)
+            }
+        }
+    }
+
+    private func checkCreationGeneration(_ store: any BoneWorkflowPersistence) async throws {
+        for generation: UInt64 in [0, 1, 7, UInt64.max] {
+            try Task.checkCancellation()
+            let old = try await seed(store, id: "generation-\(generation)", generation: generation,
+                createFailure: .creationGenerationRejected)
+            if generation == UInt64.max {
+                try await expectRejection([.revisionConflict], accepted: .invalidBundleAccepted) {
+                    try await store.acquireLease(runID: old.run.id, expectedRevision: old.run.revision)
+                }
+                let loaded = try await store.load(runID: old.run.id)
+                try require(loaded == old, .rejectedWriteChangedSnapshot)
+            } else {
+                // Also verifies replay with the original expectedRevision is rejected.
+                try await checkFencing(old, owner: store, worker: store)
+            }
+        }
     }
 
     private enum CASResult: Sendable {

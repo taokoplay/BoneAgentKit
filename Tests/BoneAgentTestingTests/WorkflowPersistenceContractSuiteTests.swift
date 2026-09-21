@@ -11,12 +11,78 @@ final class WorkflowPersistenceContractSuiteTests: XCTestCase {
         XCTAssertEqual(results.map(\.scenario), BoneWorkflowPersistenceContractCase.allCases)
         XCTAssertEqual(results.map(\.outcome), [
             .passed, .passed, .passed, .passed,
-            .skipped(.reopenAfterClosingPrimary), .skipped(.independentConnection)
+            .skipped(.reopenAfterClosingPrimary), .skipped(.independentConnection),
+            .passed, .passed
         ])
     }
 }
 
 extension WorkflowPersistenceContractSuiteTests {
+    func testSchemaRejectionIsNotASkippableCapability() async throws {
+        let results = try await runFault(.rejectSchema)
+        XCTAssertEqual(outcome(.createLoad, in: results), .failed([.seedCreateRejected]))
+        XCTAssertEqual(outcome(.opaqueCheckpointPayload, in: results), .failed([.opaquePayloadRejected]))
+    }
+
+    func testOpaqueProbeIsolatesPayloadFromNonzeroGeneration() async throws {
+        let results = try await runFault(.zeroGenerationOnly)
+        XCTAssertEqual(outcome(.createLoad, in: results), .failed([.seedCreateRejected]))
+        XCTAssertEqual(outcome(.opaqueCheckpointPayload, in: results), .passed)
+        XCTAssertEqual(outcome(.creationLeaseGeneration, in: results), .failed([.creationGenerationRejected]))
+    }
+
+    func testCreationMustPreserveGenerationRatherThanNormalizeIt() async throws {
+        let results = try await runFault(.normalizeGeneration)
+        XCTAssertEqual(outcome(.creationLeaseGeneration, in: results), .failed([.snapshotMismatch]))
+    }
+
+    func testOpaquePayloadMustRemainByteExact() async throws {
+        let results = try await runFault(.normalizeJSON)
+        XCTAssertEqual(outcome(.opaqueCheckpointPayload, in: results), .failed([.snapshotMismatch]))
+    }
+
+    func testOpaqueContractAlsoAppliesToCommit() async throws {
+        let results = try await runFault(.rejectCommitSchema)
+        XCTAssertEqual(outcome(.opaqueCheckpointPayload, in: results), .failed([.opaquePayloadRejected]))
+    }
+
+    func testCreationProbeRejectsGenerationOverflowSuccess() async throws {
+        let results = try await runFault(.acceptGenerationOverflow)
+        XCTAssertEqual(outcome(.creationLeaseGeneration, in: results), .failed([.invalidBundleAccepted]))
+    }
+
+    func testOpaqueCommitCancellationPropagatesAfterCleanup() async throws {
+        let tracker = FixtureTracker()
+        do {
+            _ = try await BoneWorkflowPersistenceContractSuite().run { scenario in
+                .init(persistence: FaultyPersistence(scenario == .opaqueCheckpointPayload ? .cancelCommit : .generationFirst),
+                      cleanup: { await tracker.cleaned(scenario) })
+            }
+            XCTFail("Cancellation must propagate")
+        } catch is CancellationError {} catch { XCTFail("Wrong cancellation type") }
+        let cleaned = await tracker.cleanups
+        XCTAssertEqual(cleaned, Array(BoneWorkflowPersistenceContractCase.allCases.prefix(7)))
+    }
+
+    func testSeedCreateUnknownErrorIsSanitizedAndClassified() async throws {
+        let results = try await runFault(.secretCreate)
+        XCTAssertEqual(outcome(.createLoad, in: results), .failed([.seedCreateRejected]))
+        let report = String(decoding: try JSONEncoder().encode(results), as: UTF8.self)
+        XCTAssertFalse(report.contains(SecretError.secret))
+    }
+
+    func testSeedCreateCancellationStillPropagatesAfterCleanup() async throws {
+        let tracker = FixtureTracker()
+        do {
+            _ = try await BoneWorkflowPersistenceContractSuite().run { scenario in
+                .init(persistence: FaultyPersistence(.cancelCreate), cleanup: { await tracker.cleaned(scenario) })
+            }
+            XCTFail("Cancellation must propagate")
+        } catch is CancellationError {} catch { XCTFail("Wrong cancellation type") }
+        let cleaned = await tracker.cleanups
+        XCTAssertEqual(cleaned, [.createLoad])
+    }
+
     func testGenerationFirstHostPassesFencing() async throws {
         let results = try await runFault(.generationFirst)
         XCTAssertEqual(outcome(.generationFencing, in: results), .passed)
@@ -119,10 +185,10 @@ extension WorkflowPersistenceContractSuiteTests {
             if scenario == .createLoad { throw SecretError() }
             return .init(persistence: BoneInMemoryWorkflowPersistence(), cleanup: { await tracker.cleaned(scenario) })
         }
-        XCTAssertEqual(results.count, 6)
+        XCTAssertEqual(results.count, BoneWorkflowPersistenceContractCase.allCases.count)
         XCTAssertEqual(outcome(.createLoad, in: results), .failed([.fixtureCreationFailed]))
         let cleaned = await tracker.cleanups
-        XCTAssertEqual(cleaned.count, 5)
+        XCTAssertEqual(cleaned.count, BoneWorkflowPersistenceContractCase.allCases.count - 1)
     }
 
     func testFactoryCancellationPropagatesWithoutPretendingFixtureWasAcquired() async throws {
@@ -143,7 +209,7 @@ extension WorkflowPersistenceContractSuiteTests {
         XCTAssertEqual(outcome(.reopenedRead, in: results), .failed([.operationFailed]))
         XCTAssertEqual(outcome(.independentConnectionConsistency, in: results), .failed([.operationFailed]))
         let cleaned = await tracker.cleanups
-        XCTAssertEqual(cleaned.count, 6)
+        XCTAssertEqual(cleaned.count, BoneWorkflowPersistenceContractCase.allCases.count)
     }
 
     func testOptionalConnectionCancellationStillCleans() async throws {
@@ -195,7 +261,7 @@ extension WorkflowPersistenceContractSuiteTests {
 
     func testUnknownAdapterErrorsAreSanitized() async throws {
         let results = try await runFault(.secretLoad)
-        XCTAssertEqual(outcome(.createLoad, in: results), .failed([.operationFailed]))
+        XCTAssertEqual(outcome(.createLoad, in: results), .failed([.seedLoadFailed]))
         let report = String(decoding: try JSONEncoder().encode(results), as: UTF8.self)
         XCTAssertFalse(report.contains(SecretError.secret))
     }
@@ -225,14 +291,32 @@ private struct SecretError: Error, CustomStringConvertible {
 
 /// Test-only variants, including a valid generation-first check ordering and deliberately broken adapters.
 private actor FaultyPersistence: BoneWorkflowPersistence {
-    enum Fault: Sendable { case multipleWinners, partialCommit, missingFence, cancelLoad, secretLoad, generationFirst, loserWrites, acceptStaleLease, mutateStaleLease, wrongFenceError }
+    enum Fault: Sendable {
+        case rejectSchema, zeroGenerationOnly, normalizeGeneration, normalizeJSON, rejectCommitSchema
+        case secretCreate, cancelCreate, cancelCommit, acceptGenerationOverflow
+        case multipleWinners, partialCommit, missingFence, cancelLoad, secretLoad, generationFirst
+        case loserWrites, acceptStaleLease, mutateStaleLease, wrongFenceError
+    }
     private let fault: Fault
     private let base = BoneInMemoryWorkflowPersistence()
     private var partial: BoneWorkflowRunSnapshot?
     init(_ fault: Fault) { self.fault = fault }
 
     func create(run: BoneWorkflowRunRecord, checkpoint: BoneWorkflowCheckpoint) async throws -> BoneWorkflowRunSnapshot {
-        try await base.create(run: run, checkpoint: checkpoint)
+        if fault == .rejectSchema { throw BoneWorkflowFailure.corruptedCheckpoint }
+        if fault == .secretCreate { throw SecretError() }
+        if fault == .cancelCreate { throw CancellationError() }
+        if fault == .zeroGenerationOnly && run.leaseGeneration != 0 { throw BoneWorkflowFailure.revisionConflict }
+        let actualRun = fault == .normalizeGeneration
+            ? BoneWorkflowRunRecord(id: run.id, plan: run.plan, state: run.state, revision: run.revision, leaseGeneration: 0) : run
+        var actualCheckpoint = checkpoint
+        if fault == .normalizeJSON {
+            let object = try JSONSerialization.jsonObject(with: checkpoint.payload, options: [.fragmentsAllowed])
+            actualCheckpoint = try .init(descriptor: checkpoint.descriptor,
+                payload: JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed, .sortedKeys]),
+                dataClassification: checkpoint.dataClassification, retention: checkpoint.retention, revision: checkpoint.revision)
+        }
+        return try await base.create(run: actualRun, checkpoint: actualCheckpoint)
     }
 
     func load(runID: BoneRunID) async throws -> BoneWorkflowRunSnapshot {
@@ -243,6 +327,8 @@ private actor FaultyPersistence: BoneWorkflowPersistence {
     }
 
     func commit(run: BoneWorkflowRunRecord, checkpoint: BoneWorkflowCheckpoint, expectedRevision: UInt64, leaseGeneration: UInt64) async throws -> BoneWorkflowRunSnapshot {
+        if fault == .cancelCommit { throw CancellationError() }
+        if fault == .rejectCommitSchema { throw BoneWorkflowFailure.corruptedCheckpoint }
         if fault == .generationFirst {
             let current = try await base.load(runID: run.id)
             guard current.run.leaseGeneration == leaseGeneration, run.leaseGeneration == leaseGeneration else {
@@ -281,6 +367,10 @@ private actor FaultyPersistence: BoneWorkflowPersistence {
     }
 
     func acquireLease(runID: BoneRunID, expectedRevision: UInt64) async throws -> BoneWorkflowRunSnapshot {
+        if fault == .acceptGenerationOverflow {
+            let current = try await base.load(runID: runID)
+            if current.run.leaseGeneration == UInt64.max { return current }
+        }
         if fault == .acceptStaleLease || fault == .mutateStaleLease {
             let current = try await base.load(runID: runID)
             if current.run.revision != expectedRevision {

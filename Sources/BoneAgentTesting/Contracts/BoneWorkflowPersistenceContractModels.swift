@@ -7,11 +7,23 @@ public enum BoneWorkflowPersistenceContractCase: String, CaseIterable, Codable, 
     case generationFencing
     case reopenedRead
     case independentConnectionConsistency
+    /// Required: valid checkpoint JSON is schema-opaque and preserved byte-for-byte.
+    case opaqueCheckpointPayload
+    /// Required: create preserves any UInt64 generation; acquisition is a separate CAS.
+    case creationLeaseGeneration
 }
 
 public enum BoneWorkflowPersistenceContractFailure: String, Codable, Sendable {
     case fixtureCreationFailed
     case operationFailed
+    /// A valid seed was rejected during create; this does not diagnose the adapter's cause.
+    case seedCreateRejected
+    /// The initial load threw before the scenario's target behavior could be checked.
+    case seedLoadFailed
+    /// A valid JSON create/commit threw in the dedicated opaque-payload probe.
+    case opaquePayloadRejected
+    /// A create threw in the dedicated initial-generation probe.
+    case creationGenerationRejected
     case snapshotMismatch
     case invalidBundleAccepted
     case unexpectedRejection

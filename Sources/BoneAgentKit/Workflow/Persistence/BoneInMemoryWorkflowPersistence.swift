@@ -1,6 +1,6 @@
 import Foundation
 
-public actor BoneInMemoryWorkflowPersistence: BoneWorkflowPersistence {
+public actor BoneInMemoryWorkflowPersistence: BoneWorkflowPersistence, BoneWorkflowRecoveryScan {
     private var snapshots: [BoneRunID: BoneWorkflowRunSnapshot] = [:]
 
     public init() {}
@@ -22,6 +22,14 @@ public actor BoneInMemoryWorkflowPersistence: BoneWorkflowPersistence {
         )
         snapshots[run.id] = snapshot
         return snapshot
+    }
+
+    /// Actor 内一次读取，不取得 lease；合法写入的内存实现没有坏行注入入口。
+    public func recoverableRunScan() throws -> BoneWorkflowRecoveryScanResult {
+        try Task.checkCancellation()
+        return try .init(trustedRuns: snapshots.values
+            .filter { BoneWorkflowRecoveryScanResult.includes($0.run.state) }
+            .sorted { $0.run.id.rawValue < $1.run.id.rawValue }, quarantinedRunCount: 0)
     }
 
     public func load(runID: BoneRunID) throws -> BoneWorkflowRunSnapshot {

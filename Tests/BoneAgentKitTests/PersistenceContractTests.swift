@@ -5,6 +5,23 @@ import BoneAgentTesting
 
 /// SDK in-memory contract only: no wall-clock lease expiry or disk durability is implied.
 final class PersistenceContractTests: XCTestCase {
+    func testOpaqueCheckpointStillEnforcesFormatSizeAndClassification() throws {
+        let descriptor = BoneWorkflowCheckpointDescriptor(formatVersion: 1, workflowIdentity: "contract", workflowRevision: 1)
+        let invalid: [(Data, BoneCheckpointDataClassification, BoneWorkflowFailure)] = [
+            (Data(), .safeState, .corruptedCheckpoint),
+            (Data([0xff, 0x00]), .safeState, .corruptedCheckpoint),
+            (Data("not JSON".utf8), .safeState, .corruptedCheckpoint),
+            (Data(repeating: 0x20, count: BoneWorkflowCheckpoint.maximumPayloadByteCount + 1), .safeState, .checkpointTooLarge)
+        ] + [BoneCheckpointDataClassification.userPrivate, .credential, .providerContinuation, .rawModelExchange].map {
+            (Data("{}".utf8), $0, BoneWorkflowFailure.checkpointNotEligible)
+        }
+        for (payload, classification, failure) in invalid {
+            XCTAssertThrowsError(try BoneWorkflowCheckpoint(descriptor: descriptor, payload: payload, dataClassification: classification)) {
+                XCTAssertEqual($0 as? BoneWorkflowFailure, failure)
+            }
+        }
+    }
+
     private static func seed(_ store: BoneInMemoryWorkflowPersistence) async throws -> BoneWorkflowRunSnapshot {
         let plan = try BoneWorkflowPlan(identity: "contract", revision: 1, steps: [.init(id: .init("step"), kind: "test", revision: 1)])
         return try await store.create(run: .init(id: .init("run"), plan: plan, state: .pending, revision: 0, leaseGeneration: 1),

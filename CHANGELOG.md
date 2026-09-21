@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- 明确持久化 payload 的业务 schema 不透明与 JSON/分级限制；create 保存任意初始 generation，acquireLease 保持非幂等 CAS 换代及溢出原子拒绝。Core 实现与协议签名不变。
+
 - `runWorkflowStep` 运行所有权覆盖最终 checkpoint 提交；重复/重入调用不再将正在运行的 Step 写成失败。
 - 恢复必需错误保留原分类，可提交时写 `commitUncertain`。最终提交失败不再补写另一终态；中途提交异常/无效回执后 Controller 阻止后继盲写，Host 必须重读后重建。已确认取消及迟到 progress 的 CAS 冲突仍传播取消。
 - `.skipped` Step 不再允许通过 Controller 改写为其他终态。
@@ -14,10 +16,50 @@
 
 ### Added
 
+- 工作账本增加独立可选跨代对账能力：精确绑定旧页与当前接管代/账本revision，显式写回Host确认的失败或成功结果并保留审计引用；不放宽普通Worker围栏，不重置页号/预算。
+- 八场景跨代工作对账契约和独立日志Host回归，检查目标隔离、响应保真、并发CAS、进度保留及提交回执未知窗口。
+
+- 通用执行会话信封与continuation ledger/store：opaque admission精确hash、零基连续sequence、稳定operation/effect绑定、先准备后原子消费nonce许可；撤销仍保留nonce墓碑，领域payload留Host。
+- 五场景session契约、独立序列化Host及两种payload复用回归，覆盖准入绑定、一次性nonce、并发消费者、编码验证与提交未知窗口。
+
+- 可分页/可拆分 `BoneWorkflowWorkLedger`、原子 Store 协议及内存参考：请求页唯一、在途 preflight、knownFailure 保持 partial、split 父终止与子创建原子化、Run级 revision/lease 围栏。
+- 七场景工作账本契约及独立编码命令日志测试 Host，覆盖旧 lease 回写、重复页与非法拆分拒绝；payload/cursor/response/artifact 为不透明 Data。
+
+- Run 级持久预算值类型、原子预留 Store 协议与内存参考实现：跨 session 保留起点/截止/已用额度，final 阶段保留，used/attempted 分离，已预留失败请求不退款。
+- 双 wall/uptime 与 boot 身份检查，回拨/epoch漂移/截止永久 fail-closed；策略和版本漂移拒绝，编码 schema 校验。新增七场景预算契约及独立序列化连接模拟。
+
+- `BoneWorkflowCancellationReadiness`：只读的未启动续执行收口判定，历史 unknown/未提交 Effect、当前 session Effect、缺证据或 stage 活动 fail-closed，不从“无 Worker”推断停止。
+- 一致事实查询协议与版本绑定 evaluation、十一场景契约套件，检查判定不改写已应用结果；Host 领域扩展只有额外否决权。
+
+- 可选 `BoneWorkflowRecoveryScan` 与可信快照/隔离计数结果，内存参考实现支持完整只读扫描；包含 recoveryRequired 发现，不改变终态迁移权限。
+- 恢复扫描四场景契约套件及坏行注入 fixture，独立序列化测试 Host 覆盖解码损坏、快照不一致、计数/只读负例；补充 Host 业务索引与原子绑定推荐 seam。
+
+- `BoneWorkflowRunController`：协议驱动的 Run 控制面，显式 revision/generation CAS，开始与暂停后恢复先换 lease，暂停/恢复双 fencing；取消意图、Worker 停止请求与终态协调分离。
+- `BoneWorkflowRunControllerContractSuite`：五项必需控制面场景，内存参考实现与独立序列化测试 Host 回归；补充提交未知、无效回执、暂停中途失败、旧 Worker 和并发启动测试。
+
+- 持久化契约套件新增 `opaqueCheckpointPayload` 与 `creationLeaseGeneration` 两个必需场景，覆盖字节保真、JSON fragments、两类合法数据分级、初始 generation 与溢出边界。
+- 新增 `seedCreateRejected`、`seedLoadFailed`、`opaquePayloadRejected`、`creationGenerationRejected` 脱敏失败阶段分类，避免初始化异常被误读为 CAS/fencing 本身失败；不根据底层 Error 猜测 Host schema。
+
 - `BoneWorkflowAgentStepController.requireRecovery()` 和 `BoneWorkflowAgentStepEventKind.recoveryRequired`，提交 `commitUncertain` 并发布安全事件。
 - Workflow wrapper、真实 Effect pipeline、checkpoint 故障/取消交错，以及 Gemini 多轮/签名/ID/用量/累计容量回归测试。
 
 ### Migration
+
+- Session prepare/consume不认证业务授权或自动取得Run lease。Host需在消费事务复核实际安全事实，并保留nonce墓碑；Hash不替代签名，不能把新session当预算重置或未知Effect恢复。新信封/ledger编码schemaVersion=1，未知版本拒绝。
+
+- 工作账本页号是请求尝试序号，失败不退号，cursor 保留业务续页语义。新 generation 不清除或冒认旧在途请求；knownFailure 需明确事实，不得从超时/无 Worker 推断。Run级 CAS 会让同Run并发单元竞争；预算/Run/工作账本跨表事务由 Host 负责。
+
+- 新 durable 预算不自动替换进程内 Meter。Host 必须原子保存每次预留，包括业务拒绝的 attempt/revision；提交未知不自动重试。新预算达到截止即拒绝，clock异常不恢复，同Run策略/版本变更不重置额度；真实持久层和设备时钟须独立验收。
+
+- 取消判定 ready 不是已停止或已提交终态：Host 必须用覆盖 session/Effect/stage/preflight 的独立 evidenceRevision 在最终事务复核，不能只凭 Run CAS 收口。query 错误不降级为空历史或默认通过，unknown 不得映射为 committed。
+
+- 恢复扫描不扩展 Persistence 必需方法；Host 可选接入。结果必须是同一授权 scope 的完整一致快照，不得静默分页截断或把基础设施异常算成坏行。隔离不自动删除/修复；真实数据库与权限边界仍需验收。
+
+- Run Controller 是可选组合入口，不自动替换 Host 实现。Host 需传入预期 revision，使用操作返回的新 generation，并自行处理授权、业务状态映射、Worker 与 Effect 对账；`requestCancellation` 返回持久意图快照，不表示执行已停止。
+- 控制面多步过程非整体事务，异常后无自动重试/回滚。Host 必须重读调和；恢复只换 lease 不改 checkpoint，未覆盖外部预算表、业务原子绑定或恢复扫描。独立序列化测试 Host 不代表真实第二 App/数据库验收。
+
+- 持久化契约场景从 6 增至 8，内存参考实现预期 6 passed / 2 skipped；场景与失败枚举的穷尽 switch、固定数量断言、报告消费者及差距守卫需同步。opaque payload 是必需契约，不新增可跳过 capability。
+- Host 应将 typed payload 校验移出通用 Store，并移除 Store 层 generation 必须为 0 的限制；业务层仍可限定新 Run 的初值。旧行兼容／迁移由 Host 负责，Kit 不自动改写数据。
 
 - Host 对 `BoneWorkflowAgentStepEventKind` 的穷尽 switch 需处理新增 `recoveryRequired`；它不是业务成功/失败终态。
 - `progressSink()` 将已尝试但未确认的 Store 提交映射为 `toolRecoveryRequired`；直接 Controller 操作保留原 Store 错误，但同一实例禁止后继写入。Host 必须重读/调和，不得自动重试 Tool。

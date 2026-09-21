@@ -98,7 +98,16 @@ for observation in observations {
 }
 ```
 
-六个场景覆盖创建/读取/成功提交、拒绝非法 bundle 后无部分更新、并发 CAS、generation fencing、关闭后重新打开读取、独立连接的 CAS/fencing 一致性。内存示例预期四项通过、两项 skipped；不能把 skipped 统计为通过。
+八个场景覆盖创建/读取/成功提交、拒绝非法 bundle 后无部分更新、并发 CAS、generation fencing、关闭后重新打开读取、独立连接的 CAS/fencing 一致性，以及业务 schema 不透明的 payload、初始 generation 契约。内存示例预期六项通过、两项 skipped；不能把 skipped 统计为通过。
+
+两个新增场景是必需能力，不可 skipped：
+
+- `opaqueCheckpointPayload`：以 generation 0 隔离 payload 行为，覆盖合法 JSON 对象、数组与标量、两种允许的 classification 和 retention，验证 create/load/commit 的字节与元数据保真。不能要求 Host typed schema，也不能解码再重编码。
+- `creationLeaseGeneration`：覆盖 0、1、7、`UInt64.max` 的原样创建；验证正常换代、旧 revision 重放拒绝和 generation 溢出时的原子拒绝。它依旧需要合法通用 payload；如果 payload 探针失败，不能仅凭本项失败就断言 generation 实现错误。
+
+初始化 create 抛错报告 `seedCreateRejected`，初始化 load 抛错报告 `seedLoadFailed`，不再把它们与目标 CAS/fencing 行为的失败混在一起。专用 payload 探针的 create/commit 抛错报告 `opaquePayloadRejected`，专用 generation 探针的 create 抛错报告 `creationGenerationRejected`；成功返回错误快照仍报告 `snapshotMismatch`。其他未归类操作异常保持 `operationFailed`。
+
+这些是**失败阶段分类，不是底层根因诊断**：同一个 `corruptedCheckpoint` 或未知 Error 不能证明“Host schema 拒绝”，I/O 错误也可能出现在这些阶段。应联合两个独立探针与 Host 受控日志定位；套件不暴露原始错误，也不把 schema 更严格视为合法跳过理由。
 
 真实 Host 工厂须提供自己的 `persistence`，并按能力注入：
 
@@ -141,3 +150,155 @@ swift test -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=compl
 失败无回退和 Run 预算传递由 `AgentStreamingModeTests` 验证；Thinking 字段与预检由
 `ServerReasoningTests` 验证。模拟 Transport 的网络错误不等同于真实 DNS/TLS/网关故障复现，
 URLProtocol 也不能代替实际网络或供应商在线验收。生产准入仍需真实 Host 与最小线上 Smoke。
+
+## Run 控制面契约验收
+
+`BoneWorkflowRunControllerContractSuite` 使用同一 Persistence fixture 资源模型，但 factory 的入参是 `BoneWorkflowRunControllerContractCase`。每个场景创建隔离命名空间，同一场景可创建多个 Run；它不调用 reopen/独立连接能力，也没有 skipped 场景。
+
+```swift
+let observations = try await BoneWorkflowRunControllerContractSuite().run { _ in
+    BoneWorkflowPersistenceContractFixture(
+        persistence: BoneInMemoryWorkflowPersistence(),
+        cleanup: {}
+    )
+}
+for observation in observations {
+    assert(observation.passed, "Control contract failed: \(observation.failures)")
+}
+```
+
+五项必需场景：pending 起步、pause/resume 双 generation fencing、四类终态不可复活、cancelling 落盘早于停止闭包且不自动收口、恢复不改变 checkpoint 内容。fencing 探针直接向 Store 提交旧 generation＋新 revision，而不是仅验证 Controller 自己的前置检查。恢复场景证明的是不改动 checkpoint，不是对外部预算表的验证。
+
+结果只有固定场景和失败枚举；`passed` 是 `failures.isEmpty` 的派生值。原始 Error、payload 与标识不进入报告。每项成功/失败/取消都等待未取消 Task 中的 cleanup，factory 抛错之前的资源仍由 factory 负责。操作须合作退出，不提供硬超时。
+
+2026-09-21 本地回归在 `BoneInMemoryWorkflowPersistence` 与独立 `SerializedTestHost` 上执行两套契约。后者使用自有 Codable 存储信封与 CAS 实现，不包装内存参考实现，但仍只是 actor 内存测试适配器，**不等于外部第二 App、数据库、跨进程或磁盘持久性验收**。真实第二 Host 需用自己的工厂重新运行；停止闭包测试不证明真实 Worker 或未知 Effect 已停止。
+
+```bash
+swift test --filter WorkflowRunController
+```
+
+## 恢复扫描契约验收
+
+`BoneWorkflowRecoveryScanContractSuite` 验证四项：空 scope、完整恢复候选集、扫描只读、混合坏行隔离计数。工厂提供 `BoneWorkflowRecoveryScanContractFixture`；其中 persistence 和 recoveryScan 必须是同一底层隔离 scope，fixture 初始为空。
+
+```swift
+let observations = try await BoneWorkflowRecoveryScanContractSuite().run { _ in
+    let store = BoneInMemoryWorkflowPersistence()
+    return BoneWorkflowRecoveryScanContractFixture(
+        persistence: store,
+        recoveryScan: store,
+        cleanup: {}
+    )
+}
+```
+
+内存参考实现预期 3 passed、1 skipped(`injectQuarantinedRecord`)。这是**测试故障注入能力**缺失，不是生产协议可以不隔离坏行。真实 Host 应通过测试专用入口注入：每次新增一条独立的不可用存储记录（不能只是伪造扫描输出），不改动已有数据、不触碰生产命名空间。
+
+注入场景在有效 Run 中混入第一条和第二条坏记录，逐次重复扫描，验证计数为 1、2 且不因读取累计；有效 Run 和被排除的正常终态均不得被修改。套件不依赖结果顺序，精确比较可信快照集合；snapshot 对象包含 payload，但输出报告只有固定场景、失败类型和 capability，不输出正文/ID/原始 Error。
+
+取消与资源清理沿同一规则：fixture 返回后无论成功、失败、跳过或取消均等待未取消任务中的 cleanup；factory 返回前失败自己清理。无硬超时或自动修复。
+
+2026-09-21 本地独立序列化测试 Host 已通过四项场景，故障注入覆盖不可解码字节与 Run/Checkpoint revision 不一致；负例覆盖漏计、累计计数、漏候选、扫描改写、坏行导致整批失败、取消与清理。基础设施错误传播测试只证明测试适配器的异常路径，不证明真实数据库把 I/O 错误正确区分为行级损坏。真实数据库隔离、scope 权限、完整性与物理坏行保留仍由 Host 验收。
+
+```bash
+swift test --filter WorkflowRecoveryScan
+```
+
+## 取消安全判定契约验收
+
+`BoneWorkflowCancellationReadinessContractSuite` 有十一个必需场景：完整的未启动续执行、历史 unknown Effect、缺少 session 证据、历史 Effect 查询不完整、当前 session 存在 stage 活动、已有 observation、当前 session Effect、历史未提交 Effect、仅有 Receipt 未提交、preflight 拒绝、首次执行（零基序号 0）。工厂按 `BoneWorkflowCancellationReadinessContractCase` 在隔离测试数据中建立真实事实，返回 runID、只读 query、`verifyUnchanged` 与 cleanup。除场景注明差异外，其他 ready 条件须满足。
+
+`verifyUnchanged` 必须从同一 backing 读取并核对 Run/session/Effect/stage/**已应用结果**与初始化事实一致，不能固定返回 true。套件重复读取并比较完整快照（Effect 行顺序除外），防止版本未变但投影漂移，再判定并核对源数据不变。十一个场景无 skipped；fixture 返回后的失败/取消仍等待 cleanup，factory 返回前失败由自身清理。报告仅包含固定场景和失败枚举，不包含标识、数据或原始 Error。
+
+2026-09-21 独立内存事实 Host 覆盖上述十一个场景：所有场景都没有 Worker，只有持久事实决定 ready/rejected；unknown 故障场景保留已应用结果。负例验证隐藏 unknown/observation、误把仅 Receipt 当 committed、查询删除结果、证据版本或投影漂移会被契约拒绝。测试 Host 独立保存 Receipt 存在性与提交确认，并将一基 session 编号转换为零基；这仍不证明生产查询没有遗漏。该测试 Host 不是完整 session 存储，不证明实际 App 的 SQL 查询、跨表事务或外部副作用停止。
+
+```bash
+swift test --filter WorkflowCancellationReadiness
+```
+
+Host 仍需测试“检查后新增 Effect”的竞态：同一 Run revision 未变化时，完整证据版本也必须推进，原收口请求应被事务拒绝。SDK 单测验证改变证据重新评估会拒绝，不提供一个能原子控制任意 Host 表的写入协议。
+
+## 持久预算契约验收
+
+`BoneWorkflowRunBudgetContractSuite` 验证七项：requestLimit、finalReserve、deadline、clockFencing、reopenPreservesBudget、policyDrift、concurrentCAS。每项 factory 提供空隔离的 `BoneWorkflowRunBudgetContractFixture(store:reopen:cleanup:)`。
+
+内存参考实现六项 passed、一项 skippedReopen；只有重开测试能力可跳过。独立序列化测试 Host 使用自有编码行、事务 actor 及显式连接关闭/新建，七项通过，但仅是 API 层重开模拟，不证明真实文件、跨进程、数据库隔离或设备 boot 身份可靠。
+
+套件使用注入的固定时钟，不等待真实时间；决策按场景独立断言，完整状态与公共纯推进函数核对，再回读存储。并发同 revision 恰有一个赢家；额度拒绝后 attemptedRequests 必须持久递增，不能伪造返回快照但不保存。Host cleanup 关闭全部测试资源，取消仍等待 cleanup，factory 返回前异常由自身清理。
+
+```swift
+let observations = try await BoneWorkflowRunBudgetContractSuite().run { _ in
+    BoneWorkflowRunBudgetContractFixture(
+        store: BoneInMemoryWorkflowRunBudgetStore(),
+        cleanup: {}
+    )
+}
+```
+
+```bash
+swift test --filter WorkflowRunBudget
+```
+
+真实 Host 还需验证数据库写入后抛错/取消的未知提交窗口、跨连接事务、持久化失败时不误发请求、Run lease 与预算协同。套件报告只有固定场景/失败分类，无原始 Error、时钟值、Run ID 或数据库路径；预算快照本身不是安全诊断报告。
+
+## 工作单元账本契约验收
+
+`BoneWorkflowWorkLedgerContractSuite` 提供 pageCAS、generationFencing、knownFailure、splitStopsParent、preflightInFlight、aggregateCAS、concurrentCAS 七项必需场景，无 skipped。每场景 factory 返回空隔离的 `BoneWorkflowWorkLedgerContractFixture(store:cleanup:)`。
+
+套件验证重复 revision/页号拒绝、旧 lease（即便使用当前 revision）拒绝、新 lease 不能冒认旧在途页、knownFailure 仍 partial 且占用页号、split 父不能再出页、非法 split 零写入、preflight 显示在途。成功回执完整回读，拒绝后快照不变，open 不重置工作进度。报告只有固定失败枚举，不包含 payload、ID 或原始异常。
+
+2026-09-21 内存参考与独立编码命令日志测试 Host 均通过七项。后者每次 load 从自有日志重新重放合法转换，不包装内存参考 Store；仍是 actor 内存，不证明数据库唯一键、跨进程持久性或大规模日志性能。故障适配器覆盖伪造保存回执、漏 revision 校验、换代忽略旧 revision；便携契约验证跨单元共享 aggregate CAS 与同 revision 并发竞争；单测另覆盖提交顺序、旧代所有回写、终态不复活和 opaque 非 JSON 字节。
+
+```swift
+let observations = try await BoneWorkflowWorkLedgerContractSuite().run { _ in
+    BoneWorkflowWorkLedgerContractFixture(
+        store: BoneInMemoryWorkflowWorkLedgerStore(),
+        cleanup: {}
+    )
+}
+```
+
+```bash
+swift test --filter WorkflowWorkLedger
+```
+
+Host 必须补真实事务中父 split 与子创建的失败窗口、页唯一约束、同 Run 多连接竞争、预算与页准入协调，以及真实 Effect 结果未知时不错误标记 knownFailure。测试通过不授权自动重试或删除旧在途记录。
+
+## 执行会话与续执行契约验收
+
+`BoneWorkflowExecutionSessionContractSuite` 提供 admissionIntegrity、sequenceContinuity、nonceSingleUse、bindingMismatch、concurrentConsumption 五项必需场景，无 skipped。工厂提供空隔离的 `BoneWorkflowExecutionSessionContractFixture(store:cleanup:)`。
+
+检查原始 admission 字节保真、改内容拒绝、零基序列严格连续、未 prepare 不可 consume、撤销/消费过 nonce 不复用、operation/effect/binding/nonce逐字段不匹配拒绝，以及并发消费仅一个赢家。拒绝后读回完整 ledger 不变；open 不重置历史。只有固定失败报告，不输出nonce、payload、标识或原始 Error。
+
+```swift
+let observations = try await BoneWorkflowExecutionSessionContractSuite().run { _ in
+    BoneWorkflowExecutionSessionContractFixture(
+        store: BoneInMemoryWorkflowExecutionSessionStore(),
+        cleanup: {}
+    )
+}
+```
+
+```bash
+swift test --filter WorkflowExecutionSession
+```
+
+2026-09-21 内存参考和自有编码行测试 Host 验证上述契约；Core 测试复用两种 payload 类型，并覆盖 hash已知向量、编码内容篡改、序列/许可/nonce墓碑损坏拒绝及原nonce不落盘。模拟消费前/后提交异常分别保留整个旧/新ledger。真实Host仍需验证多连接事务、一次性nonce消费与业务安全检查同一线性化点、提交回执丢失恢复、身份隔离和实际存储耐久性，不能仅凭内存契约通过声称接入完成。
+
+## 旧工作页跨代对账契约
+
+`BoneWorkflowWorkReconciliationContractSuite` 接收 `BoneWorkflowWorkReconciliationContractFixture`（store 必须支持独立对账协议、每场景空隔离 scope）。八项必需场景：committedRecovery、knownFailureRetention、targetFencing、responseIntegrity、concurrentCAS、concurrentUnits、concurrentLease、phaseCoverage。无 skipped；不支持恢复能力的原 Store 继续使用原工作账本套件，不能宣称通过本套件。
+
+验证原进度保留、旧页 generation 和对账引用不丢失、页号/计数不回退、结果写回后当前代下一页可用，且旧 Worker 仍被拒。拒绝 stale revision、错误 Run/Unit/page/源代/当前代、替换已保存响应、成功降级失败、重复对账。并发仅一赢家；每次拒绝后读取完整原账本不变。
+
+```swift
+let results = try await BoneWorkflowWorkReconciliationContractSuite().run { _ in
+    .init(store: BoneInMemoryWorkflowWorkLedgerStore(), cleanup: {})
+}
+```
+
+```bash
+swift test --filter WorkflowWork
+```
+
+2026-09-21 在内存参考及独立 Codable 命令日志 Host 验证；日志每次读取重放原命令/lease/对账事件，而不是包装参考 Store。模拟对账写入前/后丢失回执，确保重读得到完整旧/新状态；忽略CAS和伪造保存回执的故障适配器必须被检出。Host 上线前仍需证明真实数据库原子性、接管权限与对账事实同一校验边界、证据与原页的业务关联、旧请求不再产生副作用及业务结果不会重复应用。

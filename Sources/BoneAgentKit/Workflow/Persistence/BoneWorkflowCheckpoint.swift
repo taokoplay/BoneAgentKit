@@ -20,6 +20,10 @@ public enum BoneCheckpointRetention: String, Codable, Equatable, Sendable {
     case untilExplicitCleanup
 }
 
+/// 持久化信封：payload 必须是非空、最多 4 MiB 的合法 JSON（允许数组和标量）。
+/// 不透明指业务 schema 不由 Store 解释，并非接受任意二进制；合法 JSON 字节不得被重编码。
+/// 只允许 safeState/opaqueReference；Host 在构造之前负责真实数据分类与领域校验，
+/// 不得仅通过更改分类标签把敏感信息放入普通持久化。
 public struct BoneWorkflowCheckpoint: Codable, Equatable, Sendable {
     public static let maximumPayloadByteCount = 4 * 1_048_576
 
