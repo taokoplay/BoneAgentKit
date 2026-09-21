@@ -100,3 +100,13 @@
 - 从 alpha.17 到候选版本的审查范围还包含此前 Workflow/Gemini 修复，不能只审查当前未提交差异。
 
 Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。
+
+
+## Alpha.18 测试版签发范围（2026-09-21）
+
+本轮按维护者明确要求先发布测试 tag，供 Host 更新后执行验收；不是生产签发。版本镜像为 `0.2.0-alpha.18`，tag 采用相同名称；仅推送 tag，不更新远端 main 或建立 Release 页面。最终 SHA 以远端 tag 解引用为准，发布回执另行核验。
+
+- 包含 alpha.17 后的 Workflow/Gemini 正确性修复、通用 Workflow/持久恢复能力及独立 Host 示例/迁移交接。
+- 本地 SDK 已完成 660 项默认与严格测试，四库 Simulator Release、独立 fixture 和无网络 Provider dry-run；详细环境与证据边界见上节。
+- Host 的真实 Debug/Release、持久层冻结基线由调用方在更新后执行；最低 Swift 5.9、真实 Provider、资源权利与生产签发门禁继续保留未完成状态。
+- 不将未跟踪本地目录和构建缓存纳入提交。要求完全干净源码的 Host 应使用 tag 的独立检出，不复用含本地产物的开发目录。

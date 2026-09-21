@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.18] - 2026-09-21
+
+本版为供 Host 更新与验收的 alpha 测试版本；真实 Host、最低工具链和真实 Provider 等生产门禁尚未完成，不代表生产准入。
+
 ### Fixed
 
 - 修复独立 MinimalWorkflowHost 示例遗漏授权消费 nonce 导致的编译失败，替换失效运行脚本说明；CI 增加独立 fixture 门禁，避免根 Package 单测遗漏示例入口。

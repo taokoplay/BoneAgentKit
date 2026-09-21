@@ -2,7 +2,7 @@
 
 ## 适用范围与当前状态
 
-本文面向从 `0.2.0-alpha.17` 迁移到下一已签发版本的 Host。所述新增能力当前位于 Unreleased 开发线，**不是已发布版本声明**；不要把版本示例中的占位符改成尚未存在的 tag。
+本文面向从 `0.2.0-alpha.17` 迁移到 `0.2.0-alpha.18` 的 Host。alpha.18 是供接入与测试的预发布版本，**不表示真实 Host 或生产门禁已经验收通过**。更新时核对远端 tag 与锁文件中的精确 revision。
 
 2026-09-21 本地已经实现持久化契约澄清、Run 控制器、恢复扫描、取消安全判定、持久预算、工作账本、执行会话及旧工作页对账。各阶段的内存与独立序列化测试不是生产数据库或第二个真实 App 的验收。最终签发依 [发布检查清单](../RELEASE_CHECKLIST.md)，完整语义见 [Workflow 与恢复](WorkflowAndRecovery.md)，测试接入见 [Testing](Testing.md)。
 
@@ -112,7 +112,7 @@ swift run --package-path Examples/MinimalWorkflowHost MinimalWorkflowHost
 ## 发布、pin 与回滚顺序
 
 1. 核对从上一 tag 到候选提交的完整范围，排除本地工作台、缓存、凭据及未审查生成物。
-2. 在授权后整理实现提交与版本元数据；版本常量、README、Package 接入说明、Changelog 和 tag 一致。本文不选定新版本，也不自动创建 tag。
+2. 在授权后整理实现提交与版本元数据；版本常量、README、Package 接入说明、Changelog 和 tag 一致。本轮测试版本为 alpha.18；后续签发仍需独立授权，不自动创建 tag。
 3. 在最终候选 SHA 重跑门禁，记录实际工具链；最低 Swift 5.9、真实 Host、Provider 及权利核验缺项不得标成完成。
 4. Host 可先针对精确候选 SHA 使用干净检出执行兼容和冻结基线，避免“必须先发布才能验收”的循环；tag 只能在签发授权与适用门禁满足后建立，公开 tag 不重写。
 5. Host 固定最终已审核版本或精确 revision，更新锁文件，确认本地 SDK SHA 与解析结果一致且工作树干净，再重跑正式基线。版本改变不应触发重置已有 Run。
