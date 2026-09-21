@@ -14,8 +14,10 @@ import BoneAgentTesting
 - 可逆私有写 Tool 必须持有并一次消费绑定的 `BoneAuthorizationGrant`；
 - `BoneScriptedInferenceEngine` 提供纯合成模型结果，不联网、不读写文件。
 
-运行：
+从仓库根目录运行：
 
 ```bash
-zsh Tests/BoneAgentKit/run_minimal_workflow_host_example.sh
+swift run --package-path Examples/MinimalWorkflowHost MinimalWorkflowHost
 ```
+
+该独立 Package 是编译与合成运行 fixture，不是生产 App 或数据库验收。授权消费必须携带与 grant 相同的 nonce；示例不省略该绑定。

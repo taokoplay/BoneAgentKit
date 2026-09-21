@@ -84,3 +84,19 @@
 - Xcode 26.0 / Swift 6.2 是本地验证环境；最低 Swift 5.9 仍未实测。四库 Simulator 构建证据属于此前整合阶段，Alpha.12 未重新做真机或四库 SDK 全量验收。
 - 2026-09-05 约 19:55 查询 Alpha.11 提交及仓库最近 Actions 运行列表为空；该查询不是 Alpha.12 发布后的 CI 核验，Alpha.12 远端 CI 结果尚未核验。
 - 契约套件尚无真实数据库 Adapter 的 reopen/独立连接正例；真实 Host、进程崩溃、lease expiry、真机 Runtime、Provider 与资产权利验收仍未关闭。原始测试日志保留本机，不包含在 tag 中。
+
+
+## Unreleased Workflow 本地收敛快照（2026-09-21）
+
+本节记录未提交工作树的本地证据，**不是发布签发，也不替代上方必须项**。当前运行时版本仍为 `0.2.0-alpha.17`，尚未选择下一版本、创建发布 tag 或更新 Host pin。最终签发必须在确定的提交 SHA 上重跑。
+
+- P0–P6 及旧工作页跨代对账已实现；默认与显式 Swift 6 严格测试 660 项通过，macOS Release 严格构建通过。
+- 工具链：Xcode 26.0（17A324）/ Apple Swift 6.2；最低 Swift 5.9 未实测。
+- 独立 MinimalWorkflowHost 的授权消费缺 nonce 参数已修复；Debug/Release 显式 Swift 6 严格模式编译并运行通过。它不是生产 App 或真实数据库。
+- OpenAI / Anthropic / Gemini 三 Provider dry-run 通过，不发网、不使用真实凭据；不等于真实流式/非流式请求验证。
+- 四个库 Product（BoneAgentKit、BoneAgentTesting、BoneAgentLocalModels、BoneAgentLlama）iOS Simulator Release 构建通过，禁用签名；不是最低系统版本真机执行证据。
+- CI 配置补充独立 Host fixture 编译运行门禁；未推送或核验远端 CI。
+- 公开 API 顶层类型静态统计 405；数量与声明核对不是完整 API/ABI 兼容证明。
+- 从 alpha.17 到候选版本的审查范围还包含此前 Workflow/Gemini 修复，不能只审查当前未提交差异。
+
+Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。

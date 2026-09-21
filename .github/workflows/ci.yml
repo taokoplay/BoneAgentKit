@@ -15,6 +15,8 @@ jobs:
       - run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
       - run: swift test -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
       - run: swift build -c release -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+      - name: Independent Host fixture
+        run: swift run --package-path Examples/MinimalWorkflowHost -Xswiftc -swift-version -Xswiftc 6 -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors MinimalWorkflowHost
       - run: swift run BoneAgentLiveProviderSmoke --dry-run
       - run: bash Scripts/check-public-documentation.sh
       - name: Check committed whitespace

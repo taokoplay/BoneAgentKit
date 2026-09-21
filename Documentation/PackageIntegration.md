@@ -25,6 +25,10 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 
 需要验收 Host Persistence Adapter 时，在测试目标显式链接 `BoneAgentTesting`，调用 `BoneWorkflowPersistenceContractSuite`；无需修改生产目标依赖。此套件不随基础 Agent 自动运行，也不提供数据库。只使用 Agent 推理或本地只读查询的 App 不必为此新增任务持久化。示例及缺能力处理见 [Testing](Testing.md#host-持久化契约验收)。
 
+## Unreleased Workflow 迁移准备
+
+从 alpha.17 升级到下一已签发版本前，请阅读 [Workflow Host 迁移与发布交接](WorkflowHostMigration.md)。新控制器、预算、工作账本、session 与对账能力均需 Host 显式组合；不会因更新依赖自动迁移数据库或启用新流程。候选未签发前不要使用不存在的 tag，真实 Host 应对精确候选 SHA 做兼容验收。
+
 ## 依赖方向
 
 ```text

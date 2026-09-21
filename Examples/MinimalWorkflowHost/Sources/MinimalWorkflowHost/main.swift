@@ -103,6 +103,7 @@ enum MinimalWorkflowHost {
             resourceScope: "synthetic-state",
             resourceRevision: 1,
             impact: AuthorizedWriteTool.impact,
+            nonce: grant.nonce,
             nowUptime: 15
         ))
 

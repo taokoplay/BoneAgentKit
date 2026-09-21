@@ -19,6 +19,7 @@
 | [Tool Calling](ToolCalling.md) | 统一事实模型、Provider wire、调度与授权 |
 | [Workflow 与恢复](WorkflowAndRecovery.md) | 状态机、CAS、lease、Effect 和恢复语义 |
 | [App Host 集成边界](CharacterHostIntegration.md) | 不透明引用、Persistence Adapter 和产品职责 |
+| [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | Unreleased 接入顺序、旧数据策略、事务责任与验收清单 |
 
 ## 本地模型
 

@@ -6,6 +6,8 @@
 
 ### Fixed
 
+- 修复独立 MinimalWorkflowHost 示例遗漏授权消费 nonce 导致的编译失败，替换失效运行脚本说明；CI 增加独立 fixture 门禁，避免根 Package 单测遗漏示例入口。
+
 - 明确持久化 payload 的业务 schema 不透明与 JSON/分级限制；create 保存任意初始 generation，acquireLease 保持非幂等 CAS 换代及溢出原子拒绝。Core 实现与协议签名不变。
 
 - `runWorkflowStep` 运行所有权覆盖最终 checkpoint 提交；重复/重入调用不再将正在运行的 Step 写成失败。
@@ -15,6 +17,8 @@
 - Gemini 缺省/null usage 保持未知，非法载荷拒绝；签名元数据不计正式 blocks，thought functionCall 与混合 text/functionCall 在文本合并前拒绝。
 
 ### Added
+
+- 新增 Workflow Host 迁移与发布交接文档，明确接入顺序、旧数据版本分流、事务责任、契约验收及候选 SHA/pin/回滚流程。
 
 - 工作账本增加独立可选跨代对账能力：精确绑定旧页与当前接管代/账本revision，显式写回Host确认的失败或成功结果并保留审计引用；不放宽普通Worker围栏，不重置页号/预算。
 - 八场景跨代工作对账契约和独立日志Host回归，检查目标隔离、响应保真、并发CAS、进度保留及提交回执未知窗口。
