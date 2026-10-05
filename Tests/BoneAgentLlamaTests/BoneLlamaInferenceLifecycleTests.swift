@@ -4,6 +4,25 @@ import XCTest
 @testable import BoneAgentLlama
 
 final class BoneLlamaInferenceLifecycleTests: XCTestCase {
+    func testContextCountingCancellationDrainsBeforeNextGeneration() async throws {
+        for phase in [LifecycleRuntime.Stage.load, .tokenize] {
+            let runtime = LifecycleRuntime(blocking: phase)
+            let engine = makeEngine(runtime)
+            let first = Task { [request] in try await engine.countContextTokens(request: request) }
+            await runtime.gate.waitForEntry()
+            await engine.cancel()
+            do { _ = try await engine.infer(request: request); XCTFail("must stay busy until counter drains") }
+            catch { XCTAssertEqual(error as? BoneLlamaAdapterError, .busy) }
+            await runtime.gate.open()
+            do { _ = try await first.value; XCTFail("counter must reject late result") }
+            catch { XCTAssertTrue(error is CancellationError) }
+            let before = await runtime.snapshot()
+            XCTAssertEqual(before.generations, 0)
+            XCTAssertEqual(before.overlappingUnloads, 0)
+            _ = try await engine.infer(request: request)
+        }
+    }
+
     func testSecondInferIsBusyAcrossWholePipelineWithoutDuplicateLoad() async throws {
         for phase in LifecycleRuntime.Stage.allCases {
             let runtime = LifecycleRuntime(blocking: phase)

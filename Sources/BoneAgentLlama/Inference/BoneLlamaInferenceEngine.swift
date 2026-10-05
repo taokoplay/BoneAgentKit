@@ -2,10 +2,11 @@ import BoneAgentKit
 import BoneAgentLocalModels
 import Foundation
 
-public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sendable {
+public final class BoneLlamaInferenceEngine: BoneInferenceEngine, BoneInferenceContextBudgetProviding, BoneInferenceContextTokenCounting, @unchecked Sendable {
     public let nonImageCapabilities: Set<BoneInferenceCapability>
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
+    private let contextPlan: BoneLocalRuntimePlan
     private let modelID: String
     private let session: Session
 
@@ -21,6 +22,7 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         constraintCompiler: (any BoneLlamaConstraintCompiling)? = nil,
         runtimeFactory: @escaping BoneLlamaRuntimeFactory
     ) {
+        self.contextPlan = plan
         self.modelID = modelID
         var implemented: Set<BoneInferenceCapability> = toolEnvelope == nil
             ? [.text]
@@ -121,6 +123,18 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, @unchecked Sen
         return try await session.infer(request)
     }
 
+    public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
+        guard modelID == self.modelID else { throw BoneLlamaAdapterError.modelMismatch }
+        return try .init(contextWindowTokens: contextPlan.contextTokens,
+                         maximumOutputTokens: contextPlan.maximumOutputTokens, source: .runtime)
+    }
+
+    public func countContextTokens(request: BoneInferenceRequest) async throws -> Int {
+        let resolved = try resolvedCapabilities(for: request, invocation: .nonStreaming)
+        try BoneInferenceCapabilityValidator.validate(request: request, capabilities: resolved.capabilities, invocation: resolved.invocation)
+        return try await session.countTokens(request)
+    }
+
     public func currentModelState() async -> BoneLlamaModelState {
         await session.currentState()
     }
@@ -193,7 +207,7 @@ private actor Session {
     nonisolated func validateSynchronously(_ request: BoneInferenceRequest) throws -> String {
         _ = try BoneLlamaConversationBuilder.build(
             request: request,
-            toolEnvelope: toolEnvelope
+            toolEnvelope: request.availableTools.isEmpty ? nil : toolEnvelope
         )
         return "canonical"
     }
@@ -232,6 +246,46 @@ private actor Session {
                 if cancelled { requestCancellation(id) }
                 await finishOperation(id)
                 if cancelled { throw BoneLlamaAdapterError.runtime(.cancelled) }
+                throw error
+            }
+        } onCancel: {
+            Task { await self.requestCancellation(id) }
+        }
+    }
+
+    func countTokens(_ request: BoneInferenceRequest) async throws -> Int {
+        guard operationID == nil, unloadTask == nil else { throw BoneLlamaAdapterError.busy }
+        try Task.checkCancellation()
+        let id = UUID()
+        operationID = id
+        operationCancelled = false
+        return try await withTaskCancellationHandler {
+            do {
+                let configuration = BoneLlamaRuntimeConfiguration(plan: plan)
+                if request.outputConstraint != nil || !request.availableTools.isEmpty {
+                    try await validateRuntimeIdentity(id: id)
+                }
+                try checkOperation(id)
+                if resourceState != .loaded {
+                    resourceState = .loading
+                    publish(.loading, configuration: configuration)
+                    try await runtime.load(modelURL: modelURL, configuration: configuration)
+                    resourceState = .loaded
+                    try checkOperation(id)
+                    publish(.loaded, configuration: configuration)
+                }
+                let prepared = try await prepare(request)
+                try checkOperation(id)
+                let count = try await runtime.tokenize(prompt: prepared.prompt).tokenCount
+                try checkOperation(id)
+                await finishOperation(id)
+                return count
+            } catch {
+                let cancelled = operationCancelled || Task.isCancelled
+                if cancelled { requestCancellation(id) }
+                else { publish(.failed, configuration: BoneLlamaRuntimeConfiguration(plan: plan), failure: error as? BoneLlamaRuntimeError) }
+                await finishOperation(id)
+                if cancelled { throw CancellationError() }
                 throw error
             }
         } onCancel: {
@@ -374,7 +428,7 @@ private actor Session {
     ) {
         let conversation = try BoneLlamaConversationBuilder.build(
             request: request,
-            toolEnvelope: toolEnvelope
+            toolEnvelope: request.availableTools.isEmpty ? nil : toolEnvelope
         )
         let rendered = try await renderer.render(
             conversation: conversation,
@@ -390,7 +444,8 @@ private actor Session {
                 throw BoneLlamaAdapterError.invalidConfiguration
             }
         }
-        let envelopeConstraint = try toolEnvelope?.generationConstraint(
+        let activeEnvelope = request.availableTools.isEmpty ? nil : toolEnvelope
+        let envelopeConstraint = try activeEnvelope?.generationConstraint(
             tools: request.availableTools
         )
         let requestConstraint = try request.outputConstraint.map(BoneLlamaOutputConstraintAdapter.map)
@@ -410,7 +465,7 @@ private actor Session {
         if requestConstraint != nil, constraintCompiler == nil {
             throw BoneLlamaAdapterError.unsupportedGenerationControl
         }
-        return (rendered.prompt, control, toolEnvelope, constraintCompiler)
+        return (rendered.prompt, control, activeEnvelope, constraintCompiler)
     }
 
     private func validateConstrainedOutput(

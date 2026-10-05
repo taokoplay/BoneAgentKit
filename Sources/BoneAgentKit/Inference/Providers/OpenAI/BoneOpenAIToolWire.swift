@@ -272,6 +272,15 @@ private extension BoneOpenAIToolWire {
         }
     }
 
+
+
+    static func refusal(_ raw: Any?) -> BoneInferenceRefusal? {
+        guard raw != nil, !(raw is NSNull) else { return nil }
+        return .unknown
+    }
+}
+
+extension BoneOpenAIToolWire {
     static func usage(_ raw: [String: Any]?) throws -> BoneInferenceUsage? {
         guard let raw else { return nil }
         guard let input = raw["prompt_tokens"] as? Int,
@@ -290,10 +299,5 @@ private extension BoneOpenAIToolWire {
         } catch {
             throw BoneInferenceTransportError.invalidResponse
         }
-    }
-
-    static func refusal(_ raw: Any?) -> BoneInferenceRefusal? {
-        guard raw != nil, !(raw is NSNull) else { return nil }
-        return .unknown
     }
 }

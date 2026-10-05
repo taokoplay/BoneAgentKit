@@ -40,6 +40,9 @@ public enum BoneLlamaConversationBuilder {
             case .assistant:
                 if let content = message.content, !content.isEmpty {
                     messages.append(try .init(role: .assistant, content: content))
+                } else if let turn = message.assistantTurn, turn.toolCalls.isEmpty,
+                          turn.structuredOutputs.isEmpty, toolEnvelope == nil, let text = turn.text {
+                    messages.append(try .init(role: .assistant, content: text))
                 } else if let turn = message.assistantTurn, let toolEnvelope {
                     for call in turn.toolCalls {
                         guard knownCallIDs[call.id] == nil else {

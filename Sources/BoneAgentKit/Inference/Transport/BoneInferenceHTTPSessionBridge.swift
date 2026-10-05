@@ -52,6 +52,21 @@ final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, UR
 
     func urlSession(
         _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard BoneInferenceRedirectPolicy.allows(from: request.url, to: newRequest.url) else {
+            completionHandler(nil)
+            finish(.failure(BoneInferenceTransportError.invalidEndpoint), cancelTask: true)
+            return
+        }
+        completionHandler(newRequest)
+    }
+
+    func urlSession(
+        _ session: URLSession,
         dataTask: URLSessionDataTask,
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void

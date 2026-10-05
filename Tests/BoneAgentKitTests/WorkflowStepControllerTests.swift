@@ -109,6 +109,26 @@ final class WorkflowStepControllerTests: XCTestCase {
         catch { XCTAssertEqual(error as? E, expected, file: file, line: line) }
     }
 
+    func testFinishUsesPublicTransitionMatrixBeforePersistence() async throws {
+        for state in [BoneWorkflowStepState.pending, .ready, .running, .waiting, .paused] {
+            for terminal in [BoneWorkflowAgentStepTerminalState.succeeded, .failed, .cancelled] {
+                let base = try initial()
+                let seed = BoneWorkflowAgentStepCheckpoint(runID: base.runID, stepID: base.stepID, attemptID: base.attemptID,
+                    state: state, pendingAuthorizationTicketID: state == .waiting ? try .init("ticket") : nil)
+                let store = StepStore(seed)
+                let subject = try controller(seed, store: store)
+                let target: BoneWorkflowStepState = terminal == .succeeded ? .succeeded : terminal == .failed ? .failed : .cancelled
+                let allowed = (try? state.transitioned(to: target)) != nil
+                do {
+                    try await subject.finish(terminal)
+                    XCTAssertTrue(allowed, "\(state) -> \(target)")
+                } catch { XCTAssertFalse(allowed, "\(state) -> \(target): \(error)") }
+                let submissions = await store.submissions
+                XCTAssertEqual(submissions, allowed ? 1 : 0)
+            }
+        }
+    }
+
     func testWaitingCancelClearsTicketAndRestoresTerminalCheckpoint() async throws {
         try await verifyWaitingTerminal(nil)
     }

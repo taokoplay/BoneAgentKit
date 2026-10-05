@@ -6,6 +6,19 @@ import XCTest
 @testable import BoneAgentKit
 
 final class EventStreamTransportTests: XCTestCase {
+    func testFramerAcceptsCRLFCRAndLFAtEveryChunkBoundary() throws {
+        for delimiter in ["\r", "\n", "\r\n"] {
+            let bytes = Array(("data: 你好" + delimiter + delimiter + "data: done" + delimiter + delimiter).utf8)
+            for split in 0...bytes.count {
+                var framer = BoneInferenceEventStreamFramer(maximumBytes: bytes.count)
+                var events = try framer.append(Data(bytes.prefix(split)))
+                events += try framer.append(Data(bytes.dropFirst(split)))
+                events += try framer.finish()
+                XCTAssertEqual(events, [.init(data: "你好"), .init(data: "done")])
+            }
+        }
+    }
+
     func testTotalDeadlineStopsOpenStream() async throws {
         let fixture = StreamingURLProtocolFixture()
         fixture.configure(handler: { client, instance in

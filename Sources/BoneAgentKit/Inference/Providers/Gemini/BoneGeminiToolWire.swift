@@ -256,6 +256,24 @@ private extension BoneGeminiToolWire {
         return result
     }
 
+
+
+    static func finishReason(_ value: String?) -> BoneInferenceFinishReason {
+        switch value {
+        case "STOP": return .stop
+        case "MAX_TOKENS": return .length
+        case "SAFETY": return .safety
+        case nil: return .other(providerCode: nil)
+        default: return .other(providerCode: value)
+        }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+extension BoneGeminiToolWire {
     static func parseUsage(_ raw: [String: Any]?) throws -> BoneInferenceUsage? {
         guard let raw else { return nil }
         guard let input = raw["promptTokenCount"] as? Int,
@@ -271,18 +289,4 @@ private extension BoneGeminiToolWire {
             ).validated()
         } catch { throw BoneInferenceTransportError.invalidResponse }
     }
-
-    static func finishReason(_ value: String?) -> BoneInferenceFinishReason {
-        switch value {
-        case "STOP": return .stop
-        case "MAX_TOKENS": return .length
-        case "SAFETY": return .safety
-        case nil: return .other(providerCode: nil)
-        default: return .other(providerCode: value)
-        }
-    }
-}
-
-private extension Array {
-    subscript(safe index: Index) -> Element? { indices.contains(index) ? self[index] : nil }
 }

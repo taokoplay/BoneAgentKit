@@ -3,6 +3,19 @@ import XCTest
 @testable import BoneAgentKit
 
 final class InferenceEventTests: XCTestCase {
+    func testOpenAINullFinishDoesNotCompletePartialReasoningOrTool() throws {
+        let definition = BoneAgentToolDefinition(id: "probe", version: "1", title: "Probe", summary: "Probe",
+            wireName: "probe", schemaVersion: 1, inputSchema: .object(properties: [:], required: [], additionalProperties: false))
+        var mapper = BoneOpenAINormalizedEventMapper(disclosure: .providerReadable, definitions: [definition])
+        let first = try mapper.consume(event(#"{"choices":[{"delta":{"reasoning_content":"one","tool_calls":[{"index":0,"id":"c","function":{"name":"probe","arguments":"{"}}]},"finish_reason":null}]}"#))
+        XCTAssertEqual(first, [.reasoningStarted(kind: .providerReadable), .reasoningDelta("one"),
+                               .toolCallStarted(id: "c", toolID: "probe"), .toolArgumentsDelta(id: "c", data: Data("{".utf8))])
+        let second = try mapper.consume(event(#"{"choices":[{"delta":{"reasoning_content":"two","tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":null}]}"#))
+        XCTAssertEqual(second, [.reasoningDelta("two"), .toolArgumentsDelta(id: "c", data: Data("}".utf8))])
+        XCTAssertEqual(try mapper.consume(event(#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#)),
+                       [.reasoningCompleted, .toolCallCompleted(id: "c")])
+    }
+
     func testAnthropicEventMapperHonorsDisclosureAndHidesSignature() throws {
         var mapper = BoneAnthropicNormalizedEventMapper(disclosure: .providerReadable)
         XCTAssertEqual(try mapper.consume(event(#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#)), [.reasoningStarted(kind: .providerReadable)])

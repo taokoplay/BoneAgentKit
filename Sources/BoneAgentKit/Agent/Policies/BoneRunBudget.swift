@@ -42,6 +42,18 @@ public struct BoneRunBudget: Codable, Equatable, Sendable {
         self.maximumConcurrentToolCalls = maximumConcurrentToolCalls
         self.maximumEstimatedCostMicrounits = maximumEstimatedCostMicrounits
     }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(maximumInferenceCalls: c.decode(Int.self, forKey: .maximumInferenceCalls),
+            maximumToolCalls: c.decode(Int.self, forKey: .maximumToolCalls),
+            maximumInputBytes: c.decode(Int.self, forKey: .maximumInputBytes),
+            maximumOutputBytes: c.decode(Int.self, forKey: .maximumOutputBytes),
+            maximumTurns: c.decode(Int.self, forKey: .maximumTurns),
+            maximumWallClockSeconds: c.decode(TimeInterval.self, forKey: .maximumWallClockSeconds),
+            maximumConcurrentToolCalls: c.decode(Int.self, forKey: .maximumConcurrentToolCalls),
+            maximumEstimatedCostMicrounits: c.decode(Int64.self, forKey: .maximumEstimatedCostMicrounits))
+    }
+
 }
 
 /// 对调用方公开的稳定预算错误；只包含类别与配置上限，不含实际 payload、费用明细或时间。
@@ -87,15 +99,15 @@ public actor BoneRunBudgetMeter {
         guard inferenceCalls < budget.maximumInferenceCalls else {
             throw BoneRunBudgetError.inferenceCallLimitReached(limit: budget.maximumInferenceCalls)
         }
-        guard adding(inputBytes, newInputBytes) <= budget.maximumInputBytes else {
+        guard let nextInput = adding(inputBytes, newInputBytes), nextInput <= budget.maximumInputBytes else {
             throw BoneRunBudgetError.inputByteLimitReached(limit: budget.maximumInputBytes)
         }
-        guard adding(estimatedCostMicrounits, newCost) <= budget.maximumEstimatedCostMicrounits else {
+        guard let nextCost = adding(estimatedCostMicrounits, newCost), nextCost <= budget.maximumEstimatedCostMicrounits else {
             throw BoneRunBudgetError.estimatedCostLimitReached(limit: budget.maximumEstimatedCostMicrounits)
         }
         inferenceCalls += 1
-        inputBytes += newInputBytes
-        estimatedCostMicrounits += newCost
+        inputBytes = nextInput
+        estimatedCostMicrounits = nextCost
     }
 
     /// Agent 在调用引擎前原子预留轮次及推理额度；拒绝时所有计数保持不变。
@@ -126,11 +138,11 @@ public actor BoneRunBudgetMeter {
         guard toolCalls < budget.maximumToolCalls else {
             throw BoneRunBudgetError.toolCallLimitReached(limit: budget.maximumToolCalls)
         }
-        guard adding(inputBytes, argumentsBytes) <= budget.maximumInputBytes else {
+        guard let nextInput = adding(inputBytes, argumentsBytes), nextInput <= budget.maximumInputBytes else {
             throw BoneRunBudgetError.inputByteLimitReached(limit: budget.maximumInputBytes)
         }
         toolCalls += 1
-        inputBytes += argumentsBytes
+        inputBytes = nextInput
     }
 
     /// 原子预留一次 Tool 尝试的累计额度与在途槽位。失败不改变任何计数；
@@ -186,14 +198,14 @@ public actor BoneRunBudgetMeter {
 private extension BoneRunBudgetMeter {
     func reserveOutputBytes(_ newOutputBytes: Int) throws {
         guard newOutputBytes >= 0 else { throw BoneRunBudgetError.invalidBudget }
-        guard adding(outputBytes, newOutputBytes) <= budget.maximumOutputBytes else {
+        guard let nextOutput = adding(outputBytes, newOutputBytes), nextOutput <= budget.maximumOutputBytes else {
             throw BoneRunBudgetError.outputByteLimitReached(limit: budget.maximumOutputBytes)
         }
-        outputBytes += newOutputBytes
+        outputBytes = nextOutput
     }
 
-    func adding<T: FixedWidthInteger>(_ lhs: T, _ rhs: T) -> T {
+    func adding<T: FixedWidthInteger>(_ lhs: T, _ rhs: T) -> T? {
         let (value, overflow) = lhs.addingReportingOverflow(rhs)
-        return overflow ? T.max : value
+        return overflow ? nil : value
     }
 }

@@ -58,7 +58,8 @@ public struct BoneWorkflowToolExecutionContext: Sendable {
 
 /// 持久化 Store 的协议只接受 digest、opaque identity 与稳定状态，不接受原始参数/结果。
 public protocol BoneWorkflowEffectStore: Sendable {
-    /// 生产 Store 必须在同一事务内消费 Grant 并持久化 Intent；失败时两者一起回滚。
+    /// 生产 Store 必须在同一事务内消费 Grant 并持久化 Intent。确定拒绝不改事实；
+    /// 提交回执丢失时允许抛错但结果未知，调用方必须重读，不得把 throw 视为已回滚。
     func consumeAuthorizationAndPersistIntent(
         _ validation: BoneAuthorizationValidation,
         intent: BoneEffectIntent

@@ -29,8 +29,8 @@ public enum BoneWorkflowStepState: String, Codable, Equatable, Sendable {
         case .pending: allowed = [.ready, .skipped, .cancelled]
         case .ready: allowed = [.running, .paused, .cancelled]
         case .running: allowed = [.waiting, .paused, .succeeded, .failed, .cancelled, .commitUncertain]
-        case .waiting: allowed = [.running, .paused, .failed, .cancelled]
-        case .paused: allowed = [.ready, .cancelled]
+        case .waiting: allowed = [.running, .paused, .failed, .cancelled, .commitUncertain]
+        case .paused: allowed = [.ready, .running, .cancelled, .commitUncertain]
         case .succeeded, .failed, .skipped, .cancelled, .commitUncertain: allowed = []
         }
         guard allowed.contains(next) else { throw BoneWorkflowFailure.invalidStateTransition }

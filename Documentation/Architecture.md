@@ -118,3 +118,7 @@ Capability metadata 不替代 Provider 自身的模型目录、鉴权、额度�
 | 定位一次 Tool 调用失败 | 10 分钟以内 |
 
 若公共抽象尚无第二真实调用方，应先留在项目 Adapter 层。退出框架应只需删除 Adapter，业务 Service 不受影响。
+
+## 可选上下文压缩
+
+公共 `BoneAgent` Loop 可配置 `BoneContextManagementConfiguration`：预算解析 → Tool Result 限长/完整 Turn 裁剪 → 可选摘要 → 候选校验与 Run-local 提交 → Provider 渲染/推理。本地 Runtime 与在线模型共用该路径，详见 [ContextCompaction](ContextCompaction.md)。需要跨多个成功用户 Turn 的 Host 可使用 `BoneAgentConversation`；它是显式私有会话容器，不是 Workflow checkpoint，私有 prompt、Tool payload、摘要和 Provider continuation 必须由 Host 单独保护，详见 [ConversationContinuity](ConversationContinuity.md)。需要实时 UI 草稿时使用显式 `BoneAgent.runEvents`；它只消费真实 provider event stream，不改变普通 Run 或 Llama 整段生成语义，详见 [AgentStreaming](AgentStreaming.md)。

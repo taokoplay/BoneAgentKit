@@ -3,6 +3,24 @@ import XCTest
 @testable import BoneAgentLocalModels
 
 final class BoneLocalModelDownloadCoordinatorTests: XCTestCase {
+    func testCancellationAtInstallBoundaryDoesNotReportInstalled() async throws {
+        let context = try makeContext(sources: [source(id: "primary", priority: 1)])
+        defer { try? FileManager.default.removeItem(at: context.root) }
+        let store = try BoneLocalModelStore(rootURL: context.store.rootURL, beforeInstallCommit: { _, _ in
+            withUnsafeCurrentTask { $0?.cancel() }
+        })
+        let transport = DownloadTransportFixture(scripts: [.success(context.payload)])
+        let coordinator = BoneLocalModelDownloadCoordinator(store: store, transport: transport)
+        let model = context.model
+        let env = environment(availableDiskBytes: 10_000)
+        let task = Task { try await coordinator.download(model, environment: env, policy: .init(diskSafetyMarginBytes: 0)) }
+        do { _ = try await task.value; XCTFail("must cancel") }
+        catch { XCTAssertEqual(error as? BoneLocalModelDownloadError, .cancelled) }
+        let state = await coordinator.state(for: model.id)
+        XCTAssertEqual(state, .cancelled)
+        XCTAssertEqual(store.installationState(for: model), .notInstalled)
+    }
+
     func testRejectsInsufficientDiskBeforeStartingTransport() async throws {
         let fixture = DownloadTransportFixture(scripts: [])
         let context = try makeContext(sources: [source(id: "one", priority: 1)])

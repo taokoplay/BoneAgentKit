@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- 可选 `BoneAgentConfiguration.contextManagement`：本地与在线共用上下文预算、完整用户 Turn 裁剪、显式工具结果限长及可选摘要；默认关闭，候选验证后才更新 Run 内存历史。
+- 在线三类文本 Engine 的精确模型上下文限制注入；Llama Runtime 容量查询与真实 Token 预检，复用 busy/cancel/unload 生命周期。Gemini 裁剪后按精确 Assistant Turn 重绑定签名。
+- 显式摘要 Engine/模型/容量与独立费用估算，摘要调用沿原 Run 预算计量；完整但不合格结果可裁剪回退，未知传输失败停止且不重试。安全摘要尝试和压缩 receipt 不含正文。
+- Host 私有历史引用 CAS 接入契约与上下文压缩文档；不提供默认磁盘存储、跨 Run 自动恢复、分块摘要或真实模型质量保证。
+- 新增 `BoneAgentConversation` 跨 Run 会话容器：显式私有状态导出/恢复、成功用户 Turn revision、Provider continuation 重绑定、摘要复用、Tool 不重放与失败锁定；不自动落盘、不替代 Workflow 恢复。详见 [ConversationContinuity](Documentation/ConversationContinuity.md)。
+- 新增显式 `BoneAgent.runEvents` 实时流：消费真实 Provider text delta、reasoning/Tool 生命周期和唯一正式终态；buffered-only 与当前 Llama 整段 Runtime fail closed，不伪造实时输出。详见 [AgentStreaming](Documentation/AgentStreaming.md)。
+
+### Fixed
+
+- Effect 控制面写入回执未知保留恢复分类，Workflow Step 不再错误收口为 failed；Controller 提交校验公共状态迁移表。
+- OpenAI 中间 null finish_reason 不再提前结束工具/推理事件；SSE 支持 CR/LF/CRLF；默认在线 Transport 拒绝跨源及降级重定向。
+- 普通文本与结构化结果新增可选 usage，三类 Provider 保留可得用量，Run 快照和摘要统计不再遗漏 finish 分支。
+- RunBudget 累加溢出安全拒绝，Codable 解码重验证；本地安装分块校验取消并在发布前保留旧文件。
+- 上下文管理新增安全失败分类与显式当前 Turn 旧工具交换整理，默认策略保持整 Turn 保护。
+
+- 上下文预算解码重新验证、预留计算避免整数溢出；工具结果限长按 UTF-8/组合字符处理，过小标记预算明确拒绝，保持调用 ID/顺序/错误标志。
+
 ## [0.2.0-alpha.18] - 2026-09-21
 
 本版为供 Host 更新与验收的 alpha 测试版本；真实 Host、最低工具链和真实 Provider 等生产门禁尚未完成，不代表生产准入。

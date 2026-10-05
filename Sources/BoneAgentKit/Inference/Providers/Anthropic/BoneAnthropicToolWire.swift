@@ -241,6 +241,10 @@ private extension BoneAnthropicToolWire {
         }
     }
 
+
+}
+
+extension BoneAnthropicToolWire {
     static func usage(_ raw: [String: Any]?) throws -> BoneInferenceUsage? {
         guard let raw else { return nil }
         guard let input = raw["input_tokens"] as? Int,
@@ -251,8 +255,9 @@ private extension BoneAnthropicToolWire {
             return try BoneInferenceUsage(
                 inputTokens: input,
                 outputTokens: output,
-                cachedInputTokens: nil,
-                reasoningTokens: nil
+                cachedInputTokens: raw["cache_read_input_tokens"] as? Int,
+                reasoningTokens: nil,
+                cacheCreationInputTokens: raw["cache_creation_input_tokens"] as? Int
             ).validated()
         } catch {
             throw BoneInferenceTransportError.invalidResponse

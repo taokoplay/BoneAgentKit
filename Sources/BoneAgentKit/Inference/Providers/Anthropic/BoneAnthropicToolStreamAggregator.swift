@@ -12,8 +12,6 @@ enum BoneAnthropicToolStreamAggregator {
 
         var blocks: [Int: Block] = [:]
         var stopReason: String?
-        var inputTokens: Int?
-        var outputTokens: Int?
         var stopped = false
 
         for event in events {
@@ -31,10 +29,7 @@ enum BoneAnthropicToolStreamAggregator {
             case "ping":
                 continue
             case "message_start":
-                if let usage = (json["message"] as? [String: Any])?["usage"] as? [String: Any] {
-                    inputTokens = usage["input_tokens"] as? Int
-                    outputTokens = usage["output_tokens"] as? Int
-                }
+                break
             case "content_block_start":
                 guard let index = json["index"] as? Int, index >= 0,
                       blocks[index] == nil,
@@ -96,10 +91,6 @@ enum BoneAnthropicToolStreamAggregator {
                     throw BoneInferenceTransportError.invalidResponse
                 }
                 stopReason = reason
-                if let usage = json["usage"] as? [String: Any],
-                   let output = usage["output_tokens"] as? Int {
-                    outputTokens = output
-                }
             case "message_stop":
                 guard stopReason != nil else { throw BoneInferenceTransportError.invalidResponse }
                 stopped = true
@@ -149,21 +140,7 @@ enum BoneAnthropicToolStreamAggregator {
         let turn: BoneInferenceAssistantTurn
         do { turn = try .init(content: content) }
         catch { throw BoneInferenceTransportError.invalidResponse }
-        let usage: BoneInferenceUsage?
-        if let inputTokens, let outputTokens {
-            do {
-                usage = try BoneInferenceUsage(
-                    inputTokens: inputTokens,
-                    outputTokens: outputTokens,
-                    cachedInputTokens: nil,
-                    reasoningTokens: nil
-                ).validated()
-            } catch {
-                throw BoneInferenceTransportError.invalidResponse
-            }
-        } else {
-            usage = nil
-        }
+        let usage = try BoneProviderUsage.read(events, wire: .anthropic)
         return .init(
             assistantTurn: turn,
             finishReason: hasTools ? .toolCalls : .stop,

@@ -239,6 +239,7 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
         var outputTokens = 0
         var cachedInputTokens: Int? = 0
         var reasoningTokens: Int? = 0
+        var cacheCreationInputTokens: Int? = 0
         for usage in usages {
             inputTokens = saturatedAdd(inputTokens, usage.inputTokens)
             outputTokens = saturatedAdd(outputTokens, usage.outputTokens)
@@ -246,12 +247,15 @@ public struct BoneAgentRunModelSnapshot: Codable, Equatable, Sendable {
             if usage.cachedInputTokens == nil { cachedInputTokens = nil }
             reasoningTokens = reasoningTokens.map { saturatedAdd($0, usage.reasoningTokens ?? 0) }
             if usage.reasoningTokens == nil { reasoningTokens = nil }
+            cacheCreationInputTokens = cacheCreationInputTokens.map { saturatedAdd($0, usage.cacheCreationInputTokens ?? 0) }
+            if usage.cacheCreationInputTokens == nil { cacheCreationInputTokens = nil }
         }
         return BoneInferenceUsage(
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cachedInputTokens: cachedInputTokens,
-            reasoningTokens: reasoningTokens
+            reasoningTokens: reasoningTokens,
+            cacheCreationInputTokens: cacheCreationInputTokens
         )
     }
 

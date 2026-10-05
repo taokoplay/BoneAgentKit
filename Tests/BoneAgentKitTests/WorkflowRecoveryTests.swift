@@ -162,7 +162,7 @@ final class WorkflowRecoveryTests: XCTestCase {
             let error = await Self.execute(store, context)
             let expectedError: BoneWorkflowToolExecutionError?
             switch cut {
-            case .beforeIntent, .afterIntent, .afterExecutionStarted: expectedError = .effectStoreRejected
+            case .beforeIntent, .afterIntent, .afterExecutionStarted: expectedError = .recoveryRequired
             case .afterExternalWrite: expectedError = .outcomeUnknown
             case .beforeReceipt, .afterReceipt, .afterCommit: expectedError = .recoveryRequired
             case .none: expectedError = nil

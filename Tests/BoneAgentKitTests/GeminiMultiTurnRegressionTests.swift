@@ -35,6 +35,26 @@ final class GeminiMultiTurnRegressionTests: XCTestCase {
         }
     }
 
+    func testManagedRunReplaysSignaturesAfterToolResultClamping() async throws {
+        let transport = GeminiHistoryTransport(nativeIDs: true, signatures: true)
+        let budget = try BoneContextWindowBudget(contextWindowTokens: 2_048, maximumOutputTokens: 64, source: .host)
+        let policy = try BoneContextManagementConfiguration(budgetProvider: { _ in budget },
+            triggerFraction: 0.15, targetFraction: 0.1, protocolReserveTokens: 0, safetyMarginTokens: 0,
+            toolResultPolicy: { _ in .clamp(maximumBytes: 64) })
+        let agent = BoneAgent(inferenceEngine: makeEngine(transport),
+            toolRegistry: try .init(tools: [BoneAnyAgentTool(GeminiHistoryLargeTool())]), toolContext: BoneAgentEmptyContext(),
+            configuration: try .init(maximumSteps: 3, contextManagement: policy))
+        let result = try await agent.run(modelID: "model", messages: [.init(role: .user, content: "test")])
+        XCTAssertEqual(result.output, .text("done"))
+        let bodies = await transport.bodies
+        XCTAssertEqual(bodies.count, 3)
+        let last = String(decoding: try XCTUnwrap(bodies.last), as: UTF8.self)
+        XCTAssertTrue(last.contains("signature-1"))
+        XCTAssertTrue(last.contains("signature-2"))
+        XCTAssertTrue(last.contains("context-compacted"))
+        XCTAssertFalse(last.contains(String(repeating: "large", count: 50)))
+    }
+
     func testEventIDsMatchCompletedTurnAndAreUniqueAcrossRequests() async throws {
         let engine = makeEngine(GeminiHistoryTransport(nativeIDs: false, signatures: true))
         var previousID: String?
@@ -237,4 +257,12 @@ private actor GeminiHistoryTransport: BoneInferenceHTTPTransport {
         }
         return try JSONSerialization.data(withJSONObject: ["candidates": [["finishReason": "STOP", "content": ["parts": [part]]]]])
     }
+}
+
+private struct GeminiHistoryLargeTool: BoneAgentTool {
+    typealias Input = GeminiHistoryTool.Payload
+    struct Output: Codable, Sendable { let payload: String }
+    typealias Context = BoneAgentEmptyContext
+    static let definition = GeminiHistoryTool.definition
+    func execute(input: Input, context: Context) async throws -> Output { .init(payload: String(repeating: "large", count: 1_000)) }
 }

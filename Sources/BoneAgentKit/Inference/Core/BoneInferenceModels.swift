@@ -223,6 +223,11 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         return Self(role: .tool, toolResult: value)
     }
 
+    /// Rebuilds a validated single-result message after context management transforms content.
+    public static func toolResult(_ result: BoneInferenceToolResult) -> Self {
+        Self(role: .tool, toolResult: result)
+    }
+
     public func requiredToolResults() throws -> BoneInferenceToolResultBatch {
         if let toolResults { return toolResults }
         if let toolResult { return try .init(results: [toolResult]) }
@@ -332,13 +337,25 @@ public struct BoneInferenceRequest: Codable, Equatable, Sendable {
 
 public struct BoneInferenceFinish: Codable, Equatable, Sendable {
     public let text: String
-    public init(text: String) { self.text = text }
+    public let usage: BoneInferenceUsage?
+    public init(text: String, usage: BoneInferenceUsage? = nil) { self.text = text; self.usage = usage }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(text: try c.decode(String.self, forKey: .text),
+                  usage: try c.decodeIfPresent(BoneInferenceUsage.self, forKey: .usage)?.validated())
+    }
 }
 
 /// 强类型结构化 JSON Data 边界；Provider 负责保证其 JSON 语义。
 public struct BoneInferenceStructuredResult: Codable, Equatable, Sendable {
     public let data: Data
-    public init(data: Data) { self.data = data }
+    public let usage: BoneInferenceUsage?
+    public init(data: Data, usage: BoneInferenceUsage? = nil) { self.data = data; self.usage = usage }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(data: try c.decode(Data.self, forKey: .data),
+                  usage: try c.decodeIfPresent(BoneInferenceUsage.self, forKey: .usage)?.validated())
+    }
 }
 
 public struct BoneInferenceToolCall: Codable, Equatable, Sendable {
@@ -400,6 +417,24 @@ public enum BoneInferenceResponse: Codable, Equatable, Sendable {
             refusal: refusal,
             providerContinuation: providerContinuation
         )
+    }
+
+    /// Provider-reported usage; nil remains unknown, never inferred from content.
+    public var usage: BoneInferenceUsage? {
+        switch self {
+        case .finish(let value): return value.usage
+        case .structured(let value): return value.usage
+        case .toolCall: return nil
+        case .assistantTurn(_, _, let usage, _, _): return usage
+        }
+    }
+
+    func retainingUsage(_ usage: BoneInferenceUsage?) -> Self {
+        switch self {
+        case .finish(let value): return .finish(.init(text: value.text, usage: usage ?? value.usage))
+        case .structured(let value): return .structured(.init(data: value.data, usage: usage ?? value.usage))
+        default: return self
+        }
     }
 
     public var terminalAssistantTurn: BoneInferenceAssistantTurn? {

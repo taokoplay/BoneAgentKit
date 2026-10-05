@@ -25,6 +25,7 @@ public struct BoneInferenceEventStreamFramer: Sendable {
     private var eventID: String?
     private var dataLines: [String] = []
     private var hasFields = false
+    private var skipNextLF = false
 
     public init(maximumBytes: Int) {
         self.maximumBytes = max(0, maximumBytes)
@@ -35,16 +36,24 @@ public struct BoneInferenceEventStreamFramer: Sendable {
             throw BoneInferenceTransportError.responseTooLarge
         }
         receivedBytes += chunk.count
-        buffer.append(chunk)
         var events: [BoneInferenceEventStreamEvent] = []
-        while let newline = buffer.firstIndex(of: 0x0A) {
-            var lineData = buffer[..<newline]
-            buffer.removeSubrange(...newline)
-            if lineData.last == 0x0D { lineData = lineData.dropLast() }
-            guard let line = String(data: lineData, encoding: .utf8) else {
-                throw BoneInferenceTransportError.invalidResponse
+        // CR ends a line immediately; swallow only its optional following LF,
+        // including when CR/LF arrive in different network chunks.
+        for byte in chunk {
+            if skipNextLF {
+                skipNextLF = false
+                if byte == 0x0A { continue }
             }
-            if let event = consume(line: line) { events.append(event) }
+            if byte == 0x0D || byte == 0x0A {
+                guard let line = String(data: buffer, encoding: .utf8) else {
+                    throw BoneInferenceTransportError.invalidResponse
+                }
+                buffer.removeAll(keepingCapacity: true)
+                if let event = consume(line: line) { events.append(event) }
+                skipNextLF = byte == 0x0D
+            } else {
+                buffer.append(byte)
+            }
         }
         return events
     }
@@ -184,6 +193,21 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         explicitlyCancelled = true
         lock.unlock()
         finish(.failure(BoneInferenceTransportError.cancelled), cancelTask: true)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard BoneInferenceRedirectPolicy.allows(from: request.url, to: newRequest.url) else {
+            completionHandler(nil)
+            finish(.failure(BoneInferenceTransportError.invalidEndpoint), cancelTask: true)
+            return
+        }
+        completionHandler(newRequest)
     }
 
     func urlSession(

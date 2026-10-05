@@ -57,6 +57,17 @@ public enum BoneTokenEstimator {
         (max(0, count) + 2) / 3
     }
 
+    /// 工具 Schema/约束与响应格式也是输入成本；不把 JSON envelope 字节称作精确 Token。
+    public static func estimateRequestOverhead(_ request: BoneInferenceRequest) throws -> Int {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var total = estimateBytes(try encoder.encode(request.availableTools).count)
+        total += estimateBytes(try encoder.encode(request.responseFormat).count)
+        if let constraint = request.outputConstraint { total += estimateBytes(try encoder.encode(constraint).count) }
+        if let continuation = request.providerContinuation { total += estimateBytes(continuation.data.count) }
+        return total
+    }
+
     /// 估算消息数组总 Token 数。
     public static func estimateMessages(_ messages: [BoneInferenceMessage]) -> Int {
         messages.reduce(0) { $0 + estimateMessage($1) }

@@ -5,13 +5,19 @@ import FoundationNetworking
 
 /// Anthropic Messages 协议的通用推理实现。
 public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let allowsMiniMaxStructuredToolOutput: Bool
+
+    private let modelContextLimits: [String: BoneModelContextLimits]
+
+    public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
+        modelContextLimits[modelID]?.contextWindowBudget
+    }
 
     private let configuration: BoneInferenceProviderConfiguration
     private let diagnostics: BoneInferenceDiagnosticSink
@@ -22,10 +28,12 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        modelContextLimits: [String: BoneModelContextLimits] = [:],
         allowsMiniMaxStructuredToolOutput: Bool = false,
         diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
         self.allowsMiniMaxStructuredToolOutput = allowsMiniMaxStructuredToolOutput
+        self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
         self.transport = transport
@@ -119,7 +127,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .anthropic)
             return .init(
-                response: finalResponse,
+                response: try finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .anthropic)),
                 reasoning: BoneInferenceReasoningSupport.anthropic(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -188,7 +196,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                         )
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: response,
+                        response: try response.retainingUsage(BoneProviderUsage.read(events, wire: .anthropic)),
                         reasoning: BoneInferenceReasoningSupport.anthropic(
                             events: events,
                             disclosure: request.reasoningDisclosure
@@ -262,7 +270,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
             )
         }
         return .init(
-            response: finalResponse,
+            response: try finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .anthropic)),
             reasoning: BoneInferenceReasoningSupport.anthropic(
                 events: response.events,
                 disclosure: request.reasoningDisclosure

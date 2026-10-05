@@ -5,11 +5,17 @@ import FoundationNetworking
 
 /// Gemini GenerateContent 协议的通用推理实现。
 public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
+
+    private let modelContextLimits: [String: BoneModelContextLimits]
+
+    public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
+        modelContextLimits[modelID]?.contextWindowBudget
+    }
 
     private let configuration: BoneInferenceProviderConfiguration
     private let diagnostics: BoneInferenceDiagnosticSink
@@ -20,12 +26,19 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        modelContextLimits: [String: BoneModelContextLimits] = [:],
         diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
+        self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
         self.transport = transport
         self.modelCapabilityProfiles = modelCapabilityProfiles
+    }
+
+    public func rebindContextContinuation(_ continuation: BoneInferenceProviderContinuation,
+                                          from original: [BoneInferenceMessage], to compacted: [BoneInferenceMessage]) throws -> BoneInferenceProviderContinuation? {
+        try BoneGeminiContinuation.rebinding(continuation, from: original, to: compacted)
     }
 
     public func resolvedCapabilities(
@@ -84,13 +97,19 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                     schema: request.responseFormat.schema?.root
                 )
             } else if request.availableTools.isEmpty {
-                finalResponse = .finish(.init(text: try BoneGeminiResponseAggregator.text(from: json)))
+                let text = try BoneGeminiResponseAggregator.text(from: json)
+                let parts = ((json["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
+                if parts.contains(where: { $0["thoughtSignature"] != nil }) {
+                    finalResponse = try BoneGeminiToolWire.parseResponse(json, definitions: [])
+                } else {
+                    finalResponse = .finish(.init(text: text))
+                }
             } else {
                 finalResponse = try BoneGeminiToolWire.parseResponse(json, definitions: request.availableTools)
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .gemini)
             return .init(
-                response: try BoneGeminiContinuation.accumulating(finalResponse, after: request),
+                response: try BoneGeminiContinuation.accumulating(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .gemini)), after: request),
                 reasoning: BoneInferenceReasoningSupport.gemini(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -161,7 +180,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         response = aggregated
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: try BoneGeminiContinuation.accumulating(response, after: request),
+                        response: try BoneGeminiContinuation.accumulating(response.retainingUsage(BoneProviderUsage.read(events, wire: .gemini)), after: request),
                         reasoning: BoneInferenceReasoningSupport.gemini(events: events, disclosure: request.reasoningDisclosure)
                     )
                     continuation.yield(.completed(result))
@@ -230,7 +249,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             )
         }
         return .init(
-            response: try BoneGeminiContinuation.accumulating(finalResponse, after: request),
+            response: try BoneGeminiContinuation.accumulating(finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .gemini)), after: request),
             reasoning: BoneInferenceReasoningSupport.gemini(
                 events: response.events,
                 disclosure: request.reasoningDisclosure

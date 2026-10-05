@@ -9,6 +9,8 @@ public enum BoneAgentError: Error, Codable, Equatable, Sendable {
     case toolNotFound
     case toolPayloadTooLarge
     case inferenceFailed
+    /// 上下文未能安全装入预算；不表示模型或 Tool 已执行失败。
+    case contextManagementFailed
     /// Tool 参数是合法 JSON，但不满足已声明 Schema；不携带参数值或未知键。
     case toolArgumentsInvalid
     /// 副作用可能已经发生但结果未知；Host 必须按原 Effect identity 恢复/对账。

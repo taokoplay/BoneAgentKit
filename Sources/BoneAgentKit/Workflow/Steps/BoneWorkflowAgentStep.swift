@@ -270,7 +270,14 @@ public actor BoneWorkflowAgentStepController {
     }
 
     private func commit(_ next: BoneWorkflowAgentStepCheckpoint, event: BoneWorkflowAgentStepEventKind) async throws {
-        // Reject inconsistent candidates before the Host can persist them.
+        // Reject illegal transitions before touching the Host store. Same-state updates
+        // are running progress only; explicit recovery transitions are in the public table.
+        if checkpoint.state != next.state {
+            guard (try? checkpoint.state.transitioned(to: next.state)) != nil else {
+                throw BoneWorkflowAgentStepError.invalidState
+            }
+        }
+        guard next.persistenceRevision < UInt64.max else { throw BoneWorkflowAgentStepError.invalidState }
         try Self.validate(next)
         let stored: BoneWorkflowAgentStepCheckpoint
         do {

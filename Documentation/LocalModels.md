@@ -192,3 +192,12 @@ Background URLSession、全局下载队列、业务错误文案、真实 llama.c
 同一 Llama Engine 从 load、render、tokenize 到 generate/decode 只允许一个 in-flight 请求；并发 infer 返回 `BoneLlamaAdapterError.busy`，不自动排队。取消使用请求身份隔离迟到回调，取消后的结果不发布成功或 loaded。取消会排空并卸载 Runtime，后继请求重新加载。
 
 `cancel()` 等待 Runtime 取消回调，不代表推理已经退出；`unload()` 等待推理和控制回调排空后释放资源，排空期间新 infer 返回 busy。不能硬终止不合作原生调用，因此 unload 可能无限等待；真实原生锁、executor、设备内存和取消延迟需集成验收。
+
+## Agent 上下文管理
+
+`BoneLlamaInferenceEngine` 暴露 runtime budget 与真实 Token 预检能力；开启 `BoneAgentConfiguration.contextManagement` 后共享在线模型的压缩策略。预检可能加载模型且不生成，正式推理仍重新校验。它也可作为无工具摘要 Engine；不自动转云。详见 [ContextCompaction](ContextCompaction.md)。
+
+
+### 安装取消边界
+
+模型安装在复制与 SHA-256 的分块操作之间检查 Task 取消，并在最终原子 rename 前再次检查。发布前取消会清理安装 staging、保留旧模型及调用方源文件；下载 Coordinator 将其报告为 cancelled，不报告 installed。rename 是安装线性化点，发布成功后不把迟到取消改报为失败。同步安装仍占用调用执行器，取消是协作式的，不保证立即打断正在进行的文件系统 I/O。

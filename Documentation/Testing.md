@@ -302,3 +302,12 @@ swift test --filter WorkflowWork
 ```
 
 2026-09-21 在内存参考及独立 Codable 命令日志 Host 验证；日志每次读取重放原命令/lease/对账事件，而不是包装参考 Store。模拟对账写入前/后丢失回执，确保重读得到完整旧/新状态；忽略CAS和伪造保存回执的故障适配器必须被检出。Host 上线前仍需证明真实数据库原子性、接管权限与对账事实同一校验边界、证据与原页的业务关联、旧请求不再产生副作用及业务结果不会重复应用。
+
+## 跨运行时上下文压缩回归
+
+定向运行 `swift test --filter Context` 覆盖预算、完整 Turn/Tool 配对、UTF-8 限长、摘要独立计费/取消/回退、三类在线协议、本地真实 Token 预检 Fixture 及 Gemini 续接。定向运行 `swift test --filter ConversationContinuityTests` 覆盖跨 Agent 导出/恢复、revision/ID/model/binding/tools 校验、Tool 不重放、Gemini 签名、摘要复用、每轮新预算、并发导出/发送和失败锁定。定向运行 `swift test --filter BoneAgentStreamingTests` 覆盖首个 delta 早于 completed、Tool 只在正式响应后执行、原始参数隔离、缺少 completed 的 fail-closed、实时流运行占用和 buffered-only 拒绝。全部为离线测试，不能替代真实云模型、GGUF 与 Host 持久存储验收。限制见 [ContextCompaction](ContextCompaction.md)、[ConversationContinuity](ConversationContinuity.md) 与 [AgentStreaming](AgentStreaming.md)。
+
+
+## 边界修复回归
+
+`WorkflowEffectExecutionTests` 覆盖 Intent/执行标记已提交但回执丢失的 legacy/batch wrapper；`WorkflowStepControllerTests` 覆盖终态迁移矩阵。`InferenceRedirectTests` 使用本机合成端点验证跨源重定向不会转发 body/认证，未访问外部 Provider。`ProviderUsageRetentionTests` 覆盖三类 Provider 的非流式/缓冲流/事件流及 Run 快照；预算极值、安装提交前取消、CR-only SSE、当前 Turn 已完成交换压缩也有专项回归。

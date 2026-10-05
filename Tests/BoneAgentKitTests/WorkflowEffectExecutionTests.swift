@@ -5,7 +5,7 @@ import XCTest
 private enum EffectFault: Error { case injected }
 private enum EffectMode: Sendable {
     case throwsAfterWrite, cancelAfterWrite, cancelThenReturn, rejectAuthorization, cancelBeforeExecution
-    case rejectReceipt, rejectCommit, succeed
+    case rejectReceipt, rejectCommit, succeed, lostIntentAck, lostStartedAck
 }
 
 private actor EffectFixture: BoneWorkflowEffectStore {
@@ -33,6 +33,7 @@ private actor EffectFixture: BoneWorkflowEffectStore {
         if mode == .rejectAuthorization { throw BoneAuthorizationError.denied }
         guard intents[intent.id] == nil else { throw EffectFault.injected }
         intents[intent.id] = intent
+        if mode == .lostIntentAck { throw EffectFault.injected }
         if mode == .cancelBeforeExecution { withUnsafeCurrentTask { $0?.cancel() } }
     }
     func persistCancellation(effectID: BoneEffectID, leaseGeneration: UInt64) { cancelled = true }
@@ -42,6 +43,7 @@ private actor EffectFixture: BoneWorkflowEffectStore {
                            toolCallID: old.toolCallID, recoveryStrategy: old.recoveryStrategy,
                            idempotencyKey: old.idempotencyKey, argumentsDigest: old.argumentsDigest,
                            phase: .executionStarted, leaseGeneration: leaseGeneration)
+        if mode == .lostStartedAck { throw EffectFault.injected }
     }
     func recordReceipt(_ receipt: BoneEffectReceipt) throws {
         if mode == .rejectReceipt { throw EffectFault.injected }
@@ -140,7 +142,7 @@ final class WorkflowEffectExecutionTests: XCTestCase {
 
     func testWorkflowWrapperPreservesRecoveryAfterRealEffectPipelineFailure() async throws {
         for legacy in [false, true] {
-            for mode in [EffectMode.throwsAfterWrite, .rejectReceipt, .rejectCommit] {
+            for mode in [EffectMode.throwsAfterWrite, .rejectReceipt, .rejectCommit, .lostIntentAck, .lostStartedAck] {
                 let fixture = EffectFixture(mode)
                 let engine = try EffectEngine(legacy: legacy, readOnly: false)
                 let controller = try BoneWorkflowAgentStepController(
@@ -169,7 +171,7 @@ final class WorkflowEffectExecutionTests: XCTestCase {
                 XCTAssertEqual(checkpoint.state, .commitUncertain)
                 XCTAssertNil(checkpoint.terminalState)
                 let observations = await fixture.observations()
-                XCTAssertEqual(observations.0, 1)
+                XCTAssertEqual(observations.0, [EffectMode.lostIntentAck, .lostStartedAck].contains(mode) ? 0 : 1)
                 let count = await engine.calls()
                 XCTAssertEqual(count, 1)
             }

@@ -320,3 +320,14 @@ Tool 的 `toolOutcomeUnknown` 或 `toolRecoveryRequired` 不得写成普通失�
 Store 提交抛错（包括取消）或返回无效回执后，Controller 保留最后确认的快照并阻止后继写入。直接方法保留 Store 错误，标准 progress sink 映射为 `toolRecoveryRequired`。Host 必须读取持久化事实、核对 lease/revision 并重建 Controller，不能盲写 failed/cancelled 或重执行 Tool。已确认取消优先于迟到 progress；真实副作用未知仍保留恢复分类。
 
 `.skipped`、成功、失败、取消及 `commitUncertain` 都不能由原 Controller 继续推进；恢复/重试由 Host 明确调和并管理 Attempt。
+
+## 上下文压缩与 Workflow 的关系
+
+压缩只替换本次 Agent Run 的模型输入，不修改 Tool Effect/Receipt 或既有 checkpoint 计数。`BoneContextHistoryPersistence` 是独立的 Host 私有内容引用 CAS 契约，不是自动落盘或完整会话恢复实现。跨 Run 的 `BoneAgentConversation` 也不属于本 checkpoint；Host 必须先完成私有状态的真实性、CAS 和未知操作对账。结果未知时必须重读原记录，不能因摘要失败自动重放 Tool。详见 [ContextCompaction](ContextCompaction.md) 与 [ConversationContinuity](ConversationContinuity.md)。
+
+
+## 提交未确认与步骤迁移修复
+
+Effect 的授权消费/Intent、executionStarted 或取消事实写入，如果 Store 抛出非确定授权拒绝错误，不能推断已回滚。执行管线返回 `recoveryRequired`，Agent 返回 `toolRecoveryRequired`，Workflow wrapper 保留 `commitUncertain`，Host 必须按原 Effect identity 重读。`effectStoreRejected` 不再用于这些执行写入的未知窗口；恢复查询的错误分类不变。Store 的事务原子性不代表客户端总能收到提交回执。
+
+Step Controller 在提交前统一检查公共状态迁移表。pending/ready/paused 不可直接成功或失败，waiting 不可直接成功；running 才允许普通成功收口。保留已有 `resume()` 的 paused → running 语义，公共状态表同步允许；waiting/paused 允许进入 commitUncertain，避免外部操作迟到未知结果被普通失败掩盖。终态和 skipped 不复活，非法迁移不会调用持久层。

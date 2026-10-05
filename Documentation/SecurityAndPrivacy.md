@@ -45,3 +45,12 @@ Host 的 Catalog 映射、模型发现、Provider 连通性、文本和图片执
 ## 图片生成权利
 
 框架的 payload 校验不保证内容权利。项目层必须依据供应商条款、用户输入、参考图来源和用途治理版权、商标、肖像、内容政策与对外发布；必要时要求用户确认并保留合规所需的最小来源/用途记录。
+
+## 压缩摘要的边界
+
+摘要是原始历史的派生不可信数据，不是 system 指令或授权依据。正文/continuation 不进入标准 checkpoint；压缩 receipt 仅含计数。Agent 开启管理时关闭请求正文 Debug 输出，外部 Engine/Host 日志仍由调用方负责。摘要模型须显式选定并单独核准外传与费用；详见 [ContextCompaction](ContextCompaction.md)。`BoneAgentConversation.exportPrivateState()` 是不同的显式私有出口，可能包含完整历史、Tool payload、摘要和 Provider continuation，只能交给 Host 的加密、真实性、CAS 与权限存储，详见 [ConversationContinuity](ConversationContinuity.md)。`BoneAgent.runEvents` 是另一个显式内存出口：实时 delta、reasoning 和 Tool 生命周期只交给当前消费者，不进入安全事件、日志、快照或 checkpoint；原始 Tool arguments 与 continuation 不向 Agent 流公开，详见 [AgentStreaming](AgentStreaming.md)。
+
+
+## 在线推理重定向
+
+默认 URLSession Transport 只接受与最初请求完全同源（scheme、host、有效端口相同）的重定向，拒绝携带 URL 用户信息的目标；跨源、端口变更及 HTTPS 降级均在发送下一跳前以 `invalidEndpoint` 拒绝。普通 HTTP 与 SSE 使用同一规则。不能靠重定向把 Prompt、工具结果和认证转发到 Host 未选择的服务。自定义 Transport 需自行提供等价约束；该规则不构成 DNS/操作系统网络沙箱。

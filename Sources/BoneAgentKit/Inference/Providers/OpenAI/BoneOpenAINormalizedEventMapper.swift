@@ -56,11 +56,12 @@ struct BoneOpenAINormalizedEventMapper {
                 result.append(.toolArgumentsDelta(id: id, data: Data(arguments.utf8)))
             }
         }
-        if reasoningStarted, choices.first?["finish_reason"] != nil {
+        let finished = (choices.first?["finish_reason"] as? String).map { !$0.isEmpty } ?? false
+        if reasoningStarted, finished {
             result.append(.reasoningCompleted)
             reasoningStarted = false
         }
-        if choices.first?["finish_reason"] != nil {
+        if finished {
             for index in startedCalls.sorted() {
                 if let id = callIDs[index] { result.append(.toolCallCompleted(id: id)) }
             }

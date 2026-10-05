@@ -296,3 +296,19 @@ Host 应在启动 Agent 前查询支持情况。
 带签名的原始 model parts 保存在有界 opaque continuation 中，累计绑定非 system 消息索引及精确 assistant turn。后续工具轮或 stop 没有新签名时仍保留历史签名。直接使用 Engine 继续对话时，应追加原 assistant turn 并传递最新 continuation，不自行重建或丢弃签名。已绑定 turn 被移动、修改或裁剪会拒绝；绑定不认证 user/tool-result 正文，也不替代 Host 历史治理。
 
 累计上限仍为 256 KiB，超限拒绝而非截断签名。不得将其放入日志、普通 checkpoint 或安全报告。旧单轮 envelope 可读，内部 JSON 不是公共接口。缺省/null usage 保持未知，非法计数载荷拒绝；签名元数据不属于正式文本或 Tool Call。
+
+## 上下文压缩接入
+
+三个文本 Engine 接收可选 `modelContextLimits`（精确模型 ID → 已验证容量），供启用上下文管理的 Agent 使用。未知模型不猜测上限。摘要需显式绑定 Engine/模型及其容量；直接调用 Engine 不会自动改写历史。配置、费用与 Gemini 续接边界见 [ContextCompaction](ContextCompaction.md)。
+
+
+## 文本用量与流式兼容
+
+`BoneInferenceFinish` 和 `BoneInferenceStructuredResult` 新增默认 nil 的可选 `usage`，旧构造器和旧 Codable 数据继续可用。统一读取 `BoneInferenceResponse.usage`，不要只匹配 assistantTurn。三个文本 Provider 的非流式、缓冲流及事件流尽量保留服务端用量；未提供时仍为 nil，绝不按 0 或估算值补齐。Run 模型快照与摘要尝试会读取该统一字段，usage 不会混入文本正文。
+
+OpenAI-compatible 流式请求统一发送 `stream_options.include_usage=true`；不支持该字段的兼容网关可在 Engine 构造时显式传 `requestsStreamingUsage: false`，不请求用量但仍保留实际返回的 usage。SDK 不因拒绝而自动重试已提交的推理。usage chunk 按累计值保留，不累加重复 chunk。`finish_reason:null` 是中间状态，不发出工具或推理完成事件。
+
+SSE Framer 支持 LF、CRLF 和单 CR 换行，包括跨 chunk 的 CR/LF；EOF 仍不能替代缺失的空行结束符。
+
+
+Anthropic 的 `cache_read_input_tokens` 保留为 `cachedInputTokens`，`cache_creation_input_tokens` 保留为新增可选 `cacheCreationInputTokens`；流式 message_start/message_delta 合并后再解析，不丢失缓存字段。两者是不同计费类别，不互相替代。`inputTokens` 保持 Provider 原始 input 计数语义（Anthropic 不含另列缓存计数），Host 按 Provider 费率分项计算，不能跨供应商假定缓存已包含于 input。缺失字段保持 nil；快照累计中任一响应未知则该可选分项合计保持未知。

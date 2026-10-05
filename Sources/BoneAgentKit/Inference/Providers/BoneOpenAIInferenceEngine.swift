@@ -5,14 +5,21 @@ import FoundationNetworking
 
 /// OpenAI Chat Completions 及兼容协议的通用推理实现。
 public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let serverReasoning: BoneInferenceServerReasoning
+    private let requestsStreamingUsage: Bool
     private let verifiedThinkingModelIDs: Set<String>
+    private let modelContextLimits: [String: BoneModelContextLimits]
+
+    public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
+        modelContextLimits[modelID]?.contextWindowBudget
+    }
+
     private let configuration: BoneInferenceProviderConfiguration
     private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
@@ -22,12 +29,16 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
+        modelContextLimits: [String: BoneModelContextLimits] = [:],
         diagnostics: BoneInferenceDiagnosticSink = .init(),
         serverReasoning: BoneInferenceServerReasoning = .providerDefault,
-        verifiedThinkingModelIDs: Set<String> = []
+        verifiedThinkingModelIDs: Set<String> = [],
+        requestsStreamingUsage: Bool = true
     ) {
+        self.requestsStreamingUsage = requestsStreamingUsage
         self.serverReasoning = serverReasoning
         self.verifiedThinkingModelIDs = verifiedThinkingModelIDs
+        self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
         self.transport = transport
@@ -137,7 +148,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .openAI)
             return .init(
-                response: finalResponse,
+                response: try finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .openAI)),
                 reasoning: BoneInferenceReasoningSupport.openAI(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -207,7 +218,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         response = .finish(.init(text: try BoneOpenAIResponseAggregator.streamingText(from: events)))
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: response,
+                        response: try response.retainingUsage(BoneProviderUsage.read(events, wire: .openAI)),
                         reasoning: BoneInferenceReasoningSupport.openAI(events: events, disclosure: request.reasoningDisclosure)
                     )
                     continuation.yield(.completed(result))
@@ -275,7 +286,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             finalResponse = .finish(.init(text: text))
         }
         return .init(
-            response: finalResponse,
+            response: try finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .openAI)),
             reasoning: BoneInferenceReasoningSupport.openAI(
                 events: response.events,
                 disclosure: request.reasoningDisclosure
@@ -406,9 +417,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         }
         if streaming {
             body["stream"] = true
-            if !inferenceRequest.availableTools.isEmpty {
-                body["stream_options"] = ["include_usage": true]
-            }
+            if requestsStreamingUsage { body["stream_options"] = ["include_usage": true] }
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

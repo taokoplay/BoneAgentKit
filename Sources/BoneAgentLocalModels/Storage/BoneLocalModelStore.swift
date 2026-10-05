@@ -79,6 +79,7 @@ public final class BoneLocalModelStore: @unchecked Sendable {
     ) throws -> URL {
         mutationLock.lock()
         defer { mutationLock.unlock() }
+        try Task.checkCancellation()
         let directory = try modelDirectory(for: model)
         let final = try modelURL(for: model)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -94,7 +95,7 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
         let staging = stagingDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? fileManager.removeItem(at: staging) }
-        try fileManager.copyItem(at: temporaryURL, to: staging)
+        try copyForInstallation(from: temporaryURL, to: staging)
         let stagingValues = try staging.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard stagingValues.isRegularFile == true, stagingValues.isSymbolicLink != true else {
             throw BoneLocalModelStoreError.invalidArtifactFileName
@@ -102,10 +103,11 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         guard try fileSize(at: staging) == model.artifact.expectedByteCount else {
             throw BoneLocalModelStoreError.sizeMismatch
         }
-        guard try sha256(of: staging) == model.artifact.sha256 else {
+        guard try sha256(of: staging, checksCancellation: true) == model.artifact.sha256 else {
             throw BoneLocalModelStoreError.checksumMismatch
         }
         try beforeInstallCommit(staging, final)
+        try Task.checkCancellation()
         // Revalidate immediately before publication; path checks are not a hostile-process sandbox.
         _ = try modelURL(for: model)
         let result = staging.withUnsafeFileSystemRepresentation { source in
@@ -223,12 +225,29 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         return Int64(values.fileSize ?? -1)
     }
 
-    private func sha256(of url: URL) throws -> String {
+    private func copyForInstallation(from source: URL, to target: URL) throws {
+        guard fileManager.createFile(atPath: target.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        let output = try FileHandle(forWritingTo: target)
+        defer { try? output.close() }
+        while true {
+            try Task.checkCancellation()
+            let data = try input.read(upToCount: 1_048_576) ?? Data()
+            if data.isEmpty { break }
+            try output.write(contentsOf: data)
+        }
+    }
+
+    private func sha256(of url: URL, checksCancellation: Bool = false) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
         while true {
-            let data = handle.readData(ofLength: 1_048_576)
+            if checksCancellation { try Task.checkCancellation() }
+            let data = try handle.read(upToCount: 1_048_576) ?? Data()
             if data.isEmpty { break }
             hasher.update(data: data)
         }

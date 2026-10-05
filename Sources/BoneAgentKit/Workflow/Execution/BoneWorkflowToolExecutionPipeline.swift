@@ -9,7 +9,7 @@ public enum BoneWorkflowToolExecutionError: Error, Equatable, Sendable {
     case toolExecutionFailed
     /// executionStarted 后执行抛错，不能证明副作用未发生；必须先恢复/对账。
     case outcomeUnknown
-    /// 执行已返回结果，但 Receipt 记录或提交未确认；必须读取持久化事实恢复。
+    /// 控制面写入或执行 Receipt 的提交未确认；必须按原 Effect identity 读取持久化事实恢复。
     case recoveryRequired
 }
 
@@ -95,7 +95,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
         } catch is BoneAuthorizationError {
             throw BoneWorkflowToolExecutionError.authorizationRejected
         } catch {
-            throw BoneWorkflowToolExecutionError.effectStoreRejected
+            throw BoneWorkflowToolExecutionError.recoveryRequired
         }
 
         // Intent 已成为恢复事实；取消只能在 executionStarted 之前安全生效。
@@ -107,7 +107,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
                     leaseGeneration: context.leaseGeneration
                 )
             } catch {
-                throw BoneWorkflowToolExecutionError.effectStoreRejected
+                throw BoneWorkflowToolExecutionError.recoveryRequired
             }
             throw BoneWorkflowToolExecutionError.cancelledBeforeExecution
         }
@@ -118,7 +118,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
                 leaseGeneration: context.leaseGeneration
             )
         } catch {
-            throw BoneWorkflowToolExecutionError.effectStoreRejected
+            throw BoneWorkflowToolExecutionError.recoveryRequired
         }
 
         let output: Data

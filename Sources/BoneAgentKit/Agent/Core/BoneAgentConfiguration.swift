@@ -16,6 +16,8 @@ public enum BoneAgentInferenceMode: Sendable {
 public struct BoneAgentConfiguration: Sendable {
     public let inferenceMode: BoneAgentInferenceMode
     public let maximumSteps: Int
+    /// Optional provider-neutral context management. Nil preserves legacy behavior.
+    public let contextManagement: BoneContextManagementConfiguration?
     public let toolSchedulingMode: BoneToolSchedulingMode
     public let toolFailureStrategy: BoneToolFailureStrategy
     public let runBudget: BoneRunBudget?
@@ -37,7 +39,8 @@ public struct BoneAgentConfiguration: Sendable {
         toolExecutionPipeline: BoneWorkflowToolExecutionPipeline = .init(),
         toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider? = nil,
         logging: BoneAgentLoggerConfiguration = .init(),
-        inferenceMode: BoneAgentInferenceMode = .nonStreaming
+        inferenceMode: BoneAgentInferenceMode = .nonStreaming,
+        contextManagement: BoneContextManagementConfiguration? = nil
     ) throws {
         guard maximumSteps > 0 else {
             throw BoneAgentError.invalidMaximumSteps
@@ -48,6 +51,7 @@ public struct BoneAgentConfiguration: Sendable {
         )
         self.inferenceMode = inferenceMode
         self.maximumSteps = maximumSteps
+        self.contextManagement = contextManagement
         self.toolSchedulingMode = toolSchedulingMode
         self.toolFailureStrategy = toolFailureStrategy
         self.runBudget = runBudget

@@ -138,6 +138,30 @@ final class BoneLocalModelStoreTests: XCTestCase {
         try assertNoInstallStaging(store)
     }
 
+    func testCancellationBeforePublicationPreservesOldModel() async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = Data("old-local-model".utf8)
+        let new = Data("new-local-model".utf8)
+        let models = root.appendingPathComponent("models")
+        let initial = try BoneLocalModelStore(rootURL: models)
+        let source = root.appendingPathComponent("old.tmp")
+        try old.write(to: source)
+        let final = try initial.installDownloadedFile(at: source, for: model(payload: old))
+        let store = try BoneLocalModelStore(rootURL: models, beforeInstallCommit: { _, _ in
+            withUnsafeCurrentTask { $0?.cancel() }
+        })
+        let replacement = root.appendingPathComponent("new.tmp")
+        try new.write(to: replacement)
+        let descriptor = try model(payload: new)
+        let task = Task { try store.installDownloadedFile(at: replacement, for: descriptor) }
+        do { _ = try await task.value; XCTFail("must cancel before publishing") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(try Data(contentsOf: final), old)
+        XCTAssertEqual(try Data(contentsOf: replacement), new)
+        try assertNoInstallStaging(store)
+    }
+
     func testReplacementPublishesWholeNewFileWithoutRemovingOldBeforeCommit() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

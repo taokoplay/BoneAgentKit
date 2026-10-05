@@ -21,7 +21,6 @@ public enum BoneContextWindowPlanner {
     public static let defaultProtocolReserveTokens = 512
     public static let minimumSafetyMarginTokens = 1_024
 
-    /// 夹紧输出、校验不可裁剪消息，并从最旧历史开始裁剪。
     public static func plan(
         mandatoryMessages: [BoneInferenceMessage],
         history: [BoneInferenceMessage],
@@ -31,41 +30,34 @@ public enum BoneContextWindowPlanner {
         protocolReserveTokens: Int = defaultProtocolReserveTokens,
         safetyMarginTokens: Int? = nil
     ) throws -> BoneContextWindowPlan {
-        let configured = configuredOutputTokens.flatMap { $0 > 0 ? $0 : nil }
-        let preferred = preferredOutputTokens.flatMap { $0 > 0 ? $0 : nil }
-        let desiredOutput: Int
-        switch (configured, preferred) {
-        case let (.some(configured), .some(preferred)):
-            desiredOutput = min(configured, preferred)
-        case let (.some(configured), .none):
-            desiredOutput = configured
-        case let (.none, .some(preferred)):
-            desiredOutput = preferred
-        case (.none, .none):
-            desiredOutput = defaultOutputTokens
-        }
-        let maximumOutputTokens = modelLimits.maximumOutputTokens.map {
-            min(desiredOutput, $0)
-        } ?? desiredOutput
-        let margin = safetyMarginTokens ?? max(
-            minimumSafetyMarginTokens,
-            modelLimits.contextWindowTokens / 100
+        try plan(
+            mandatoryMessages: mandatoryMessages,
+            history: history,
+            budget: modelLimits.contextWindowBudget,
+            configuredOutputTokens: configuredOutputTokens,
+            preferredOutputTokens: preferredOutputTokens,
+            protocolReserveTokens: protocolReserveTokens,
+            safetyMarginTokens: safetyMarginTokens
         )
-        let contextAvailable = modelLimits.contextWindowTokens
-            - maximumOutputTokens
-            - max(0, protocolReserveTokens)
-            - max(0, margin)
-        let availableInputTokens = min(
-            modelLimits.maximumInputTokens ?? modelLimits.contextWindowTokens,
-            contextAvailable
-        )
-        guard availableInputTokens > 0 else {
-            throw BoneContextWindowError.inputBudgetUnavailable(
-                contextWindow: modelLimits.contextWindowTokens,
-                requestedOutput: maximumOutputTokens
-            )
-        }
+    }
 
+    public static func plan(
+        mandatoryMessages: [BoneInferenceMessage],
+        history: [BoneInferenceMessage],
+        budget: BoneContextWindowBudget,
+        configuredOutputTokens: Int?,
+        preferredOutputTokens: Int?,
+        protocolReserveTokens: Int = defaultProtocolReserveTokens,
+        safetyMarginTokens: Int? = nil
+    ) throws -> BoneContextWindowPlan {
+        let capacity = try budget.availableInputTokens(
+            configuredOutputTokens: configuredOutputTokens,
+            preferredOutputTokens: preferredOutputTokens,
+            protocolReserveTokens: protocolReserveTokens,
+            safetyMarginTokens: safetyMarginTokens
+        )
+        let maximumOutputTokens = capacity.maximumOutputTokens
+        let availableInputTokens = capacity.availableInputTokens
         let mandatoryTokens = BoneTokenEstimator.estimateMessages(mandatoryMessages)
         guard mandatoryTokens <= availableInputTokens else {
             throw BoneContextWindowError.inputTokensExceeded(

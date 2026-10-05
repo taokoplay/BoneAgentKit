@@ -97,7 +97,10 @@ let result = try await agent.run(
 - 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地由受信任 Compiler 将精确 Enum 或受支持的 `BoneToolSchema` 子集编译为 GBNF，并交给真实 Grammar Sampler；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
 - 强类型、`Codable & Sendable` 的 Tool Schema 和结果模型；
 - 默认串行、显式只读并行的确定性调度；
-- Run 终态模型使用快照：模型身份、能力与证据来源、上下文限制、参数回显、终态与用量，只回传不落盘。
+- Run 终态模型使用快照：模型身份、能力与证据来源、上下文限制、参数回显、终态与用量，只回传不落盘；
+- 可选跨 Provider 上下文管理：按完整 User Turn 裁剪、工具结果 UTF-8 限长、可选 Host 摘要与失败回退，默认关闭；
+- `BoneAgent.runEvents` 提供真实 Provider 增量事件、Tool 生命周期和唯一正式终态；不会把 buffered 响应或 Llama 整段生成伪装成实时 delta；
+- `BoneAgentConversation` 提供跨成功 User Turn 的显式私有会话状态，不替代 Workflow checkpoint，也不自动落盘。
 
 ### Workflow 与恢复
 
@@ -159,6 +162,9 @@ Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、�
 - [架构与模块边界](Documentation/Architecture.md)
 - [Tool Calling](Documentation/ToolCalling.md)
 - [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
+- [跨 Run 会话连续性](Documentation/ConversationContinuity.md)
+- [上下文压缩](Documentation/ContextCompaction.md)
+- [Agent 实时事件流](Documentation/AgentStreaming.md)
 - [本地模型基础设施](Documentation/LocalModels.md)
 
 ### 运行与治理
@@ -185,7 +191,9 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - 不保证 exactly-once；不可查询的外部副作用可能需要人工恢复；
 - App 被系统终止后不会永久后台运行；仅在 Host 接入 Workflow、持久层及接管策略后，才可基于保存的检查点恢复。直接 `BoneAgent.run` 不会自动落盘或重启恢复；
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
-- `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke。GBNF 只支持文档列出的 sound 子集，且 Grammar 后仍执行 SDK 复验；暂不提供 Token Streaming 或可靠加载百分比；
+- `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke。GBNF 只支持文档列出的 sound 子集，且 Grammar 后仍执行 SDK 复验；当前不提供 Agent 级实时 Token Streaming 或可靠加载百分比；
+- Agent 实时事件流只接受真实 Provider event stream；delta 是未完成草稿，只有 `completed` 才是正式结果，原始 Tool arguments 不会进入事件；
+- 上下文摘要、跨 Run 会话私有状态、Provider continuation 和 Host 持久化数据不由 SDK 自动加密、认证、落盘或跨进程恢复，需由 Host 实现相应 CAS、所有权与未知操作对账。
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测；当前 bundled 云模型尚未写入 Provider Smoke 身份，因此云端 Constraint seam 默认不自动启用。
 
 ## 许可证
