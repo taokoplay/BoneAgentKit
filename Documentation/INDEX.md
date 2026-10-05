@@ -21,7 +21,7 @@
 | [跨 Run 会话连续性](ConversationContinuity.md) | 私有 Conversation Session、导出/恢复、revision 和失败锁定 |
 | [Agent 实时事件流](AgentStreaming.md) | 显式实时 delta、Tool 生命周期、终态与 Llama 能力边界 |
 | [App Host 集成边界](CharacterHostIntegration.md) | 不透明引用、Persistence Adapter 和产品职责 |
-| [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | alpha.18 接入顺序、旧数据策略、事务责任与验收清单 |
+| [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | alpha.19 接入顺序、旧数据策略、事务责任与验收清单 |
 
 ## 本地模型
 

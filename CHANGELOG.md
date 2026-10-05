@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.19] - 2026-10-05
+
+本版为上下文管理、跨 Run 会话连续性与 Agent 实时事件流测试版；不代表真实 Provider、最低 Swift 5.9、真机、生产 Host 持久层或生产准入已完成。
+
 ### Added
 
 - 可选 `BoneAgentConfiguration.contextManagement`：本地与在线共用上下文预算、完整用户 Turn 裁剪、显式工具结果限长及可选摘要；默认关闭，候选验证后才更新 Run 内存历史。

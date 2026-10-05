@@ -102,6 +102,17 @@
 Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。
 
 
+## Alpha.19 测试版签发范围（2026-10-05）
+
+本轮按维护者明确要求发布上下文管理、跨 Run 会话连续性与 Agent 实时事件流测试 tag；不是生产签发。版本为 `0.2.0-alpha.19`，tag 采用相同名称；本次同时推送 `main` 与 tag，不建立 GitHub Release 页面。最终 SHA 以远端 tag 解引用为准，发布回执另行核验。
+
+- 包含跨本地与在线模型的可选上下文预算、完整 Turn 裁剪、Tool Result UTF-8 限长、摘要计量与安全回退。
+- 包含 `BoneAgentConversation` 跨 Run 私有会话容器及 `BoneAgent.runEvents` 真实 Provider 增量事件流；当前 Llama 整段 Runtime 不伪造实时支持。
+- 包含 Provider usage、SSE、同源重定向、Workflow recovery、Run budget 溢出和本地模型安装取消边界修复。
+- 本地 722 项测试、严格并发/Swift 6、Release 构建、MinimalWorkflowHost、Provider dry-run、公开文档和 diff 检查均已通过。
+- 最低 Swift 5.9、真实 Provider/GGUF、真机、真实 Host Debug/Release、生产持久层、许可证/资源权利仍未完成，不将本 tag 表述为生产准入。
+- `.proma/` 等未跟踪本地 Agent 工作区目录未纳入提交；要求干净源码的 Host 应使用 tag 的独立检出。
+
 ## Alpha.18 测试版签发范围（2026-09-21）
 
 本轮按维护者明确要求先发布测试 tag，供 Host 更新后执行验收；不是生产签发。版本镜像为 `0.2.0-alpha.18`，tag 采用相同名称；仅推送 tag，不更新远端 main 或建立 Release 页面。最终 SHA 以远端 tag 解引用为准，发布回执另行核验。
