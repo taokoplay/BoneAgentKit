@@ -19,6 +19,25 @@ final class BoneLocalModelStoreTests: XCTestCase {
         XCTAssertEqual(store.installationState(for: descriptor), .installed(installedURL))
     }
 
+    func testInstallAndVerifyChecksumAcrossMultipleChunks() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Two full 1 MiB chunks plus a tail exercise both copy and checksum loops.
+        var payload = Data(repeating: 0xA5, count: 2 * 1_048_576)
+        payload.append(Data((0..<257).map { UInt8($0 % 251) }))
+        let descriptor = try model(payload: payload)
+        let source = root.appendingPathComponent("multi-chunk.tmp")
+        try payload.write(to: source)
+        let store = try BoneLocalModelStore(rootURL: root.appendingPathComponent("models"))
+
+        let installed = try store.installDownloadedFile(at: source, for: descriptor)
+
+        XCTAssertEqual(try Data(contentsOf: installed), payload)
+        XCTAssertEqual(store.installationState(for: descriptor, verifyChecksum: true), .installed(installed))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        try assertNoInstallStaging(store)
+    }
+
     func testInstallRejectsSizeAndChecksumMismatch() throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

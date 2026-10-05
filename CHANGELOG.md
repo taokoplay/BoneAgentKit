@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.20] - 2026-10-05
+
+本版修复 alpha.19 的 iOS 13.0 文件读写编译回归，保持公开 API 与最低平台声明不变。最低部署版本不是任意本地模型的运行保证；真实 Runtime、设备与 GGUF 仍需单独验收。
+
+### Fixed
+
+- 修复 alpha.19 的 `BoneAgentLocalModels` iOS 13.0 编译回归：分块复制和 SHA-256 读取改用 iOS 13.0 可用、保留 NSError/throws 语义的 Foundation 读写桥接；不提升 Package 最低系统版本，不改变取消检查、校验与原子发布边界。
+- CI 明确固定 `IPHONEOS_DEPLOYMENT_TARGET=13.0`，覆盖四库的 Simulator 与 device SDK Release 编译；补充读写失败、EOF 和多块安装回归。SDK 编译不等于旧系统真机或 Host 第三方二进制链接验收。
+
 ## [0.2.0-alpha.19] - 2026-10-05
 
 本版为上下文管理、跨 Run 会话连续性与 Agent 实时事件流测试版；不代表真实 Provider、最低 Swift 5.9、真机、生产 Host 持久层或生产准入已完成。

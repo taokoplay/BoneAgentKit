@@ -45,6 +45,16 @@ URLSession 在累计 progress/resume offset 超过 Manifest 大小时取消，�
 
 `BoneAgentLlama` 已提供可注入 `BoneLlamaRuntime`、隔离 load/smoke Probe、canonical Conversation Renderer，以及默认 text-only、可显式扩展 Tool Calling 的 `BoneLlamaInferenceEngine`。它不链接具体 llama.cpp 二进制；独立 `BoneAgentLlamaCpp` 或其他 Binary Target 实现 Runtime seam。`BoneAgentFoundationModels` 仍由后续独立 Product 实现。Core Product 不直接链接具体本地 Runtime。
 
+## 最低系统版本与实际推理条件
+
+Package 声明 iOS 13.0 是 SDK 的部署兼容下限，不代表每个 Runtime、模型或设备都能运行本地推理。该下限不会让较新系统上的模型自动降级；文件读写兼容修复也不改变量化精度、Tokenizer、采样或推理流程。
+
+- **具体后端**：本仓库只定义 `BoneLlamaRuntime`，不包含 llama.cpp 二进制。实际 Binary 的最低 OS、CPU/Metal 要求、GGUF 架构及量化支持由集成方核验；SDK 未提供通用 OS/GPU 自动准入保证。
+- **资源**：`BoneLocalRuntimePlanner` 与 Probe 的内存门槛检查物理内存，不是进程当前可用内存或峰值内存保证。权重、KV cache、上下文、临时计算内存和系统压力都可能导致加载失败或进程被系统终止。规划中的低电量/热状态主要影响默认 batch 与线程数，不能保证散热和延迟指标。
+- **验收**：metadata 通过只表示静态检查通过，load 通过不等于生成可用。应对目标设备、真实模型、精确 Runtime 和配置执行 load/smoke，并验证持续生成、取消、内存与性能；不支持时由 Host 明确禁用本地入口，不能假装可用或未经授权自动切换云端。
+
+SDK 的 iOS 13.0 编译测试不替代 iOS 13 真机与真实 GGUF 验收，也不解决 Host 第三方静态库缺失 Simulator slice 的问题。
+
 ## Token Context 与自动 Prefill 分片
 
 `contextTokens` 是 Prompt 与生成内容共享的 Context 总容量；`batchTokens` 是单次原生 decode 可接收的 Token 上限，两者不能混用。`BoneLlamaInferenceEngine` 会先要求 Runtime 用已加载模型的真实 Tokenizer 计算完整编码后 Prompt（含 Chat 模板、Tool Schema 和历史）的 Token 数，再通过 `BoneLlamaPromptExecutionPlanner`：
@@ -197,6 +207,10 @@ Background URLSession、全局下载队列、业务错误文案、真实 llama.c
 
 `BoneLlamaInferenceEngine` 暴露 runtime budget 与真实 Token 预检能力；开启 `BoneAgentConfiguration.contextManagement` 后共享在线模型的压缩策略。预检可能加载模型且不生成，正式推理仍重新校验。它也可作为无工具摘要 Engine；不自动转云。详见 [ContextCompaction](ContextCompaction.md)。
 
+
+### iOS 13.0 文件读写兼容
+
+Package 最低版本保持 iOS 13.0。alpha.19 的分块复制与校验曾直接调用 iOS 13.4 的 Swift FileHandle 便利方法，导致最低系统目标编译失败；alpha.20 修复通过内部 `BoneLocalModelFileIO` 使用 iOS 13.0 可用的 Foundation NSError 读写入口，保留错误传播与有界内存。不通过提高 Host deployment target 或改写下载缓存掩盖问题；已发布 alpha.19 tag 不含此修复。验证方法见 [Testing](Testing.md#ios-130-文件读写回归)。
 
 ### 安装取消边界
 

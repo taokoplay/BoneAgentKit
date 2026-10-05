@@ -13,7 +13,7 @@ BoneAgentKit 通过独立 Git 仓库中的 Swift Package 分发。调用方应�
 
 基础调用方只需依赖 `BoneAgentKit`；本地模型基础设施和 Adapter 是独立 Product，不会因基础依赖自动启用。
 
-Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.19`。
+Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.20`。
 
 从 `0.2.0-alpha.5` 升级时，使用方的 `BoneLlamaRuntime` 实现必须适配新的真实 Token 容量契约：增加 `tokenize(prompt:)`，并将旧 `generate(prompt:options:)` 改为 `generate(prompt:executionPlan:options:)`。Runtime 必须按 `executionPlan.prefillRanges` 对完整 Prompt 的 Token IDs 分批 prefill；完整迁移要求见 [LocalModels.md](LocalModels.md#从-alpha5-迁移到-alpha6)。只使用云 Provider 或未链接 `BoneAgentLlama` 的调用方不受该协议变更影响。
 
@@ -24,6 +24,12 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 ## Alpha.12 测试能力
 
 需要验收 Host Persistence Adapter 时，在测试目标显式链接 `BoneAgentTesting`，调用 `BoneWorkflowPersistenceContractSuite`；无需修改生产目标依赖。此套件不随基础 Agent 自动运行，也不提供数据库。只使用 Agent 推理或本地只读查询的 App 不必为此新增任务持久化。示例及缺能力处理见 [Testing](Testing.md#host-持久化契约验收)。
+
+## 从 alpha.19 迁移到 alpha.20
+
+将 SwiftPM 精确版本更新为 `0.2.0-alpha.20` 并重新解析依赖。此版修复 SDK 分块文件读写误用 iOS 13.4 Swift API 导致的 iOS 13.0 构建失败，不改变公开 API、最低系统版本、模型配置或安装数据格式，不需要数据库/模型数据迁移。不要修改 Xcode 下载缓存，也不需要通过提高 Host 的 deployment target 掩盖错误。
+
+较低的 SDK 部署下限不会降低较新系统上的模型能力；真实后端 Binary 的最低系统、设备资源和 load/smoke 仍需单独核验，见 [最低系统版本与实际推理条件](LocalModels.md#最低系统版本与实际推理条件)。本次修复不补齐 Host 第三方库缺少的 Simulator 架构，也不等于完整 App 的模拟器链接已通过。已发布 alpha.19 tag 保持不变。
 
 ## 从 alpha.18 迁移到 alpha.19
 

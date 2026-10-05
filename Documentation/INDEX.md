@@ -7,7 +7,7 @@
 | 文档 | 适用场景 |
 | --- | --- |
 | [5 分钟快速开始](GettingStarted.md) | 定义第一个 Engine、Tool 和 Agent |
-| [Swift Package 接入](PackageIntegration.md) | 固定版本、选择 Product、验证依赖方向 |
+| [Swift Package 接入](PackageIntegration.md) | 固定版本、alpha.20 兼容修复迁移、选择 Product、验证依赖方向 |
 | [Provider 与 Tool 扩展](ProviderIntegration.md) | 接入模型 SDK、Provider、Tool 和业务 Service |
 | [MinimalWorkflowHost](../Examples/MinimalWorkflowHost/README.md) | 编译运行独立 Host Fixture |
 
@@ -21,7 +21,7 @@
 | [跨 Run 会话连续性](ConversationContinuity.md) | 私有 Conversation Session、导出/恢复、revision 和失败锁定 |
 | [Agent 实时事件流](AgentStreaming.md) | 显式实时 delta、Tool 生命周期、终态与 Llama 能力边界 |
 | [App Host 集成边界](CharacterHostIntegration.md) | 不透明引用、Persistence Adapter 和产品职责 |
-| [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | alpha.19 接入顺序、旧数据策略、事务责任与验收清单 |
+| [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | alpha.17 → alpha.18 Workflow 接入、旧数据策略、事务责任与验收清单 |
 
 ## 本地模型
 

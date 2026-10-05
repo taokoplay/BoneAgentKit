@@ -235,9 +235,9 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         defer { try? output.close() }
         while true {
             try Task.checkCancellation()
-            let data = try input.read(upToCount: 1_048_576) ?? Data()
+            let data = try BoneLocalModelFileIO.read(upToCount: 1_048_576, from: input) ?? Data()
             if data.isEmpty { break }
-            try output.write(contentsOf: data)
+            try BoneLocalModelFileIO.write(data, to: output)
         }
     }
 
@@ -247,7 +247,7 @@ public final class BoneLocalModelStore: @unchecked Sendable {
         var hasher = SHA256()
         while true {
             if checksCancellation { try Task.checkCancellation() }
-            let data = try handle.read(upToCount: 1_048_576) ?? Data()
+            let data = try BoneLocalModelFileIO.read(upToCount: 1_048_576, from: handle) ?? Data()
             if data.isEmpty { break }
             hasher.update(data: data)
         }

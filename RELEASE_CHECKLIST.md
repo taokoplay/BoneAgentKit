@@ -102,6 +102,16 @@
 Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。
 
 
+## Alpha.20 兼容修复版签发范围（2026-10-05）
+
+维护者要求将 iOS 13.0 FileHandle 兼容修复发布为新 tag `0.2.0-alpha.20`；不重写 alpha.19，不建立 GitHub Release 页面。最终发布 SHA 与远端状态以推送回执及 tag 解引用核验为准，不从本文件预先推断推送成功。
+
+- 本版仅修改内部文件 I/O 桥接、相关正式回归测试、CI 最低系统编译门禁及公开文档/版本镜像；Package 平台、依赖和推理算法保持不变。
+- 版本更新前修复工作树：默认及 Swift 6 strict/warnings-as-errors 各 726 项测试通过；四库 Simulator/device SDK 共八项 Release 构建通过，实际目标包含 arm64/x86_64 iOS13.0 Simulator 与 arm64 iOS13.0。工具链为 Xcode 26.0（17A324）/ Swift 6.2；详细边界见 [Testing](Documentation/Testing.md#ios-130-文件读写回归)。最终版本提交在打 tag 前另行复验。
+- iOS 13.0 部署兼容下限不是本地模型运行认证。具体后端最低系统、Metal/CPU 支持、可用内存、真实模型 load/smoke、长时间生成与取消必须由 Host 验证。
+- 最低 Swift 5.9、iOS 13 真机、真实 GGUF/Provider、生产 Host 和第三方资源门禁仍未关闭；不将 SDK 编译通过视为 Host 第三方静态库链接通过。
+- `.proma/`、验证日志与 DerivedData 不进入提交；签发不改变既有 alpha.19 指向。
+
 ## Alpha.19 测试版签发范围（2026-10-05）
 
 本轮按维护者明确要求发布上下文管理、跨 Run 会话连续性与 Agent 实时事件流测试 tag；不是生产签发。版本为 `0.2.0-alpha.19`，tag 采用相同名称；本次同时推送 `main` 与 tag，不建立 GitHub Release 页面。最终 SHA 以远端 tag 解引用为准，发布回执另行核验。

@@ -60,13 +60,27 @@ swift run BoneAgentLiveProviderSmoke --live --confirm-network-and-costs \
 `.github/workflows/ci.yml` 运行默认、严格并发、显式 Swift 6、Release、文档和无网络 smoke 门禁。配置存在不等于远端运行通过；不使用真实 Provider 凭据。
 
 ```bash
-for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalModels BoneAgentLlama; do
-  xcodebuild -scheme "$scheme" -destination 'generic/platform=iOS Simulator' \
-    -configuration Release CODE_SIGNING_ALLOWED=NO build
+set -euo pipefail
+for destination in 'generic/platform=iOS Simulator' 'generic/platform=iOS'; do
+  for scheme in BoneAgentKit BoneAgentTesting BoneAgentLocalModels BoneAgentLlama; do
+    xcodebuild -scheme "$scheme" -destination "$destination" \
+      -configuration Release IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+      ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
+  done
 done
 ```
 
-2026-09-05 在 Xcode 26.0 / Swift 6.2 完成上述四库构建。Simulator SDK 编译不代表 iOS 13 真机执行或真实 Runtime 通过。真实 Host 必须另外运行 Debug/Release、数据库事务/lease expiry/崩溃恢复和设备资源测试；本仓库没有可代替这些验证的 Host runner。最低 Swift 5.9 工具链仍待独立验证。
+2026-09-05 在 Xcode 26.0 / Swift 6.2 完成当时的四库 Simulator 构建；这一历史记录未覆盖后来 alpha.19 引入的 FileHandle 回归，不作为当前最低系统版本兼容证据。Simulator SDK 编译不代表 iOS 13 真机执行或真实 Runtime 通过。真实 Host 必须另外运行 Debug/Release、数据库事务/lease expiry/崩溃恢复和设备资源测试；本仓库没有可代替这些验证的 Host runner。最低 Swift 5.9 工具链仍待独立验证。
+
+### iOS 13.0 文件读写回归
+
+alpha.19 在分块复制和校验中使用了要求 iOS 13.4 的 Swift `FileHandle.read(upToCount:)` / `write(contentsOf:)`，与 Package 声明的 iOS 13.0 不符。alpha.20 源码修复使用内部 `BoneLocalModelFileIO` 封装 iOS 13.0 的 Foundation NSError 桥接入口；仍保留 Swift `throws`，不退回可能抛 Objective-C 异常的旧式读写方法。
+
+门禁必须显式固定 deployment target，不能用宿主 App 的更高系统版本或仅 macOS 单测替代。`BoneLocalModelFileIOTests` 检查分块字节保真、EOF 与 I/O 错误，`BoneLocalModelStoreTests` 检查超过两个 1 MiB 块的复制/校验及既有取消/发布边界。修复归档于 alpha.20，已发布的 alpha.19 tag 不变；使用方需将依赖更新至含修复的版本，不修改 Xcode 下载缓存。
+
+2026-10-05 在 alpha.19 基础上的修复工作树，以 Xcode 26.0 / Swift 6.2 完成四库八组 Release 构建；实际编译目标为 `arm64-apple-ios13.0-simulator`、`x86_64-apple-ios13.0-simulator`、`arm64-apple-ios13.0`。默认与显式 Swift 6 strict/warnings-as-errors 均为 726 项测试通过。此记录不是已发布 alpha.19 的验证结果，也不是远端 CI、最低 Swift 5.9 或 iOS 13 真机执行证明。
+
+第三方静态库的 Simulator slice 与本 SDK 的 API availability 是不同验收项。arm64 真机二进制不等于 arm64 Simulator 二进制；SDK 编译通过不能证明任意 Host App 可链接，更不能替代 iOS 13 真机执行证据。
 
 ## 本地 Constraint Runtime
 
