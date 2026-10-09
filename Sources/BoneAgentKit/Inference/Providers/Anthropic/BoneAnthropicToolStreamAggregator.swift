@@ -129,10 +129,13 @@ enum BoneAnthropicToolStreamAggregator {
                     throw BoneInferenceTransportError.invalidResponse
                 }
                 let data = Data(arguments.utf8)
-                guard (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
+                guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw BoneInferenceTransportError.invalidResponse
                 }
-                content.append(.toolCall(.init(id: id, toolID: stableID, arguments: data)))
+                // 与非流式 parseResponse 保持相同的 canonical JSON 字节，避免下一轮
+                // continuation 校验因空白或 key 顺序差异而误拒绝合法工具参数。
+                let canonical = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                content.append(.toolCall(.init(id: id, toolID: stableID, arguments: canonical)))
             default:
                 throw BoneInferenceTransportError.invalidResponse
             }

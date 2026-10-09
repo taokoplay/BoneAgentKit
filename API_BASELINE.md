@@ -11,13 +11,15 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 405 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 436 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次新增 metadata/reasoning 公开类型后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
 - `BoneAgent`、`BoneAgentConfiguration`、`BoneAgentKitVersion`
 - `BoneInferenceEngine`、`BoneInferenceBufferedStreaming`、`BoneInferenceDetailedBufferedStreaming`、`BoneInferenceEventStreaming`
 - `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`、`BoneInferenceOutputConstraint`
+- `BoneInferenceGenerationOptions`、`BoneInferenceReasoningOptions`、`BoneInferenceReasoningProfile`
+- `BoneModelMetadata`（目录声明与来源追踪，不等同执行能力）
 - `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`
 - `BoneAgentRunModelSnapshot`、`BoneAgentModelSnapshotContext`、`BoneAgentModelSnapshotSink`
 - `BoneLocalExecutionVerificationIdentity`、`BoneProviderCapabilityVerificationIdentity`、`BoneInferenceInvocationMode`
@@ -36,6 +38,15 @@
 - `BoneLlamaCompiledConstraint`、`BoneLlamaResolvedGenerationControl`、`BoneLlamaConstraintCompiling`、`BoneLlamaGBNFCompiler`
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
+
+## Unreleased 模型元数据与思考配置
+
+- `BoneInferenceGenerationOptions` 增加可选 `reasoning`；未提供时保持现有 Provider 默认行为。
+- `BoneInferenceReasoningProfile` 是 Host 注入的确切模型/协议契约；没有 profile 的显式思考请求在发送前失败。
+- `BoneModelMetadata` 只保存外部目录声明和 provenance，不自动授予 Tool Calling、结构化输出、约束输出、温度或 token 限制；未知值保持 `nil`。
+- OpenAI/Anthropic 的私有思考 continuation 是有界、不透明的 Provider payload，不属于稳定业务 Codable schema。它绑定模型、端点摘要、配置和 user/assistant turn；结构化输出冲突、历史修改或不完整流会 fail closed。
+- Gemini 继续使用既有 `thoughtSignature` 机制；不与 OpenAI/Anthropic continuation 互换。
+- 详见 [模型元数据与思考参数](Documentation/ModelMetadataAndReasoning.md)。
 
 ## Alpha.10 迁移提示
 

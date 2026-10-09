@@ -5,7 +5,7 @@ import FoundationNetworking
 
 /// Anthropic Messages 协议的通用推理实现。
 public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .constrainedOutput, .toolCalling, .streaming,
     ]
@@ -23,16 +23,22 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
     private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
+    private let modelMetadata: [String: BoneModelMetadata]
+    private let modelReasoningProfiles: [String: BoneInferenceReasoningProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
         modelContextLimits: [String: BoneModelContextLimits] = [:],
+        modelMetadata: [String: BoneModelMetadata] = [:],
+        modelReasoningProfiles: [String: BoneInferenceReasoningProfile] = [:],
         allowsMiniMaxStructuredToolOutput: Bool = false,
         diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
         self.allowsMiniMaxStructuredToolOutput = allowsMiniMaxStructuredToolOutput
+        self.modelMetadata = modelMetadata
+        self.modelReasoningProfiles = modelReasoningProfiles
         self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
@@ -59,10 +65,35 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         )
     }
 
+    public func rebindContextContinuation(_ continuation: BoneInferenceProviderContinuation,
+                                          from original: [BoneInferenceMessage], to compacted: [BoneInferenceMessage]) throws -> BoneInferenceProviderContinuation? {
+        try BoneThinkingContinuation.rebind(continuation, configuration: configuration,
+                                           profiles: modelReasoningProfiles, from: original, to: compacted)
+    }
+
+    private func retainingThinking(_ response: BoneInferenceResponse, request: BoneInferenceRequest,
+                                   json: [String: Any]? = nil,
+                                   events: [BoneInferenceEventStreamEvent]? = nil) throws -> BoneInferenceResponse {
+        let profile = modelReasoningProfiles[request.modelID]
+        let payload: Data?
+        if profile?.continuation == .anthropicThinking && !request.responseFormat.isStructured && request.outputConstraint == nil {
+            if let json { payload = try BoneThinkingContinuation.anthropicPayload(json: json) }
+            else if let events { payload = try BoneThinkingContinuation.anthropicPayload(events: events) }
+            else { payload = nil }
+        } else { payload = nil }
+        return try BoneThinkingContinuation.attach(response: response, payload: payload, request: request,
+                                                    configuration: configuration, profiles: modelReasoningProfiles)
+    }
+
     public func resolvedCapabilities(
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
+        if let profile = modelReasoningProfiles[request.modelID],
+           profile.continuation != .none && profile.continuation != .anthropicThinking {
+            throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
+        }
+        _ = try BoneThinkingContinuation.payloads(request: request, configuration: configuration, profiles: modelReasoningProfiles)
         var resolved = modelCapabilityProfiles[request.modelID]?
             .resolved(engineCapabilities: capabilities) ?? capabilities
         resolved.remove(.constrainedOutput)
@@ -76,6 +107,9 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
            ) {
             resolved.insert(.constrainedOutput)
         }
+        resolved = try BoneInferenceReasoningRequestSupport.resolved(
+            resolved, request: request, metadata: modelMetadata[request.modelID],
+            profile: modelReasoningProfiles[request.modelID], wire: .anthropic)
         return .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
@@ -119,15 +153,21 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                     allowsTextFallback: configuration.kind != .miniMax
                 )
             } else if request.availableTools.isEmpty {
-                finalResponse = .finish(
-                    .init(text: try BoneAnthropicResponseAggregator.nonStreamingText(from: json))
-                )
+                if modelReasoningProfiles[request.modelID]?.continuation == .anthropicThinking {
+                    // Preserve separate public text blocks so the exact assistant turn can be
+                    // checked before opaque thinking blocks are replayed on the next request.
+                    finalResponse = try parseAnthropicToolResponse(json, definitions: [])
+                } else {
+                    finalResponse = .finish(
+                        .init(text: try BoneAnthropicResponseAggregator.nonStreamingText(from: json))
+                    )
+                }
             } else {
                 finalResponse = try parseAnthropicToolResponse(json, definitions: request.availableTools)
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .anthropic)
             return .init(
-                response: try finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .anthropic)),
+                response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .anthropic)), request: request, json: json),
                 reasoning: BoneInferenceReasoningSupport.anthropic(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -176,7 +216,11 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                     }
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {
-                        let text = try BoneAnthropicResponseAggregator.streamingText(from: events)
+                        let parsed = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: [])
+                        guard case let .assistantTurn(turn, reason, _, refusal, _) = parsed,
+                              reason == .stop, refusal == nil, let text = turn.text else {
+                            throw BoneInferenceTransportError.invalidResponse
+                        }
                         response = try BoneAnthropicOutputConstraintAdapter().response(
                             from: Data(text.utf8),
                             constraint: constraint
@@ -191,12 +235,16 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                     } else if !request.availableTools.isEmpty {
                         response = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
                     } else {
-                        response = .finish(
-                            .init(text: try BoneAnthropicResponseAggregator.streamingText(from: events))
-                        )
+                        if modelReasoningProfiles[request.modelID]?.continuation == .anthropicThinking {
+                            response = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: [])
+                        } else {
+                            response = .finish(
+                                .init(text: try BoneAnthropicResponseAggregator.streamingText(from: events))
+                            )
+                        }
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: try response.retainingUsage(BoneProviderUsage.read(events, wire: .anthropic)),
+                        response: try retainingThinking(response.retainingUsage(BoneProviderUsage.read(events, wire: .anthropic)), request: request, events: events),
                         reasoning: BoneInferenceReasoningSupport.anthropic(
                             events: events,
                             disclosure: request.reasoningDisclosure
@@ -239,7 +287,11 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         let finalResponse: BoneInferenceResponse
         do {
             if let constraint = request.outputConstraint {
-                let text = try BoneAnthropicResponseAggregator.streamingText(from: response.events)
+                let parsed = try BoneAnthropicToolStreamAggregator.aggregate(events: response.events, definitions: [])
+                guard case let .assistantTurn(turn, reason, _, refusal, _) = parsed,
+                      reason == .stop, refusal == nil, let text = turn.text else {
+                    throw BoneInferenceTransportError.invalidResponse
+                }
                 finalResponse = try BoneAnthropicOutputConstraintAdapter().response(
                     from: Data(text.utf8),
                     constraint: constraint
@@ -260,9 +312,16 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                     definitions: request.availableTools
                 )
             } else {
-                finalResponse = .finish(
-                    .init(text: try BoneAnthropicResponseAggregator.streamingText(from: response.events))
-                )
+                if modelReasoningProfiles[request.modelID]?.continuation == .anthropicThinking {
+                    finalResponse = try BoneAnthropicToolStreamAggregator.aggregate(
+                        events: response.events,
+                        definitions: []
+                    )
+                } else {
+                    finalResponse = .finish(
+                        .init(text: try BoneAnthropicResponseAggregator.streamingText(from: response.events))
+                    )
+                }
             }
         } catch BoneInferenceTransportError.invalidResponse {
             throw BoneInferenceProtocolShapeError(
@@ -270,7 +329,7 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
             )
         }
         return .init(
-            response: try finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .anthropic)),
+            response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .anthropic)), request: request, events: response.events),
             reasoning: BoneInferenceReasoningSupport.anthropic(
                 events: response.events,
                 disclosure: request.reasoningDisclosure
@@ -349,10 +408,27 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
               systemMessages.allSatisfy({ $0.content != nil }) else {
             throw BoneInferenceError.invalidMessage
         }
-        let messages = try BoneAnthropicToolWire.messages(
+        var messages = try BoneAnthropicToolWire.messages(
             conversationMessages,
             definitions: inferenceRequest.availableTools
         )
+        let privatePayloads = try BoneThinkingContinuation.payloads(request: inferenceRequest, configuration: configuration, profiles: modelReasoningProfiles)
+        for (index, payload) in privatePayloads {
+            guard messages.indices.contains(index), conversationMessages[index].assistantTurn != nil,
+                  let blocks = try JSONSerialization.jsonObject(with: payload) as? [[String: Any]] else {
+                throw BoneInferenceError.invalidProviderContinuation
+            }
+            _ = try BoneThinkingContinuation.anthropicPayload(json: ["content": blocks])
+            // Check public text/tool identity against the immutable turn before echoing opaque blocks.
+            let check = try BoneAnthropicToolWire.parseResponse([
+                "content": blocks,
+                "stop_reason": conversationMessages[index].assistantTurn!.toolCalls.isEmpty ? "end_turn" : "tool_use"
+            ], definitions: inferenceRequest.availableTools)
+            guard check.terminalAssistantTurn == conversationMessages[index].assistantTurn else {
+                throw BoneInferenceError.invalidProviderContinuation
+            }
+            messages[index]["content"] = blocks
+        }
         var body: [String: Any] = [
             "model": inferenceRequest.modelID,
             "messages": messages,
@@ -376,6 +452,9 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         }
         if let temperature = options.temperature { body["temperature"] = temperature }
         if streaming { body["stream"] = true }
+        try BoneInferenceReasoningRequestSupport.merge(
+            BoneInferenceReasoningRequestSupport.fields(request: inferenceRequest,
+                profile: modelReasoningProfiles[inferenceRequest.modelID], wire: .anthropic, forcedTool: forcedTool != nil), into: &body)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }

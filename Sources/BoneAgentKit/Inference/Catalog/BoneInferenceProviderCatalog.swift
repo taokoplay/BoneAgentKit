@@ -62,6 +62,8 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
         /// 有证据的模型级推理能力；nil 表示目录尚无可核验结论。
         public let inferenceCapabilityProfile: BoneModelCapabilityProfile?
         public let deprecated: Bool
+        /// 外部目录声明，与已验证能力和官方执行预算分离。
+        public let metadata: BoneModelMetadata?
 
         public init(
             id: String,
@@ -73,7 +75,8 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
             generationOptions: BoneInferenceGenerationOptions = .init(),
             tokenLimits: BoneModelContextLimits? = nil,
             inferenceCapabilityProfile: BoneModelCapabilityProfile? = nil,
-            deprecated: Bool = false
+            deprecated: Bool = false,
+            metadata: BoneModelMetadata? = nil
         ) {
             self.id = id
             self.displayName = displayName
@@ -85,6 +88,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
             self.tokenLimits = tokenLimits
             self.inferenceCapabilityProfile = inferenceCapabilityProfile
             self.deprecated = deprecated
+            self.metadata = metadata
         }
     }
 

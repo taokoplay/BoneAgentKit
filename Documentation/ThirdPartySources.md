@@ -2,7 +2,13 @@
 
 ## 当前实现
 
-Task 1 没有复制或嵌入第三方源码、文档、注释、Fixture 或 LICENSE 文本。
+Task 1 没有复制或嵌入第三方源码、注释或 Fixture。模型目录的公开声明数据在
+`Sources/BoneAgentKit/Resources/AIProviderDefaults.json` 中以有限字段快照形式纳入，来源为
+`models.dev/api.json` 及其 GitHub 生成源；对应 MIT 许可证原文保留在
+`Sources/BoneAgentKit/Resources/ModelsDev-LICENSE.txt`。这批数据只用于可追溯的模型元数据展示与 Host 选择，不能当作官方执行验证，也不授予 SDK 能力。
+
+来源与固定提交、展开规则和逐字段对照见 [ModelMetadataAndReasoning](ModelMetadataAndReasoning.md)
+及 `.context/models-dev-audit/2026-10-09-cross-check.md`。
 
 ## 仅作思想参考
 

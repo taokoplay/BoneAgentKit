@@ -21,14 +21,20 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
+    private let modelMetadata: [String: BoneModelMetadata]
+    private let modelReasoningProfiles: [String: BoneInferenceReasoningProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
         modelContextLimits: [String: BoneModelContextLimits] = [:],
+        modelMetadata: [String: BoneModelMetadata] = [:],
+        modelReasoningProfiles: [String: BoneInferenceReasoningProfile] = [:],
         diagnostics: BoneInferenceDiagnosticSink = .init()
     ) {
+        self.modelMetadata = modelMetadata
+        self.modelReasoningProfiles = modelReasoningProfiles
         self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
@@ -58,6 +64,9 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
            ) {
             resolved.insert(.constrainedOutput)
         }
+        resolved = try BoneInferenceReasoningRequestSupport.resolved(
+            resolved, request: request, metadata: modelMetadata[request.modelID],
+            profile: modelReasoningProfiles[request.modelID], wire: .gemini)
         return .init(modelID: request.modelID, invocation: invocation, capabilities: resolved)
     }
 
@@ -355,6 +364,9 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                 generationConfig["responseSchema"] = schema
             }
         }
+        try BoneInferenceReasoningRequestSupport.merge(
+            BoneInferenceReasoningRequestSupport.fields(request: inferenceRequest,
+                profile: modelReasoningProfiles[inferenceRequest.modelID], wire: .gemini), into: &generationConfig)
         if !generationConfig.isEmpty { body["generationConfig"] = generationConfig }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

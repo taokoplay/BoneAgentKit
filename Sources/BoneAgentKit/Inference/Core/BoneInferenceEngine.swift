@@ -61,7 +61,10 @@ public extension BoneInferenceEngine {
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
-        .init(
+        guard request.generationOptions.reasoning == nil else {
+            throw BoneInferenceReasoningConfigurationError.missingProfile
+        }
+        return .init(
             modelID: request.modelID,
             invocation: invocation,
             capabilities: capabilities

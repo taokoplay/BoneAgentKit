@@ -107,6 +107,9 @@ public final class BoneLlamaInferenceEngine: BoneInferenceEngine, BoneInferenceC
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         guard request.modelID == modelID else { throw BoneLlamaAdapterError.modelMismatch }
+        guard request.generationOptions.reasoning == nil else {
+            throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
+        }
         _ = try session.validateSynchronously(request)
         return .init(modelID: modelID, invocation: invocation, capabilities: nonImageCapabilities)
     }

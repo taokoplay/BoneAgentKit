@@ -215,6 +215,15 @@ public extension BoneInferenceProviderCatalog {
             }
 
             let tokenLimits = try makeTokenLimits(raw.tokenLimits, provider: provider, modelID: raw.id)
+            if let metadata = raw.metadata {
+                guard metadata.declaration.id == raw.id,
+                      !metadata.provenance.providerID.isEmpty,
+                      !metadata.provenance.retrievedAt.isEmpty,
+                      metadata.provenance.sourceURL.scheme == "https",
+                      metadata.provenance.sourceURL.host != nil else {
+                    throw Error.invalidModelParameter(provider: provider, modelID: raw.id, field: "metadata")
+                }
+            }
 
             let sizes = try (raw.supportedImageSizes ?? []).map { size in
                 do {
@@ -251,7 +260,8 @@ public extension BoneInferenceProviderCatalog {
                 generationOptions: options,
                 tokenLimits: tokenLimits,
                 inferenceCapabilityProfile: raw.inferenceCapabilities,
-                deprecated: raw.deprecated
+                deprecated: raw.deprecated,
+                metadata: raw.metadata
             )
         }
     }
@@ -469,4 +479,5 @@ private struct RawModel: Decodable {
     let tokenLimits: RawTokenLimits?
     let inferenceCapabilities: BoneModelCapabilityProfile?
     let deprecated: Bool
+    let metadata: BoneModelMetadata?
 }

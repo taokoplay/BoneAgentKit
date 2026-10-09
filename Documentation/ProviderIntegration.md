@@ -59,6 +59,12 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
 - OpenAI、Gemini、Anthropic 的 Output Constraint 使用各自官方 JSON Schema 字段，不套本地 Prompt Template 或 Tool Envelope；首版不得与 structured `responseFormat` 或 Tool Catalog 混用；
 - Schema 必须经过 Provider 方言编译并在响应后本地复验；兼容 Endpoint、未知字段支持或身份漂移均在联网前失败。
 
+## 模型元数据、思考参数与工具多轮续接
+
+模型目录接入、Host profile 注入和 OpenAI/Anthropic 私有思考续接的边界见
+[模型元数据与思考参数](ModelMetadataAndReasoning.md)。不要把 `models.dev` 的声明当作
+Provider Smoke；显式 `reasoning` 必须绑定确切模型和端点的 `BoneInferenceReasoningProfile`。
+
 ## 可读推理披露
 
 `BoneInferenceRequest.reasoningDisclosure` 默认为 `.hidden`。业务只有通过

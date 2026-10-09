@@ -253,13 +253,17 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
 public struct BoneInferenceGenerationOptions: Codable, Equatable, Sendable {
     public let temperature: Double?
     public let maximumOutputTokens: Int?
+    public let reasoning: BoneInferenceReasoningOptions?
 
-    public init(temperature: Double? = nil, maximumOutputTokens: Int? = nil) {
+    public init(temperature: Double? = nil, maximumOutputTokens: Int? = nil,
+                reasoning: BoneInferenceReasoningOptions? = nil) {
         self.temperature = temperature
         self.maximumOutputTokens = maximumOutputTokens
+        self.reasoning = reasoning
     }
 
     public func validated() throws -> Self {
+        _ = try reasoning?.validated()
         if let temperature, !(0...2).contains(temperature) {
             throw BoneInferenceError.invalidGenerationOptions
         }

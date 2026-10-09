@@ -4,6 +4,15 @@
 
 当前 BoneAgentKit 生产源码是本仓库内的 clean-room 实现。当前 Package 未声明或链接第三方 Swift Package、C/C++ binary target 或模型权重。
 
+## models.dev 模型声明数据
+
+`Sources/BoneAgentKit/Resources/AIProviderDefaults.json` 含从 `models.dev/api.json`
+生成结果选取的模型声明字段，用于元数据与来源追踪，不是 models.dev 源码，也不是供应商运行时实现。
+该数据按 models.dev MIT License 提供；完整版权与许可文本见
+`Sources/BoneAgentKit/Resources/ModelsDev-LICENSE.txt`。来源发布 API 为
+<https://models.dev/api.json>，源库为 <https://github.com/anomalyco/models.dev>。
+
+
 ## Provider 渠道图片
 
 `BoneAgentKit` Product 内置 42 个 Provider 渠道 PNG，用于在配置和选择界面识别渠道；图片由内部资源 Target 管理。Catalog 中的 `iconID` 是这些资源的稳定语义标识。

@@ -248,7 +248,9 @@ struct BoneContextSession {
     static func replacing(_ request: BoneInferenceRequest, messages: [BoneInferenceMessage], output: Int? = nil,
                           continuation: BoneInferenceProviderContinuation? = nil, replaceContinuation: Bool = false) -> BoneInferenceRequest {
         .init(modelID: request.modelID, messages: messages, availableTools: request.availableTools,
-              generationOptions: .init(temperature: request.generationOptions.temperature, maximumOutputTokens: output ?? request.generationOptions.maximumOutputTokens),
+              generationOptions: .init(temperature: request.generationOptions.temperature,
+                                       maximumOutputTokens: output ?? request.generationOptions.maximumOutputTokens,
+                                       reasoning: request.generationOptions.reasoning),
               responseFormat: request.responseFormat, outputConstraint: request.outputConstraint,
               providerContinuation: replaceContinuation ? continuation : request.providerContinuation, reasoningDisclosure: request.reasoningDisclosure)
     }

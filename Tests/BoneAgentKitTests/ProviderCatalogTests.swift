@@ -6,7 +6,7 @@ final class ProviderCatalogTests: XCTestCase {
     func testBundledCatalogExposesSemanticIconIDsWithoutBundlingBrandAssets() throws {
         let catalog = try BoneInferenceProviderCatalog.bundled()
         XCTAssertEqual(catalog.schemaVersion, 1)
-        XCTAssertEqual(catalog.catalogVersion, 7)
+        XCTAssertEqual(catalog.catalogVersion, 8)
         XCTAssertEqual(catalog.providers.count, 21)
         XCTAssertEqual(catalog.provider(ident: "openai")?.providerKind, .openAI)
         XCTAssertEqual(catalog.provider(ident: "openai")?.iconID, "icon_ai_openAI")
@@ -17,19 +17,19 @@ final class ProviderCatalogTests: XCTestCase {
             ("Anthropic", "claude-sonnet-4-5-20250929", 200_000, 200_000, 64_000),
             ("Anthropic", "claude-haiku-4-5-20251001", 200_000, 200_000, 64_000),
             ("OpenAI", "gpt-4.1-mini", 1_047_576, nil, 32_768),
-            ("DeepSeek", "deepseek-v4-pro", 1_000_000, nil, 384_000),
-            ("DeepSeek", "deepseek-v4-flash", 1_000_000, nil, 384_000),
+            ("DeepSeek", "deepseek-v4-pro", 1_048_576, nil, 393_216),
+            ("DeepSeek", "deepseek-v4-flash", 1_048_576, nil, 393_216),
             ("Google", "gemini-2.5-flash", 1_048_576, 1_048_576, 65_536),
-            ("KimiAnthropic", "kimi-k2.6", 256_000, nil, nil),
-            ("Zhipu", "glm-5.2", 1_000_000, nil, 128_000),
-            ("Zhipu", "glm-5.1", 200_000, nil, 128_000),
+            ("KimiAnthropic", "kimi-k2.6", 262_144, nil, nil),
+            ("Zhipu", "glm-5.2", 1_000_000, nil, 131_072),
+            ("Zhipu", "glm-5.1", 200_000, nil, 131_072),
             ("Qwen", "qwen3-max", 262_144, 258_048, 65_536),
             ("Qwen", "qwen3.5-plus", 1_000_000, 991_808, 65_536),
             ("Qwen", "qwen3-coder-plus", 1_000_000, 997_952, 65_536),
             ("MiMo", "mimo-v2.5-pro", 1_000_000, nil, nil),
             ("MiMo", "mimo-v2-pro", 1_000_000, nil, nil),
             ("MiMo", "mimo-v2.5", 1_000_000, nil, nil),
-            ("MiMo", "mimo-v2-omni", 256_000, nil, nil),
+            ("MiMo", "mimo-v2-omni", 262_144, nil, nil),
         ]
         for (providerID, modelID, context, input, output) in knownLimits {
             let model = try XCTUnwrap(

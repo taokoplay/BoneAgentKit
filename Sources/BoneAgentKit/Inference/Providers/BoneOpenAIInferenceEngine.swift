@@ -5,7 +5,7 @@ import FoundationNetworking
 
 /// OpenAI Chat Completions 及兼容协议的通用推理实现。
 public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
@@ -24,12 +24,16 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     private let diagnostics: BoneInferenceDiagnosticSink
     private let transport: any BoneInferenceHTTPTransport
     private let modelCapabilityProfiles: [String: BoneModelCapabilityProfile]
+    private let modelMetadata: [String: BoneModelMetadata]
+    private let modelReasoningProfiles: [String: BoneInferenceReasoningProfile]
 
     public init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport,
         modelCapabilityProfiles: [String: BoneModelCapabilityProfile] = [:],
         modelContextLimits: [String: BoneModelContextLimits] = [:],
+        modelMetadata: [String: BoneModelMetadata] = [:],
+        modelReasoningProfiles: [String: BoneInferenceReasoningProfile] = [:],
         diagnostics: BoneInferenceDiagnosticSink = .init(),
         serverReasoning: BoneInferenceServerReasoning = .providerDefault,
         verifiedThinkingModelIDs: Set<String> = [],
@@ -38,6 +42,8 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         self.requestsStreamingUsage = requestsStreamingUsage
         self.serverReasoning = serverReasoning
         self.verifiedThinkingModelIDs = verifiedThinkingModelIDs
+        self.modelMetadata = modelMetadata
+        self.modelReasoningProfiles = modelReasoningProfiles
         self.modelContextLimits = modelContextLimits
         self.configuration = configuration
         self.diagnostics = diagnostics
@@ -62,10 +68,38 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         return supported
     }
 
+    public func rebindContextContinuation(_ continuation: BoneInferenceProviderContinuation,
+                                          from original: [BoneInferenceMessage], to compacted: [BoneInferenceMessage]) throws -> BoneInferenceProviderContinuation? {
+        try BoneThinkingContinuation.rebind(continuation, configuration: configuration,
+                                           profiles: modelReasoningProfiles, from: original, to: compacted)
+    }
+
+    private func retainingThinking(_ response: BoneInferenceResponse, request: BoneInferenceRequest,
+                                   json: [String: Any]? = nil,
+                                   events: [BoneInferenceEventStreamEvent]? = nil) throws -> BoneInferenceResponse {
+        let profile = modelReasoningProfiles[request.modelID]
+        let payload: Data?
+        if profile?.continuation == .reasoningContent && !request.responseFormat.isStructured && request.outputConstraint == nil {
+            if let json { payload = try BoneThinkingContinuation.openAIPayload(json: json) }
+            else if let events { payload = try BoneThinkingContinuation.openAIPayload(events: events) }
+            else { payload = nil }
+        } else { payload = nil }
+        return try BoneThinkingContinuation.attach(response: response, payload: payload, request: request,
+                                                    configuration: configuration, profiles: modelReasoningProfiles)
+    }
+
     public func resolvedCapabilities(
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
+        if serverReasoning != .providerDefault, request.generationOptions.reasoning != nil {
+            throw BoneInferenceReasoningConfigurationError.conflictingLegacySetting
+        }
+        if let profile = modelReasoningProfiles[request.modelID],
+           profile.continuation != .none && profile.continuation != .reasoningContent {
+            throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
+        }
+        _ = try BoneThinkingContinuation.payloads(request: request, configuration: configuration, profiles: modelReasoningProfiles)
         var resolved = capabilities
         // 兼容网关只承诺 OpenAI wire shape，不据此承诺官方原生约束。
         if configuration.kind != .openAI {
@@ -85,6 +119,9 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
            ) {
             resolved.insert(.constrainedOutput)
         }
+        resolved = try BoneInferenceReasoningRequestSupport.resolved(
+            resolved, request: request, metadata: modelMetadata[request.modelID],
+            profile: modelReasoningProfiles[request.modelID], wire: .openAI)
         return .init(
             modelID: request.modelID,
             invocation: invocation,
@@ -148,7 +185,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             }
             diagnostics.emit(diagnosticID, .resultValidated, wire: .openAI)
             return .init(
-                response: try finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .openAI)),
+                response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .openAI)), request: request, json: json),
                 reasoning: BoneInferenceReasoningSupport.openAI(
                     json: json,
                     disclosure: request.reasoningDisclosure
@@ -218,7 +255,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         response = .finish(.init(text: try BoneOpenAIResponseAggregator.streamingText(from: events)))
                     }
                     let result = BoneInferenceDetailedResult(
-                        response: try response.retainingUsage(BoneProviderUsage.read(events, wire: .openAI)),
+                        response: try retainingThinking(response.retainingUsage(BoneProviderUsage.read(events, wire: .openAI)), request: request, events: events),
                         reasoning: BoneInferenceReasoningSupport.openAI(events: events, disclosure: request.reasoningDisclosure)
                     )
                     continuation.yield(.completed(result))
@@ -286,7 +323,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             finalResponse = .finish(.init(text: text))
         }
         return .init(
-            response: try finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .openAI)),
+            response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(response.events, wire: .openAI)), request: request, events: response.events),
             reasoning: BoneInferenceReasoningSupport.openAI(
                 events: response.events,
                 disclosure: request.reasoningDisclosure
@@ -372,10 +409,27 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         guard !responseFormat.isStructured || inferenceRequest.availableTools.isEmpty else {
             throw BoneInferenceError.invalidStructuredOutputContract
         }
-        let messages = try BoneOpenAIToolWire.messages(
+        var messages = try BoneOpenAIToolWire.messages(
             inferenceRequest.messages,
             definitions: inferenceRequest.availableTools
         )
+        let privatePayloads = try BoneThinkingContinuation.payloads(request: inferenceRequest, configuration: configuration, profiles: modelReasoningProfiles)
+        var semanticIndex = 0
+        var wireIndex = 0
+        for message in inferenceRequest.messages {
+            if message.role != .system {
+                if let payload = privatePayloads[semanticIndex] {
+                    guard let fields = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+                          fields.count == 1, let reasoning = fields["reasoning_content"] as? String,
+                          messages.indices.contains(wireIndex), message.assistantTurn != nil else {
+                        throw BoneInferenceError.invalidProviderContinuation
+                    }
+                    messages[wireIndex]["reasoning_content"] = reasoning
+                }
+                semanticIndex += 1
+            }
+            wireIndex += message.role == .tool ? try message.requiredToolResults().results.count : 1
+        }
         let options = try inferenceRequest.generationOptions.validated()
         let defaultPath = configuration.kind == .zhipu
             ? "/api/paas/v4/chat/completions"
@@ -393,6 +447,9 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             "model": inferenceRequest.modelID,
             "messages": messages,
         ]
+        if serverReasoning != .providerDefault, inferenceRequest.generationOptions.reasoning != nil {
+            throw BoneInferenceReasoningConfigurationError.conflictingLegacySetting
+        }
         if serverReasoning == .enabled {
             body["chat_template_kwargs"] = ["enable_thinking": true]
         }
@@ -413,12 +470,16 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         }
         if let temperature = options.temperature { body["temperature"] = temperature }
         if let maximumOutputTokens = options.maximumOutputTokens {
-            body["max_tokens"] = maximumOutputTokens
+            let usesCompletionTokens = modelReasoningProfiles[inferenceRequest.modelID]?.wireFormat == .openAIChat
+            body[usesCompletionTokens ? "max_completion_tokens" : "max_tokens"] = maximumOutputTokens
         }
         if streaming {
             body["stream"] = true
             if requestsStreamingUsage { body["stream_options"] = ["include_usage": true] }
         }
+        try BoneInferenceReasoningRequestSupport.merge(
+            BoneInferenceReasoningRequestSupport.fields(request: inferenceRequest,
+                profile: modelReasoningProfiles[inferenceRequest.modelID], wire: .openAI, forcedTool: forcedTool != nil), into: &body)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
