@@ -102,6 +102,16 @@
 Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。
 
 
+## Alpha.21 模型元数据与思考续接版签发范围（2026-10-09）
+
+维护者要求将 models.dev 模型元数据、显式 reasoning 配置和 OpenAI/Anthropic 思考续接发布为新 tag `0.2.0-alpha.21`；不重写既有 tag，不建立 GitHub Release 页面。最终发布 SHA 与远端状态以推送回执及 tag 解引用核验为准。
+
+- 包含 33 条精确渠道—模型的 `BoneModelMetadata`、官方限制/状态核验、OpenAI/Anthropic/Gemini reasoning wire 映射，以及有界私有思考 continuation。
+- 本地 `swift test` 744 项通过；strict concurrency build、公开文档检查、JSON 解析和 `git diff --check` 通过。
+- Anthropic 流式工具参数 canonicalization、停止块后 delta、结构化输出冲突和模型/端点/历史绑定均有回归覆盖。
+- 未调用真实付费模型；最低 Swift 5.9、真实 Provider、真实 Host Debug/Release、iOS 13 真机和生产准入仍需调用方独立验收。
+- `.proma/`、验证日志和构建缓存不进入提交。
+
 ## Alpha.20 兼容修复版签发范围（2026-10-05）
 
 维护者要求将 iOS 13.0 FileHandle 兼容修复发布为新 tag `0.2.0-alpha.20`；不重写 alpha.19，不建立 GitHub Release 页面。最终发布 SHA 与远端状态以推送回执及 tag 解引用核验为准，不从本文件预先推断推送成功。

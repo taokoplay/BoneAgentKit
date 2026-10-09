@@ -4,12 +4,22 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.21] - 2026-10-09
+
+本版补充模型目录元数据、显式思考配置和 OpenAI/Anthropic 思考续接；属于预发布 SDK，未完成真实付费 Provider Smoke，不代表生产准入。
+
 ### Added
 
 - 新增可追溯的 `BoneModelMetadata`，对齐 models.dev 的思考、工具调用、结构化输出、温度、模态、限制、价格和状态声明；声明与 Host 执行能力保持分离。
 - 新增 `BoneInferenceReasoningOptions` / `BoneInferenceReasoningProfile`，在 OpenAI、Anthropic、Gemini 请求发送前完成显式思考模式、档位、预算和温度校验。
 - OpenAI `reasoning_content` 与 Anthropic thinking/redacted thinking 完整块支持有界不透明 continuation；工具多轮、上下文重绑定、严格 SSE 终态和结构化输出冲突均 fail closed。Gemini 继续沿用 `thoughtSignature`。
-- 增加 models.dev MIT License 来源登记及模型目录官方核验说明。以上没有进行真实付费模型调用，不代表线上 Provider Smoke 已完成。
+- 增加 models.dev MIT License 来源登记及模型目录官方核验说明。
+
+### Verification
+
+- 本地 `swift test`：744 项通过。
+- `swift build -Xswiftc -strict-concurrency=complete`、公开文档检查、目录 JSON 解析和 `git diff --check` 通过。
+- 未调用真实付费模型；Host 仍需按确切 Provider/模型/端点注入 reasoning profile 并自行完成线上 Smoke。
 
 ## [0.2.0-alpha.20] - 2026-10-05
 
