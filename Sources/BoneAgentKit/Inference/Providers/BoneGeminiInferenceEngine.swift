@@ -86,12 +86,15 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         let urlRequest = try makeRequest(request, streaming: false)
         let diagnosticID = UUID()
         var receivedResponse = false
+        var failureStage: BoneInferenceDiagnosticEvent.FailureStage = .transport
         diagnostics.emit(diagnosticID, .transportAttempt, wire: .gemini)
         do {
             let response = try await transport.send(urlRequest)
             receivedResponse = true
             diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .gemini)
+            failureStage = (200...299).contains(response.statusCode) ? .jsonDecoding : .httpStatus
             let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            failureStage = .resultValidation
             let finalResponse: BoneInferenceResponse
             if let constraint = request.outputConstraint {
                 let text = try BoneGeminiResponseAggregator.text(from: json)
@@ -116,16 +119,17 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             } else {
                 finalResponse = try BoneGeminiToolWire.parseResponse(json, definitions: request.availableTools)
             }
-            diagnostics.emit(diagnosticID, .resultValidated, wire: .gemini)
-            return .init(
+            let result = BoneInferenceDetailedResult(
                 response: try BoneGeminiContinuation.accumulating(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .gemini)), after: request),
                 reasoning: BoneInferenceReasoningSupport.gemini(
                     json: json,
                     disclosure: request.reasoningDisclosure
                 )
             )
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .gemini)
+            return result
         } catch {
-            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .gemini)
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .gemini, failureStage: failureStage)
             throw error
         }
     }

@@ -7,6 +7,10 @@ import FoundationNetworking
 final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate, @unchecked Sendable {
     private let configuration: URLSessionConfiguration
     private let request: URLRequest
+    private let failureCapture: BoneInferenceFailureCapture
+    private let captureID = UUID()
+    private var failureBody = Data()
+    private var failureBodyTruncated = false
     private let maximumBytes: Int
     private let lock = NSLock()
     private var data = Data()
@@ -19,7 +23,8 @@ final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, UR
     private var explicitlyCancelled = false
     private let startedAt = Date()
 
-    init(configuration: URLSessionConfiguration, request: URLRequest, maximumBytes: Int) {
+    init(configuration: URLSessionConfiguration, request: URLRequest, maximumBytes: Int, failureCapture: BoneInferenceFailureCapture = .init()) {
+        self.failureCapture = failureCapture
         self.configuration = configuration
         self.request = request
         self.maximumBytes = max(0, maximumBytes)
@@ -85,6 +90,11 @@ final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, UR
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
         lock.lock()
         guard !completed else { lock.unlock(); return }
+        if failureCapture.isEnabled, let response, !(200...299).contains(response.statusCode) {
+            let remaining = failureCapture.maximumBodyBytes - failureBody.count
+            failureBody.append(chunk.prefix(remaining))
+            if chunk.count > remaining { failureBodyTruncated = true }
+        }
         guard chunk.count <= maximumBytes - data.count else {
             lock.unlock()
             finish(.failure(BoneInferenceTransportError.responseTooLarge), cancelTask: true)
@@ -138,12 +148,13 @@ final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, UR
             )
         )
         lock.unlock()
-        finish(.success(result), cancelTask: false)
+        finish(.success(result), cancelTask: false, captureCompletion: .complete)
     }
 
     private func finish(
         _ result: Result<(Data, BoneInferenceHTTPResponseMetadata), Error>,
-        cancelTask: Bool
+        cancelTask: Bool,
+        captureCompletion: BoneInferenceFailureResponse.Completion = .interrupted
     ) {
         lock.lock()
         guard !completed else { lock.unlock(); return }
@@ -152,9 +163,17 @@ final class BoneInferenceHTTPSessionBridge: NSObject, URLSessionDataDelegate, UR
         self.continuation = nil
         let task = self.task
         let session = self.session
+        let response = self.response
+        let body = failureBody
+        failureBody = Data()
+        let completion: BoneInferenceFailureResponse.Completion = failureBodyTruncated ? .byteLimit : captureCompletion
         lock.unlock()
         if cancelTask { task?.cancel() }
         session?.finishTasksAndInvalidate()
+        if let response, failureCapture.isEnabled {
+            failureCapture.emit(id: captureID, statusCode: response.statusCode, headers: Self.headers(from: response),
+                                body: body, completion: completion)
+        }
         continuation?.resume(with: result)
     }
 

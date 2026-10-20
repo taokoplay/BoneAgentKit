@@ -103,6 +103,10 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     private let configuration: URLSessionConfiguration
     private let request: URLRequest
     private let options: BoneInferenceEventStreamOptions
+    private let failureCapture: BoneInferenceFailureCapture
+    private let captureID = UUID()
+    private var failureBody = Data()
+    private var captureWatchdog: DispatchWorkItem?
     private let lock = NSLock()
     private var framer: BoneInferenceEventStreamFramer
     private var events: [BoneInferenceEventStreamEvent] = []
@@ -119,8 +123,10 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     init(
         configuration: URLSessionConfiguration,
         request: URLRequest,
-        options: BoneInferenceEventStreamOptions
+        options: BoneInferenceEventStreamOptions,
+        failureCapture: BoneInferenceFailureCapture = .init()
     ) {
+        self.failureCapture = failureCapture
         self.configuration = configuration
         self.request = request
         self.options = options
@@ -222,12 +228,22 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             return
         }
         lock.lock()
+        guard !completed else { lock.unlock(); completionHandler(.cancel); return }
         self.response = http
         if !(200 ... 299).contains(http.statusCode) {
-            lock.unlock()
-            completionHandler(.cancel)
-            finish(.failure(BoneInferenceTransportError.httpStatus(http.statusCode)), cancelTask: true)
-            return
+            guard failureCapture.isEnabled else {
+                lock.unlock()
+                completionHandler(.cancel)
+                finish(.failure(BoneInferenceTransportError.httpStatus(http.statusCode)), cancelTask: true)
+                return
+            }
+            // 错误正文不是 SSE。使用固定采集时限，不被持续到达的数据无限延长。
+            watchdog?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.finish(.failure(BoneInferenceTransportError.httpStatus(http.statusCode)), cancelTask: true, captureCompletion: .timeLimit)
+            }
+            captureWatchdog = item
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + failureCapture.maximumDuration, execute: item)
         }
         lock.unlock()
         completionHandler(.allow)
@@ -236,6 +252,18 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
         guard !completed else { lock.unlock(); return }
+        if let response, !(200...299).contains(response.statusCode) {
+            let limit = min(failureCapture.maximumBodyBytes, options.maximumBytes)
+            let remaining = limit - failureBody.count
+            failureBody.append(data.prefix(remaining))
+            if data.count > remaining {
+                lock.unlock()
+                finish(.failure(BoneInferenceTransportError.httpStatus(response.statusCode)), cancelTask: true, captureCompletion: .byteLimit)
+                return
+            }
+            lock.unlock()
+            return
+        }
         do {
             let framed = try framer.append(data)
             if !framed.isEmpty {
@@ -257,9 +285,13 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             let mapped: BoneInferenceTransportError
             lock.lock()
             let wasCancelled = explicitlyCancelled
+            let rejectedStatus = response.flatMap { (200...299).contains($0.statusCode) ? nil : $0.statusCode }
             lock.unlock()
             if wasCancelled || (error as? URLError)?.code == .cancelled {
                 mapped = .cancelled
+            } else if let rejectedStatus {
+                // 采集时的网络中断不能覆盖已收到的 HTTP 拒绝。
+                mapped = .httpStatus(rejectedStatus)
             } else {
                 let nsError = error as NSError
                 mapped = .network(.init(error: nsError))
@@ -272,6 +304,11 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             guard let response else {
                 lock.unlock()
                 finish(.failure(BoneInferenceTransportError.invalidResponse), cancelTask: false)
+                return
+            }
+            if !(200...299).contains(response.statusCode) {
+                lock.unlock()
+                finish(.failure(BoneInferenceTransportError.httpStatus(response.statusCode)), cancelTask: false, captureCompletion: .complete)
                 return
             }
             if (200 ... 299).contains(response.statusCode) {
@@ -317,11 +354,12 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds, execute: item)
     }
 
-    private func finish(_ result: Result<BoneInferenceEventStreamResponse, Error>, cancelTask: Bool) {
+    private func finish(_ result: Result<BoneInferenceEventStreamResponse, Error>, cancelTask: Bool, captureCompletion: BoneInferenceFailureResponse.Completion = .interrupted) {
         lock.lock()
         guard !completed else { lock.unlock(); return }
         completed = true
         deadlineWatchdog?.cancel()
+        captureWatchdog?.cancel()
         watchdog?.cancel()
         let continuation = self.continuation
         self.continuation = nil
@@ -329,9 +367,16 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         self.eventContinuation = nil
         let task = self.task
         let session = self.session
+        let response = self.response
+        let body = failureBody
+        failureBody = Data()
         lock.unlock()
         if cancelTask { task?.cancel() }
         session?.finishTasksAndInvalidate()
+        if let response, failureCapture.isEnabled {
+            failureCapture.emit(id: captureID, statusCode: response.statusCode, headers: Self.headers(from: response),
+                                body: body, completion: captureCompletion)
+        }
         continuation?.resume(with: result)
         switch result {
         case .success: eventContinuation?.finish()

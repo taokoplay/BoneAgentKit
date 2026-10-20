@@ -17,7 +17,9 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
         BoneInferenceEventStreamOptions
     ) async throws -> BoneInferenceEventStreamResponse
 
+    private let failureCapture: BoneInferenceFailureCapture
     private let maximumResponseByteCount: Int
+    private let loaderIsURLSession: Bool
     private let loader: Loader
     private let sleeper: Sleeper
     private let streamLoader: StreamLoader
@@ -26,16 +28,20 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
 
     public init(
         configuration: URLSessionConfiguration = .ephemeral,
-        maximumResponseByteCount: Int = Self.defaultMaximumResponseByteCount
+        maximumResponseByteCount: Int = Self.defaultMaximumResponseByteCount,
+        failureCapture: BoneInferenceFailureCapture = .init()
     ) {
+        self.failureCapture = failureCapture
         self.maximumResponseByteCount = max(0, maximumResponseByteCount)
+        self.loaderIsURLSession = true
         self.urlSessionConfiguration = configuration
         self.streamLoaderIsURLSession = true
         self.loader = { request in
                 let bridge = BoneInferenceHTTPSessionBridge(
                     configuration: configuration,
                     request: request,
-                    maximumBytes: maximumResponseByteCount
+                    maximumBytes: maximumResponseByteCount,
+                    failureCapture: failureCapture
                 )
                 return try await withTaskCancellationHandler {
                     try await bridge.start()
@@ -48,7 +54,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
                 let bridge = BoneInferenceEventStreamSessionBridge(
                     configuration: configuration,
                     request: request,
-                    options: options
+                    options: options,
+                    failureCapture: failureCapture
                 )
                 return try await withTaskCancellationHandler {
                     try await bridge.start()
@@ -64,9 +71,12 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
         sleeper: @escaping Sleeper = { duration in try await Self.sleep(seconds: duration) },
         streamLoader: @escaping StreamLoader = { _, _ in
             throw BoneInferenceTransportError.invalidConfiguration
-        }
+        },
+        failureCapture: BoneInferenceFailureCapture = .init()
     ) {
+        self.failureCapture = failureCapture
         self.maximumResponseByteCount = max(0, maximumResponseByteCount)
+        self.loaderIsURLSession = false
         self.loader = loader
         self.sleeper = sleeper
         self.streamLoader = streamLoader
@@ -76,12 +86,14 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
 
     public init(
         maximumResponseByteCount: Int = Self.defaultMaximumResponseByteCount,
-        streamLoader: @escaping StreamLoader
+        streamLoader: @escaping StreamLoader,
+        failureCapture: BoneInferenceFailureCapture = .init()
     ) {
         self.init(
             maximumResponseByteCount: maximumResponseByteCount,
             loader: { _ in throw BoneInferenceTransportError.invalidConfiguration },
-            streamLoader: streamLoader
+            streamLoader: streamLoader,
+            failureCapture: failureCapture
         )
     }
 
@@ -118,6 +130,10 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
             try Task.checkCancellation()
             let (data, metadata) = try await loader(request)
             try Task.checkCancellation()
+            if !loaderIsURLSession, failureCapture.isEnabled {
+                failureCapture.emit(id: UUID(), statusCode: metadata.statusCode, headers: metadata.headers,
+                                    body: data, completion: .complete)
+            }
             guard data.count <= maximumResponseByteCount else {
                 throw BoneInferenceTransportError.responseTooLarge
             }
@@ -188,7 +204,8 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
         let bridge = BoneInferenceEventStreamSessionBridge(
             configuration: urlSessionConfiguration!,
             request: request,
-            options: options
+            options: options,
+            failureCapture: failureCapture
         )
         return bridge.eventStream()
     }

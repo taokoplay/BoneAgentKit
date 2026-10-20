@@ -12,6 +12,10 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
     public enum WireProtocol: Sendable { case openAI, anthropic, gemini }
     public enum Shape: Sendable { case parsed, invalidJSON, tooLarge }
     public enum Stop: Sendable { case unknown, invalid, stop, toolCalls, length, blocked, other }
+    public enum BodyKind: String, Sendable { case empty, json, html, text, unknown }
+    public enum ErrorCategory: String, Sendable { case none, authentication, quota, rateLimit, safety, unknown }
+    public let bodyKind: BodyKind
+    public let errorCategory: ErrorCategory
     public let statusCode: Int
     public let bodyBytes: Int
     public let wireProtocol: WireProtocol
@@ -25,6 +29,21 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
 
     static func capture(_ response: BoneInferenceHTTPResponse, wire: WireProtocol) -> Self {
         let data = response.data
+        var bodyKind: BodyKind = data.isEmpty ? .empty : .unknown
+        if !data.isEmpty, let header = response.headers.first(where: { $0.key.caseInsensitiveCompare("Content-Type") == .orderedSame })?.value,
+           header.utf8.count <= 256 {
+            let mime = header.split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+            if mime == "application/json" || mime.hasSuffix("+json") { bodyKind = .json }
+            else if mime == "text/html" || mime == "application/xhtml+xml" { bodyKind = .html }
+            else if mime.hasPrefix("text/") { bodyKind = .text }
+        }
+        var errorCategory: ErrorCategory = (200...299).contains(response.statusCode) ? .none : .unknown
+        switch response.statusCode {
+        case 401: errorCategory = .authentication
+        case 402: errorCategory = .quota
+        case 429: errorCategory = .rateLimit
+        default: break
+        }
         var shape: Shape = .parsed
         var stop: Stop = .unknown
         var tools: BoneDiagnosticCount = .unknown
@@ -33,6 +52,17 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
         var reasoning: Any?
         if data.count > 1_048_576 { shape = .tooLarge }
         else if let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            // 成功解析的对象证据优先于服务端声明的 MIME；不按 HTML 文案猜测 WAF 根因。
+            bodyKind = .json
+            if !(200...299).contains(response.statusCode) {
+                if BoneInferenceProviderResponseValidator.isSafetyBlocked(root) { errorCategory = .safety }
+                else if let error = root["error"] as? [String: Any] {
+                    let codes = [error["code"], error["type"], error["status"]].compactMap { $0 as? String }.filter { $0.utf8.count <= 64 }.map { $0.lowercased() }
+                    if codes.contains(where: { ["insufficient_quota", "quota_exceeded"].contains($0) }) { errorCategory = .quota }
+                    else if codes.contains(where: { ["rate_limit_exceeded", "rate_limit_error"].contains($0) }) { errorCategory = .rateLimit }
+                    else if codes.contains(where: { ["invalid_api_key", "authentication_error", "unauthenticated"].contains($0) }) { errorCategory = .authentication }
+                }
+            }
             var rawStop: Any?
             switch wire {
             case .openAI:
@@ -77,7 +107,7 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
                 reasoning = NSNull()
             }
         } else { shape = .invalidJSON }
-        return .init(statusCode: response.statusCode, bodyBytes: data.count, wireProtocol: wire,
+        return .init(bodyKind: bodyKind, errorCategory: errorCategory, statusCode: response.statusCode, bodyBytes: data.count, wireProtocol: wire,
                      shape: shape, stop: stop, toolCount: tools,
                      inputTokens: number(usage[inputKey]), outputTokens: number(usage[outputKey]),
                      totalTokens: number(usage[totalKey]), reasoningTokens: number(reasoning))
@@ -114,6 +144,8 @@ public struct BoneInferenceResponseDiagnostic: Equatable, Sendable {
 
 public struct BoneInferenceDiagnosticEvent: Sendable {
     public enum Phase: Sendable { case transportAttempt, httpResponseReceived, resultValidated, transportFailed, responseValidationFailed }
+    public enum FailureStage: String, Sendable { case transport, httpStatus, jsonDecoding, resultValidation }
+    public let failureStage: FailureStage?
     /// 本地调用关联 ID，不是供应商请求 ID 或计费凭据。
     public let invocationID: UUID
     public let phase: Phase
@@ -127,8 +159,8 @@ public struct BoneInferenceDiagnosticSink: Sendable {
     public init(_ handler: (@Sendable (BoneInferenceDiagnosticEvent) -> Void)? = nil) { self.handler = handler }
     var isEnabled: Bool { handler != nil }
     func emit(_ id: UUID, _ phase: BoneInferenceDiagnosticEvent.Phase, response: BoneInferenceHTTPResponse? = nil,
-              wire: BoneInferenceResponseDiagnostic.WireProtocol) {
+              wire: BoneInferenceResponseDiagnostic.WireProtocol, failureStage: BoneInferenceDiagnosticEvent.FailureStage? = nil) {
         guard let handler else { return }
-        handler(.init(invocationID: id, phase: phase, response: response.map { .capture($0, wire: wire) }))
+        handler(.init(failureStage: failureStage, invocationID: id, phase: phase, response: response.map { .capture($0, wire: wire) }))
     }
 }

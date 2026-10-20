@@ -45,7 +45,8 @@ final class ThinkingContinuationTests: XCTestCase {
         XCTAssertFalse(first.response.terminalAssistantTurn!.text!.contains(secret))
         let second = try await engine.inferDetailed(request: nextRequest(first.response, tools: tools))
         XCTAssertNil(second.reasoning)
-        let bodies = await transport.bodies
+        let rawBodies = await transport.bodies
+        let bodies = try rawBodies.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0) as? [String: Any]) }
         let messages = try XCTUnwrap(bodies.last?["messages"] as? [[String: Any]])
         XCTAssertEqual(messages[1]["reasoning_content"] as? String, secret)
         let envelope = try BoneThinkingContinuation.decode(XCTUnwrap(second.response.providerContinuationValue), configuration: config(.custom), profiles: ["m": openAIProfile])
@@ -61,7 +62,8 @@ final class ThinkingContinuationTests: XCTestCase {
         let first = try await engine.inferDetailed(request: request(tools))
         XCTAssertNil(first.reasoning)
         _ = try await engine.infer(request: nextRequest(first.response, tools: tools))
-        let bodies = await transport.bodies
+        let rawBodies = await transport.bodies
+        let bodies = try rawBodies.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0) as? [String: Any]) }
         let messages = try XCTUnwrap(bodies.last?["messages"] as? [[String: Any]])
         let blocks = try XCTUnwrap(messages[1]["content"] as? [[String: Any]])
         XCTAssertEqual(blocks.compactMap { $0["type"] as? String }, ["thinking", "text", "redacted_thinking", "tool_use"])
@@ -161,7 +163,8 @@ final class ThinkingContinuationTests: XCTestCase {
         XCTAssertEqual(first.response.terminalAssistantTurn?.toolCalls.first?.arguments, Data(#"{"a":1,"b":2}"#.utf8))
         let second = try await engine.inferDetailedUsingStream(request: nextRequest(first.response, tools: tools), options: .init())
         XCTAssertEqual(second.response.terminalAssistantTurn?.text, "done")
-        let bodies = await transport.bodies
+        let rawBodies = await transport.bodies
+        let bodies = try rawBodies.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0) as? [String: Any]) }
         let messages = try XCTUnwrap(bodies.last? ["messages"] as? [[String: Any]])
         let replayedBlocks = try XCTUnwrap(messages[1]["content"] as? [[String: Any]])
         XCTAssertEqual(replayedBlocks.compactMap { $0["type"] as? String }, ["thinking", "text", "tool_use"])
@@ -209,7 +212,8 @@ private actor ThinkingRoundTripTransport: BoneInferenceHTTPTransport {
     private var streamResponses: [[BoneInferenceEventStreamEvent]]
     private var bodyData: [Data] = []
     private(set) var sendCount = 0
-    var bodies: [[String: Any]] { bodyData.compactMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } }
+    // Only Sendable snapshots cross the actor boundary; decode in the test task.
+    var bodies: [Data] { bodyData }
     init(_ responses: [String], streamEvents: [[BoneInferenceEventStreamEvent]] = []) {
         self.responses = responses
         self.streamResponses = streamEvents

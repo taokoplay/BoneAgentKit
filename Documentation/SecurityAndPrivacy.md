@@ -40,7 +40,7 @@ Tool 参数和结果各限制 1 MiB，但“未超限”不代表可写日志。
 
 内置端点只允许 HTTPS；用户自定义 HTTP 只允许 localhost、回环、RFC1918、链路本地和 IPv6 ULA。绝对 operation endpoint 必须在解析后重新校验。自定义 Header 禁止覆盖 Authorization、API Key、Cookie、Host、Content-Length 和 Content-Type。
 
-Host 的 Catalog 映射、模型发现、Provider 连通性、文本和图片执行应使用 BoneInference 配置与 Transport；设置 UI、持久化和用户配置继续作为 App Host 业务边界存在。App 错误映射只能读取 BoneInference 稳定枚举、HTTP 状态与脱敏网络诊断，不得读取 `localizedDescription`、`userInfo`、响应 Data、请求 Header 或 Body。真实 Provider smoke 仅在 App 沙箱内显式 opt-in，固定最小输入，输出脱敏摘要；不得由测试脚本扫描环境变量、凭据存储或用户文件。
+Host 的 Catalog 映射、模型发现、Provider 连通性、文本和图片执行应使用 BoneInference 配置与 Transport；设置 UI、持久化和用户配置继续作为 App Host 业务边界存在。App 生产错误映射只能读取 BoneInference 稳定枚举、HTTP 状态与脱敏网络诊断，不得读取 `localizedDescription`、`userInfo`、响应 Data、请求 Header 或 Body。真实 Provider smoke 仅在 App 沙箱内显式 opt-in，固定最小输入，输出脱敏摘要；不得由测试脚本扫描环境变量、凭据存储或用户文件。
 
 ## 图片生成权利
 
@@ -54,3 +54,17 @@ Host 的 Catalog 映射、模型发现、Provider 连通性、文本和图片执
 ## 在线推理重定向
 
 默认 URLSession Transport 只接受与最初请求完全同源（scheme、host、有效端口相同）的重定向，拒绝携带 URL 用户信息的目标；跨源、端口变更及 HTTPS 降级均在发送下一跳前以 `invalidEndpoint` 拒绝。普通 HTTP 与 SSE 使用同一规则。不能靠重定向把 Prompt、工具结果和认证转发到 Host 未选择的服务。自定义 Transport 需自行提供等价约束；该规则不构成 DNS/操作系统网络沙箱。
+
+## 显式私有失败响应采集
+
+`BoneInferenceFailureCapture` 是与安全日志分离的受控内存出口，不属于“允许生产记录”的白名单。
+只有 Host 显式传入 handler 才开启，只面向非 2xx 响应；不附带请求 URL、Header、Body 或凭据配置。
+正文默认最多 16 KiB、硬上限 64 KiB；默认 SSE 错误采集还受固定时限、流容量、整体 deadline 和取消约束。
+仅保留有界的 Content-Type 和请求追踪 Header 白名单，不保留 Cookie、Authorization 或任意 Header。
+
+上游可能在错误中回显用户 Prompt、凭据或其他私密信息，因此即使 Header 有白名单，也**不能把采集结果视为已脱敏**。
+Host 只可在显式受控调试流程中读取 `body` / `headers`，自行实现访问控制、到期、删除及导出审查；
+不得接入生产 logger、指标、Harness、普通持久化或 checkpoint。此入口不授权 App 在生产错误映射中读取原文。
+SDK 不自动打印、落盘或发送采集内容，也不使 includesSensitivePayloads 或普通 Debug 自动开启该出口。
+回调必须线程安全、快速返回，不得阻塞等待本次推理结束。完整接入、截断状态与自定义 Transport 限制见
+[Provider 接入](ProviderIntegration.md#可选安全日志与受控失败采集)。

@@ -206,17 +206,90 @@ let engine = BoneOpenAIInferenceEngine(
 预检失败没有 transportAttempt；未知停止原因归为 other，原值不记录。
 摘要最大处理 1 MiB JSON、最多检查 128 个 Tool/内容块，停止原因最多 64 UTF-8 字节；
 超限为 tooLarge 或 invalid，不影响原响应解析的上限与业务行为。
+`bodyKind` 提供 empty/json/html/text/unknown 的归一化载荷类型；优先使用已解析 JSON 对象，
+否则依据有界 Content-Type 声明，缺少证据保持 unknown。HTML 类型不等价于已确认 Cloudflare/WAF 拦截。
+`errorCategory` 仅输出 none/authentication/quota/rateLimit/safety/unknown：以稳定状态码和明确的结构化
+错误 code/type 为证据，不按 message 关键词猜测；未知 403 保持 unknown。类别是诊断信息，不改变原错误映射。
 不输出正文、参数、Header、供应商 ID 或错误原始文案，不修改原错误，不增加请求。
 wireProtocol 表示所选适配器协议，不表示已经验证响应协议合法。
 
 Host 可按事件分别统计传输接口调用、完整 HTTP 响应和有效结果，不能使用完成步骤数代替。
 transportAttempt 只表示调用了一次注入的 send，无法观测自定义 Transport 内部重试或服务端受理，
 不能作为计费凭据。本次未提供业务 Tool 执行计数或持久预算存储。
-responseValidationFailed 暂时覆盖 HTTP 状态校验、协议及结果校验，尚未细分全部失败阶段。
+`responseValidationFailed` 的 `failureStage` 区分 `httpStatus`、`jsonDecoding` 和 `resultValidation`；
+`transportFailed` 使用 `transport`。这是失败所在的处理阶段，不一定是根因（例如取消仍可能发生在校验期间）。
+`resultValidated` 只在正式结果、用量与 continuation 均构造成功后发出。
 回调同步且非抛错；Host 回调若阻塞仍会增加时延，应快速返回。
 
 安全诊断当前仅覆盖非流式 infer / inferDetailed；流式摘要尚未接入。总 deadline 和 Agent 流式模式见下文。
 关闭 sink 不解析诊断载荷。Agent 日志 context 改为过滤后构造，响应日志编码失败也不影响推理。
+
+## 可选安全日志与受控失败采集
+
+### 常规安全日志
+
+无需自己遍历事件即可转发到既有 `BoneAgentLogger`：
+
+```swift
+let diagnostics = BoneInferenceDiagnosticSink.logging(
+    to: BoneAgentLoggerConfiguration(logger: BoneAgentConsoleLogger())
+)
+let engine = BoneOpenAIInferenceEngine(
+    configuration: providerConfiguration,
+    transport: transport,
+    diagnostics: diagnostics
+)
+```
+
+只有显式接入才输出；transportAttempt 为 debug（缺省不输出），HTTP 拒绝和失败为 warning，
+其余为 info。`isDebugEnabled` 与 `minimumLevel` 仍生效；即使 includesSensitivePayloads=true，
+这个适配器也不会输出原始正文、Headers、URL、模型参数或错误文案。Host 如需关联“提示词提炼／图片生成”
+等业务阶段，应在自己的日志设施中使用固定业务枚举，不将章节或用户 Prompt 放入日志字段。
+
+### 私有失败响应出口
+
+为诊断无法复现的 HTTP 拒绝，默认 URLSession Transport 可单独开启 `BoneInferenceFailureCapture`。
+它与安全 diagnostics 独立，不要求开启 Agent Debug：
+
+```swift
+let capture = BoneInferenceFailureCapture(
+    maximumBodyBytes: 16 * 1_024,
+    maximumDuration: 2
+) { failure in
+    // 私有调试回调：快速交给 Host 线程安全、受访问控制的临时内存容器。
+    // 显式读取 failure.headers / failure.body，禁止直接送进普通 logger。
+    // 用 failure.completion 判断是否完整；不要把前缀当成完整响应。
+    _ = failure
+}
+let transport = BoneInferenceURLSessionTransport(failureCapture: capture)
+```
+
+- 无 handler 时关闭；只采集非 2xx，不采集成功正文，不包含请求 URL、Header、Body 或 API Key 配置。
+  但服务端可能在错误中回显用户内容或凭据，因此响应仍是**私有敏感数据**，不是可直接分享的脱敏日志。
+- 正文缺省 16 KiB，硬上限 64 KiB，可设为 0；按原始字节截取，UTF-8 可能在边界被截断。
+  `completion` 为 complete / byteLimit / timeLimit / interrupted；只有 complete 表示收到完整 EOF。
+- Header 名大小写归一，仅保留 content-type、request-id、x-request-id、x-amzn-requestid、
+  x-goog-request-id、cf-ray、traceparent。每值最多 512 UTF-8 字节，控制字符、超长值与大小写重复项丢弃。
+  它们只属于私有出口，不会进入安全摘要；不保留 Set-Cookie、Authorization 等其他 Header。
+- 默认普通 HTTP bridge 在原有响应容量与 URLSession 时限内同步收集前缀，不延长网络读取，
+  不改变返回 Data 或 responseTooLarge 等原错误。容量不足、取消或网络中断时可能只有部分前缀。
+- 默认 SSE bridge 的非 2xx 正文**不经过 SSE framer**，不产生任何事件。采集还受流 maximumBytes 限制；
+  固定采集时限默认 2 秒、硬上限 10 秒，从失败响应头到达开始，不被新数据重置。
+  正常 EOF、采集容量或时限到达后仍抛出原 HTTP 状态；取消及整体 deadline 优先保留原取消／deadline 错误。
+  关闭采集时仍在失败响应头处立即拒绝。
+- `captureID` 是 Transport 单次请求级本地 UUID，不是 Engine invocationID 或服务端 request-id，
+  不用于计费。Host 可通过每条独立请求链的采集容器和诊断回调建立关联，不按回调顺序关联并发请求。
+  模型发现原有 GET 重试可能产生多个采集项，POST 没有新增重试。
+- 回调同步、非抛错、锁外执行，Host 应快速返回并保证线程安全，不能等待同一次推理结束。
+  SDK 不自动打印、保存、编码或发送；普通 description/debugDescription/reflection 仅呈现安全计数，
+  不呈现 Header 或正文。Host 负责临时数据的访问控制、生命周期、删除与导出前审查。
+- 注入普通 `loader` 可在它返回响应时采集，但 SDK 无法控制它内部读取、重试与网络预算。
+  注入的 `streamLoader` 只返回已解析事件，不提供原始失败正文，因此不会伪造采集；自定义 Transport
+  须自行实现等价的受控出口。`maximumDuration` 仅约束默认 SSE 错误采集，不是通用请求超时。
+
+此入口仅用于 HTTP 非 2xx 诊断，不采集 2xx 无效 JSON、模型截断或应用结果校验失败的原始正文。
+后者继续使用安全 failureStage/shape/stop 诊断。当前库不会自动把受控采集转交给普通 logger、错误、事件、
+Harness 或 checkpoint，也不会改变 App 的错误映射逻辑。
 
 ## Host 从静态 Agnes 目录迁移
 

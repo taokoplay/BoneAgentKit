@@ -148,12 +148,15 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
         let diagnosticID = UUID()
         var receivedResponse = false
+        var failureStage: BoneInferenceDiagnosticEvent.FailureStage = .transport
         diagnostics.emit(diagnosticID, .transportAttempt, wire: .openAI)
         do {
             let response = try await transport.send(urlRequest)
             receivedResponse = true
             diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .openAI)
+            failureStage = (200...299).contains(response.statusCode) ? .jsonDecoding : .httpStatus
             let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            failureStage = .resultValidation
             let finalResponse: BoneInferenceResponse
             if let constraint = request.outputConstraint {
                 let text = try BoneOpenAIResponseAggregator.nonStreamingText(
@@ -183,16 +186,17 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             } else {
                 finalResponse = try parseOpenAIToolResponse(json, definitions: request.availableTools)
             }
-            diagnostics.emit(diagnosticID, .resultValidated, wire: .openAI)
-            return .init(
+            let result = BoneInferenceDetailedResult(
                 response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .openAI)), request: request, json: json),
                 reasoning: BoneInferenceReasoningSupport.openAI(
                     json: json,
                     disclosure: request.reasoningDisclosure
                 )
             )
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .openAI)
+            return result
         } catch {
-            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .openAI)
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .openAI, failureStage: failureStage)
             throw error
         }
     }

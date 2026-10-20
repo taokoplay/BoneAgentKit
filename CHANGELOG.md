@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- 扩展非流式安全推理诊断：归一化响应载荷类型、基于明确证据的错误类别与 HTTP/JSON/结果校验失败阶段；新增可选 `BoneInferenceDiagnosticSink.logging(to:)`，只转发安全摘要。
+- 新增默认关闭的 `BoneInferenceFailureCapture` 私有调试出口：采集非 2xx 的有界正文和 Header 白名单，不进入普通日志、错误、事件或 checkpoint；默认 URLSession 普通与 SSE 请求均支持。
+- SSE 非 2xx 在显式采集时使用独立字节/固定时限边界，保留取消与整体 deadline，不经过 SSE framer、不新增请求或重试；未开启时保持立即拒绝。
+
+### Fixed
+
+- 非流式 resultValidated 诊断延后到完整结果与 continuation 均构造成功，避免失败后误报有效结果。
+
 ## [0.2.0-alpha.21] - 2026-10-09
 
 本版补充模型目录元数据、显式思考配置和 OpenAI/Anthropic 思考续接；属于预发布 SDK，未完成真实付费 Provider Smoke，不代表生产准入。

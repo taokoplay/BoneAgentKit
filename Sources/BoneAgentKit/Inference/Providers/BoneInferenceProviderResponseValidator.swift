@@ -40,9 +40,9 @@ public enum BoneInferenceProviderResponseValidator {
         return mappedError(statusCode: statusCode)
     }
 
-    private static func isSafetyBlocked(_ object: [String: Any]) -> Bool {
+    static func isSafetyBlocked(_ object: [String: Any]) -> Bool {
         if object["blocked"] as? Bool == true { return true }
-        if let reason = object["blocked_reason"] as? String,
+        if let reason = object["blocked_reason"] as? String, reason.utf8.count <= 64,
            ["prompt_blocked", "safety", "blocked"].contains(reason.lowercased()) {
             return true
         }
@@ -54,10 +54,10 @@ public enum BoneInferenceProviderResponseValidator {
             "unsafe_content",
             "blocked",
         ]
-        if let code = error["code"] as? String, blockedValues.contains(code.lowercased()) {
+        if let code = error["code"] as? String, code.utf8.count <= 64, blockedValues.contains(code.lowercased()) {
             return true
         }
-        if let type = error["type"] as? String, blockedValues.contains(type.lowercased()) {
+        if let type = error["type"] as? String, type.utf8.count <= 64, blockedValues.contains(type.lowercased()) {
             return true
         }
         return false

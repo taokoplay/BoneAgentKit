@@ -131,13 +131,16 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
         try Task.checkCancellation()
         let diagnosticID = UUID()
         var receivedResponse = false
+        var failureStage: BoneInferenceDiagnosticEvent.FailureStage = .transport
         diagnostics.emit(diagnosticID, .transportAttempt, wire: .anthropic)
         do {
             let response = try await transport.send(urlRequest)
             receivedResponse = true
             diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .anthropic)
             try Task.checkCancellation()
+            failureStage = (200...299).contains(response.statusCode) ? .jsonDecoding : .httpStatus
             let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+            failureStage = .resultValidation
             let finalResponse: BoneInferenceResponse
             if let constraint = request.outputConstraint {
                 let text = try BoneAnthropicResponseAggregator.nonStreamingText(from: json)
@@ -165,16 +168,17 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
             } else {
                 finalResponse = try parseAnthropicToolResponse(json, definitions: request.availableTools)
             }
-            diagnostics.emit(diagnosticID, .resultValidated, wire: .anthropic)
-            return .init(
+            let result = BoneInferenceDetailedResult(
                 response: try retainingThinking(finalResponse.retainingUsage(BoneProviderUsage.read(json, wire: .anthropic)), request: request, json: json),
                 reasoning: BoneInferenceReasoningSupport.anthropic(
                     json: json,
                     disclosure: request.reasoningDisclosure
                 )
             )
+            diagnostics.emit(diagnosticID, .resultValidated, wire: .anthropic)
+            return result
         } catch {
-            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .anthropic)
+            diagnostics.emit(diagnosticID, receivedResponse ? .responseValidationFailed : .transportFailed, wire: .anthropic, failureStage: failureStage)
             throw error
         }
     }

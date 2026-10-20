@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 436 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次新增 metadata/reasoning 公开类型后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 438 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次新增失败采集公开类型后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -47,6 +47,15 @@
 - OpenAI/Anthropic 的私有思考 continuation 是有界、不透明的 Provider payload，不属于稳定业务 Codable schema。它绑定模型、端点摘要、配置和 user/assistant turn；结构化输出冲突、历史修改或不完整流会 fail closed。
 - Gemini 继续使用既有 `thoughtSignature` 机制；不与 OpenAI/Anthropic continuation 互换。
 - 详见 [模型元数据与思考参数](Documentation/ModelMetadataAndReasoning.md)。
+
+## Unreleased 失败诊断
+
+- `BoneInferenceResponseDiagnostic` 新增归一化 `bodyKind` 与 `errorCategory`；仅白名单枚举，不含 Header、原始错误码或文案。
+- `BoneInferenceDiagnosticEvent.failureStage` 区分传输、HTTP 状态、JSON 和结果校验；`BoneInferenceDiagnosticSink.logging(to:)` 可选转发安全摘要。
+- `BoneInferenceFailureCapture` / `BoneInferenceFailureResponse` 为显式私有调试出口，不可 Codable、不能进入普通日志或 checkpoint；默认关闭，不改变稳定错误枚举。
+- `BoneInferenceURLSessionTransport` 初始化器新增带默认值的 `failureCapture`，现有标记参数调用无需更改。默认普通 HTTP 与 SSE 支持有界失败采集；注入 streamLoader 没有原始正文，不能伪造采集。
+- SSE 显式开启后非 2xx 可读取有界正文，仍无事件、无新增重试；关闭时保持响应头处立即拒绝。
+- 详见 [Provider 接入](Documentation/ProviderIntegration.md#可选安全日志与受控失败采集)。
 
 ## Alpha.10 迁移提示
 
