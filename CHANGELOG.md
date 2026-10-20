@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.22] - 2026-10-20
+
+本版增加安全失败诊断、可选日志适配与默认关闭的受控失败响应采集；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
+
 ### Added
 
 - 扩展非流式安全推理诊断：归一化响应载荷类型、基于明确证据的错误类别与 HTTP/JSON/结果校验失败阶段；新增可选 `BoneInferenceDiagnosticSink.logging(to:)`，只转发安全摘要。
@@ -13,6 +17,10 @@
 ### Fixed
 
 - 非流式 resultValidated 诊断延后到完整结果与 continuation 均构造成功，避免失败后误报有效结果。
+
+### Migration
+
+- 将 SwiftPM 精确版本更新为 `0.2.0-alpha.22` 并重新解析依赖。现有配置不自动开启日志或失败采集，无需数据迁移；接入方式与隐私边界见 [Provider 接入](Documentation/ProviderIntegration.md#可选安全日志与受控失败采集)。
 
 ## [0.2.0-alpha.21] - 2026-10-09
 

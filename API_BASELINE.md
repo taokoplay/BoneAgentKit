@@ -48,7 +48,7 @@
 - Gemini 继续使用既有 `thoughtSignature` 机制；不与 OpenAI/Anthropic continuation 互换。
 - 详见 [模型元数据与思考参数](Documentation/ModelMetadataAndReasoning.md)。
 
-## Unreleased 失败诊断
+## Alpha.22 失败诊断
 
 - `BoneInferenceResponseDiagnostic` 新增归一化 `bodyKind` 与 `errorCategory`；仅白名单枚举，不含 Header、原始错误码或文案。
 - `BoneInferenceDiagnosticEvent.failureStage` 区分传输、HTTP 状态、JSON 和结果校验；`BoneInferenceDiagnosticSink.logging(to:)` 可选转发安全摘要。

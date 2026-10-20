@@ -102,6 +102,16 @@
 Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布交接](Documentation/WorkflowHostMigration.md)。仍需签发负责人、最终版本/SHA、真实 Host Debug/Release 与持久层验收、最低工具链、授权后的真实 Provider 验证及许可证/资源权利核验。不能将本地全绿写成发布准入全部通过。
 
 
+## Alpha.22 失败诊断版签发范围（2026-10-20）
+
+维护者要求将安全失败诊断、可选日志适配和默认关闭的受控失败响应采集发布为新 annotated tag `0.2.0-alpha.22`。本次仅推送新 tag，不更新远端 main、不重写既有 tag，也不建立 GitHub Release 页面；最终发布 SHA 与远端状态以推送回执及 tag 解引用核验为准。
+
+- 功能提交 `434972d5`：覆盖非流式安全摘要、失败阶段、普通 HTTP 与 SSE 非 2xx 私有采集；不新增重试，不改变稳定错误映射，原始响应不进入普通日志、事件或 checkpoint。
+- 功能提交前：Swift 6 strict concurrency / warnings-as-errors 全量 760 项测试通过，文档与 diff 检查通过。此前实现验证还包含默认语言模式严格并发 760 项、Release 严格构建、BoneAgentKit iOS 13 Simulator/device SDK 编译、独立 Host fixture 与三 Provider 无网络 dry-run；最终版本文件另行复验，不将此前结果冒充版本提交的重新构建。
+- 本次版本准备同步运行时版本、README、Package 接入与迁移说明、CHANGELOG 和公开 API baseline。版本准备工作树在 Xcode 26.0（17A324）/ Apple Swift 6.2 下完成默认与显式 Swift 6 严格测试各 760 项、Release 严格构建、四库 iOS 13 Simulator/device SDK 共八项 Release 编译、MinimalWorkflowHost Debug/Release、三 Provider 无网络 dry-run 和文档/diff 检查；不是生产 App、真机执行或远端 CI 证据。最终提交验证结果保留在发布回执中。
+- 最低 Swift 5.9、真实 Provider、生产 Host Debug/Release、真实持久层、iOS 13 真机和资源权利验收仍未关闭；本 tag 是预发布，不代表生产准入。
+- `.proma/`、验证日志和构建缓存不进入提交。独立只读审查子会话未返回结论并已停止，不计为独立审查通过。
+
 ## Alpha.21 模型元数据与思考续接版签发范围（2026-10-09）
 
 维护者要求将 models.dev 模型元数据、显式 reasoning 配置和 OpenAI/Anthropic 思考续接发布为新 tag `0.2.0-alpha.21`；不重写既有 tag，不建立 GitHub Release 页面。最终发布 SHA 与远端状态以推送回执及 tag 解引用核验为准。
