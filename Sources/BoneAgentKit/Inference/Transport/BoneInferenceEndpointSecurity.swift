@@ -7,8 +7,19 @@ public enum BoneInferenceEndpointSecurity {
         endpoint: String,
         policy: BoneInferenceEndpointSecurityPolicy
     ) throws -> URL {
+        try validate(
+            resolvedURL(baseURL: baseURL, endpoint: endpoint),
+            policy: policy
+        )
+    }
+
+    /// 只按目录规则拼接最终 URL，不执行传输安全策略。
+    ///
+    /// 供列表投影等只读展示复用同一套拼接与去重规则；真正发请求前仍须经过
+    /// `resolveAndValidate` 或 `validate`。
+    public static func resolvedURL(baseURL: URL, endpoint: String) throws -> URL {
         guard !endpoint.isEmpty else {
-            return try validate(baseURL, policy: policy)
+            return baseURL
         }
         guard baseURL.query == nil, baseURL.fragment == nil else {
             throw BoneInferenceTransportError.invalidEndpoint
@@ -38,7 +49,7 @@ public enum BoneInferenceEndpointSecurity {
             }
         }
         guard let resolved else { throw BoneInferenceTransportError.invalidEndpoint }
-        return try validate(resolved, policy: policy)
+        return resolved
     }
 
     @discardableResult

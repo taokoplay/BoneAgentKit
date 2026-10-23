@@ -191,7 +191,7 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
 
     /// 从 Kit 私有资源加载并缓存唯一内置目录。
     public static func bundled() throws -> Self {
-        try BundledCatalogCache.shared.catalog()
+        try BundledCatalog.value.get()
     }
 
     /// 按稳定语义 icon ID 与显示倍率读取内置渠道 PNG。
@@ -211,24 +211,38 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
     }
 }
 
-private final class BundledCatalogCache: @unchecked Sendable {
-    static let shared = BundledCatalogCache()
-
-    private let lock = NSLock()
-    private var cached: BoneInferenceProviderCatalog?
-
-    private init() {}
-
-    func catalog() throws -> BoneInferenceProviderCatalog {
-        lock.lock()
-        defer { lock.unlock() }
-        if let cached {
-            return cached
+/// 目录条目的只读上游地址投影。
+public extension BoneInferenceProviderCatalog.Entry {
+    /// 返回目录声明的操作端点与基址拼接后的 URL。
+    ///
+    /// - Parameters:
+    ///   - operation: `apiPaths` 中的操作名，例如 `chat`、`image`、`models`。
+    ///   - modelID: 传入时替换路径里的 `{model}` 占位符。
+    ///   - overrideBaseURL: Host 实际使用的基址；缺省回退到 `defaultBaseURL`。
+    /// - Returns: 未声明该操作、路径为空或没有可用基址时返回 `nil`。
+    ///
+    /// 这里只做拼接，不校验传输安全策略，也不发请求。
+    func resolvedEndpoint(
+        operation: String,
+        modelID: String? = nil,
+        overrideBaseURL: URL? = nil
+    ) throws -> URL? {
+        guard let endpoint = apiPaths[operation], !endpoint.isEmpty else {
+            return nil
         }
-        let decoded = try BoneInferenceProviderCatalog.decode(
+        let path = modelID.map { endpoint.replacingOccurrences(of: "{model}", with: $0) } ?? endpoint
+        guard let baseURL = overrideBaseURL ?? defaultBaseURL else {
+            return nil
+        }
+        return try BoneInferenceEndpointSecurity.resolvedURL(baseURL: baseURL, endpoint: path)
+    }
+}
+
+private enum BundledCatalog {
+    /// 静态常量由 Swift 保证一次性线程安全初始化；目录不可变，因此不需要锁或可变缓存。
+    static let value: Result<BoneInferenceProviderCatalog, Swift.Error> = Result {
+        try BoneInferenceProviderCatalog.decode(
             data: Resources.data(forResource: "AIProviderDefaults", withExtension: "json")
         )
-        cached = decoded
-        return decoded
     }
 }

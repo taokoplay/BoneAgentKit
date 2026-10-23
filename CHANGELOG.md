@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `BoneInferenceProviderModelList` 与 `BoneInferenceProviderModelListLoader`：加载器先请求上游模型列表，成功时与内置目录合并并标记来源（`catalog` / `discovery`）及每条模型的 `chatEndpoint`；超时、HTTP 错误、解析失败或无 discoverer 时回退内置模型，由 `discoveryOutcome` 披露实际状态，不再让设置界面因离线报错。列表本身是纯数据值，缓存展示不经过网络入口。
+- 新增 `BoneInferenceService`：在单个服务上完成 Provider 查询、模型列表获取与上游端点解析；模型列表默认创建发现客户端并保留上游失败回退，服务不保存凭据、不缓存结果。
+- 新增 `BoneInferenceProviderCatalog.Entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)` 与 `BoneInferenceEndpointSecurity.resolvedURL(baseURL:endpoint:)`：复用请求层同一套路径拼接、去重与 `{model}` 替换规则，供只读展示使用；`resolveAndValidate` 行为不变。
+
 ## [0.2.0-alpha.22] - 2026-10-20
 
 本版增加安全失败诊断、可选日志适配与默认关闭的受控失败响应采集；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
