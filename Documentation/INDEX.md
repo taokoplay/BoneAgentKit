@@ -6,7 +6,7 @@
 
 | 文档 | 适用场景 |
 | --- | --- |
-| [5 分钟快速开始](GettingStarted.md) | 定义第一个 Engine、Tool 和 Agent |
+| [5 分钟快速开始](GettingStarted.md) | 定义第一个 Engine、Tool 和 Agent，查询渠道模型列表 |
 | [Swift Package 接入](PackageIntegration.md) | 固定版本、alpha.20 兼容修复迁移、选择 Product、验证依赖方向 |
 | [Provider 与 Tool 扩展](ProviderIntegration.md) | 接入模型 SDK、Provider、Tool 和业务 Service |
 | [模型元数据与思考参数](ModelMetadataAndReasoning.md) | models.dev 来源边界、Host profile、思考参数映射与私有续接 |

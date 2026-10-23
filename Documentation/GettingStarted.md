@@ -63,6 +63,32 @@ struct ExistingModelAdapter: BoneInferenceEngine {
 }
 ```
 
+### Provider 与模型列表
+
+内置渠道目录与上游模型列表通过 `BoneInferenceService` 获取，不需要自己拼接 Base URL 或模型列表端点：
+
+```swift
+let service = try BoneInferenceService.bundled()
+let entry = service.provider(ident: "OpenAI")!
+
+let configuration = BoneInferenceProviderConfiguration(
+    kind: .openAI,
+    apiKey: apiKey,
+    baseURL: entry.defaultBaseURL!
+)
+
+let list = try await service.modelList(
+    forProvider: "OpenAI",
+    configuration: configuration
+)
+list.models.map(\.id)
+list.models.first?.chatEndpoint
+list.discoveryOutcome
+```
+
+先请求上游 `/models`，失败或没有 discoverer 时回退内置目录；服务不保存凭据、不缓存结果。
+完整边界与底层入口见 [Provider 接入](ProviderIntegration.md#模型列表与上游地址)。
+
 ## Tool
 
 第一个 Tool 使用 `BoneAgentEmptyContext`，输入输出保持 `Codable & Sendable`，不使用 `[String: Any]`。

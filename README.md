@@ -85,6 +85,26 @@ let result = try await agent.run(
 )
 ```
 
+需要查看某个渠道当前可用的模型与上游地址时，使用 `BoneInferenceService`：
+
+```swift
+let service = try BoneInferenceService.bundled()
+let entry = service.provider(ident: "OpenAI")!
+let configuration = BoneInferenceProviderConfiguration(
+    kind: .openAI,
+    apiKey: apiKey,
+    baseURL: entry.defaultBaseURL!
+)
+
+let list = try await service.modelList(
+    forProvider: "OpenAI",
+    configuration: configuration
+)
+```
+
+模型列表先请求上游 `/models`，失败时回退内置目录，并通过 `discoveryOutcome` 区分状态；
+详见 [Provider 接入](Documentation/ProviderIntegration.md#模型列表与上游地址)。
+
 完整的 Engine 与 Tool 定义见 [5 分钟快速开始](Documentation/GettingStarted.md)。
 
 ## 核心能力
@@ -92,6 +112,7 @@ let result = try await agent.run(
 ### 推理与 Tool Calling
 
 - 供应商无关的文本、Streaming、Tool Calling 与结构化输出契约；
+- 内置渠道目录与模型列表：`BoneInferenceService` 统一查询，上游优先、失败回退内置目录，并给出每个模型的上游地址；
 - 云端与本地目录共用带证据来源的可选模型能力 Profile，已知能力与 Engine/Runtime 实现取交集，unknown 保持兼容且不冒充模型级验证；
 - OpenAI、Anthropic、Gemini 请求和事件聚合，并为经过真实 Smoke 绑定身份的精确模型提供原生 Output Constraint seam；
 - 请求级 Capability 推导与 Output Constraint：云端使用官方 JSON Schema 字段，本地由受信任 Compiler 将精确 Enum 或受支持的 `BoneToolSchema` 子集编译为 GBNF，并交给真实 Grammar Sampler；未实现、未验证或身份漂移时在联网或本地生成前 fail closed；
