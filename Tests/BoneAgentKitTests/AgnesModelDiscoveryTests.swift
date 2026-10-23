@@ -6,10 +6,6 @@ import XCTest
 @testable import BoneAgentKit
 
 final class AgnesModelDiscoveryTests: XCTestCase {
-    private var discovery: BoneInferenceProviderCatalog.Discovery {
-        .init(endpoint: URL(string: "https://apihub.agnes-ai.cn/v1/models")!, protocol: .openAI, authenticationMode: .bearer)
-    }
-
     func testBundledAgnesUsesRemoteEmptyCatalog() throws {
         let provider = try XCTUnwrap(BoneInferenceProviderCatalog.bundled().provider(ident: "Agnes"))
         XCTAssertTrue(provider.models.isEmpty)
@@ -22,24 +18,48 @@ final class AgnesModelDiscoveryTests: XCTestCase {
         XCTAssertEqual(agnes["defaultBaseURL"] as? String, "https://apihub.agnes-ai.cn/v1")
     }
 
-    func testDiscoveryFollowsConfiguredBaseURL() async throws {
+    func testModelListFollowsConfiguredBaseURL() async throws {
         for base in ["https://apihub.agnes-ai.cn/v1", "https://apihub.agnes-ai.com/v1/", "https://gateway.example.com/custom/v1"] {
             let transport = AgnesDiscoveryTransport()
-            let client = BoneInferenceModelDiscoveryClient(configuration: .init(kind: .agnes, apiKey: "fixture", baseURL: URL(string: base)!), transport: transport)
-            let models = try await client.discoverAgnesModels()
-            XCTAssertEqual(models.map(\.id), ["future-model"])
+            let service = BoneInferenceService(
+                catalog: try .bundled(),
+                transport: transport
+            )
+            let configuration = BoneInferenceProviderConfiguration(
+                kind: .agnes,
+                apiKey: "fixture",
+                baseURL: URL(string: base)!,
+                endpointSecurityPolicy: .custom
+            )
+
+            let listing = try await service.modelList(
+                forProvider: "Agnes",
+                configuration: configuration
+            )
+
+            XCTAssertEqual(listing.models.map(\.id), ["future-model"])
+            XCTAssertEqual(listing.discoveryOutcome, .succeeded)
             let url = await transport.url
             XCTAssertEqual(url, URL(string: base)!.appendingPathComponent("models"))
         }
     }
 
-    func testFailureDoesNotReturnBundledFallback() async throws {
+    func testDiscoveryFailureFallsBackToEmptyBuiltInList() async throws {
         let transport = AgnesDiscoveryTransport(status: 500)
-        let client = BoneInferenceModelDiscoveryClient(configuration: .init(kind: .agnes, apiKey: "fixture", baseURL: URL(string: "https://apihub.agnes-ai.com/v1")!), transport: transport)
-        do {
-            _ = try await client.discover(using: discovery)
-            XCTFail("Expected remote failure")
-        } catch { XCTAssertTrue(error is BoneInferenceTransportError) }
+        let service = BoneInferenceService(catalog: try .bundled(), transport: transport)
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .agnes,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://apihub.agnes-ai.com/v1")!
+        )
+
+        let listing = try await service.modelList(
+            forProvider: "Agnes",
+            configuration: configuration
+        )
+
+        XCTAssertTrue(listing.models.isEmpty)
+        XCTAssertEqual(listing.discoveryOutcome, .transportFailure(.httpStatus(500)))
     }
 }
 

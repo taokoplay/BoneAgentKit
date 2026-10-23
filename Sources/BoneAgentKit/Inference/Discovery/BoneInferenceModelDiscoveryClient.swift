@@ -4,13 +4,13 @@ import FoundationNetworking
 #endif
 
 /// 使用 BoneInference Transport 执行 Catalog 声明与自定义 Raw 模型发现。
-public struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendable {
+struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendable {
     private static let maximumTimeout: TimeInterval = 15
 
     private let configuration: BoneInferenceProviderConfiguration
     private let transport: any BoneInferenceHTTPTransport
 
-    public init(
+    init(
         configuration: BoneInferenceProviderConfiguration,
         transport: any BoneInferenceHTTPTransport = BoneInferenceURLSessionTransport()
     ) {
@@ -18,19 +18,7 @@ public struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, 
         self.transport = transport
     }
 
-    /// 从当前 Agnes Base URL 获取模型 ID/名称；不提供内置回退或推断 Token 限制。
-    public func discoverAgnesModels() async throws -> [BoneInferenceModelDescriptor] {
-        guard configuration.kind == .agnes, !configuration.usesFullEndpointURL else {
-            throw BoneInferenceTransportError.invalidConfiguration
-        }
-        return try await discover(using: .init(
-            endpoint: configuration.baseURL.appendingPathComponent("models"),
-            protocol: .openAI,
-            authenticationMode: configuration.authenticationMode
-        ))
-    }
-
-    public func discover(
+    func discover(
         using discovery: BoneInferenceProviderCatalog.Discovery
     ) async throws -> [BoneInferenceModelDescriptor] {
         // Agnes 的模型列表属于用户配置的站点，不将国际/网关凭据发送至内置国内地址。
@@ -58,51 +46,6 @@ public struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, 
             throw BoneInferenceTransportError.invalidResponse
         }
         return descriptors
-    }
-
-    public func fetchRaw(_ raw: BoneInferenceRawModelListRequest) async throws -> Data {
-        var request = try makeRequest(
-            endpoint: raw.endpoint,
-            method: raw.method.rawValue,
-            authenticationMode: configuration.authenticationMode,
-            fixedHeaders: [:]
-        )
-        switch raw.method {
-        case .get:
-            guard var components = URLComponents(
-                url: request.url!,
-                resolvingAgainstBaseURL: false
-            ) else {
-                throw BoneInferenceTransportError.invalidEndpoint
-            }
-            let items = raw.query.sorted { $0.key < $1.key }.map {
-                URLQueryItem(name: $0.key, value: $0.value)
-            }
-            components.queryItems = (components.queryItems ?? []) + items
-            guard let url = components.url else {
-                throw BoneInferenceTransportError.invalidEndpoint
-            }
-            request.url = url
-        case .post:
-            request.httpBody = raw.jsonBody
-        }
-        let response: BoneInferenceHTTPResponse
-        switch raw.method {
-        case .get:
-            response = try await transport.sendRetryableForModels(request)
-        case .post:
-            response = try await transport.send(request)
-        }
-        guard (200...299).contains(response.statusCode) else {
-            throw BoneInferenceProviderResponseValidator.mappedError(
-                statusCode: response.statusCode
-            )
-        }
-        guard !response.data.isEmpty,
-              (try? JSONSerialization.jsonObject(with: response.data)) != nil else {
-            throw BoneInferenceTransportError.invalidResponse
-        }
-        return response.data
     }
 
     private func makeRequest(

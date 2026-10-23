@@ -1,11 +1,10 @@
 import Foundation
 
-/// Provider 与模型目录的统一入口。
+/// Provider 目录与模型列表的唯一公开入口。
 ///
-/// 该服务只做聚合与转发：持有不可变目录，不保存凭据、不缓存发现结果、不写磁盘。
-/// 每个方法都对应一个既有底层类型，Host 可以在一个对象上完成目录查询、模型列表与
-/// 端点解析，同时保留 `BoneInferenceProviderModelListLoader` 或
-/// `BoneInferenceModelDiscoveryClient` 直接注入依赖的能力。
+/// 服务持有不可变目录和可注入的 HTTP Transport，不保存凭据、不缓存发现结果、不写磁盘。
+/// 获取模型列表统一调用 `modelList(forProvider:configuration:)`：先请求上游，失败回退内置目录。
+/// 需要代理或自定义网络时通过初始化器注入 Transport，而不是另建并行的发现入口。
 ///
 /// 范围边界：推理执行仍使用 `BoneInferenceEngine` 实现，多轮与工具编排使用
 /// `BoneAgent`，本地模型使用 `BoneAgentLocalModels`；本服务不代理这些域的会话、
@@ -18,15 +17,22 @@ public final class BoneInferenceService: @unchecked Sendable {
     }
 
     private let catalog: BoneInferenceProviderCatalog
+    private let transport: any BoneInferenceHTTPTransport
 
-    /// 使用指定目录创建服务；测试或自定义目录使用此入口。
-    public init(catalog: BoneInferenceProviderCatalog) {
+    /// 使用指定目录和 Transport 创建服务；测试或自定义网络使用此入口。
+    public init(
+        catalog: BoneInferenceProviderCatalog,
+        transport: any BoneInferenceHTTPTransport = BoneInferenceURLSessionTransport()
+    ) {
         self.catalog = catalog
+        self.transport = transport
     }
 
     /// 使用随包目录创建服务。
-    public static func bundled() throws -> BoneInferenceService {
-        BoneInferenceService(catalog: try .bundled())
+    public static func bundled(
+        transport: any BoneInferenceHTTPTransport = BoneInferenceURLSessionTransport()
+    ) throws -> BoneInferenceService {
+        BoneInferenceService(catalog: try .bundled(), transport: transport)
     }
 
     /// 目录中的 Provider，顺序同 `sortOrder`。
@@ -40,33 +46,26 @@ public final class BoneInferenceService: @unchecked Sendable {
     }
 
     /// 获取指定 Provider 的模型列表：先请求上游，失败回退内置模型。
-    ///
-    /// 未注入 discoverer 时使用默认 `BoneInferenceModelDiscoveryClient`；
-    /// 需要自定义 Transport 时由 Host 自行构造并传入。
     public func modelList(
         forProvider ident: String,
-        configuration: BoneInferenceProviderConfiguration,
-        discoverer: (any BoneInferenceModelDiscovering)? = nil
+        configuration: BoneInferenceProviderConfiguration
     ) async throws -> BoneInferenceProviderModelList {
         guard let entry = provider(ident: ident) else {
             throw Error.unknownProvider(ident)
         }
-        return try await modelList(
-            for: entry,
-            configuration: configuration,
-            discoverer: discoverer
-        )
+        return try await modelList(for: entry, configuration: configuration)
     }
 
-    /// 获取指定目录条目的模型列表：先请求上游，失败回退内置模型。
-    public func modelList(
+    func modelList(
         for entry: BoneInferenceProviderCatalog.Entry,
-        configuration: BoneInferenceProviderConfiguration,
-        discoverer: (any BoneInferenceModelDiscovering)? = nil
+        configuration: BoneInferenceProviderConfiguration
     ) async throws -> BoneInferenceProviderModelList {
         try await BoneInferenceProviderModelListLoader(
             configuration: configuration,
-            discoverer: discoverer ?? discoveryClient(configuration: configuration)
+            discoverer: BoneInferenceModelDiscoveryClient(
+                configuration: configuration,
+                transport: transport
+            )
         ).load(for: entry)
     }
 
@@ -82,12 +81,5 @@ public final class BoneInferenceService: @unchecked Sendable {
             modelID: modelID,
             overrideBaseURL: overrideBaseURL
         )
-    }
-
-    /// 默认模型发现客户端；供 Host 需要底层描述符或自定义解析时直接使用。
-    public func discoveryClient(
-        configuration: BoneInferenceProviderConfiguration
-    ) -> BoneInferenceModelDiscoveryClient {
-        BoneInferenceModelDiscoveryClient(configuration: configuration)
     }
 }

@@ -234,11 +234,11 @@ final class ProviderModelListTests: XCTestCase {
     }
 
     func testLocalWithoutModelsEndpointReturnsBuiltInWithoutRequest() async throws {
-        let codingPlan = try entry("ZhipuCodingPlan")
+        let codingPlan = try entry("VolcengineCodingPlan")
         let configuration = BoneInferenceProviderConfiguration(
-            kind: .zhipu,
+            kind: .anthropic,
             apiKey: "fixture",
-            baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!
+            baseURL: URL(string: "https://ark.cn-beijing.volces.com/api/plan")!
         )
         let discoverer = RecordingDiscoverer([.init(id: "unused", displayName: "unused")])
 
@@ -248,6 +248,129 @@ final class ProviderModelListTests: XCTestCase {
         XCTAssertNil(sent)
         XCTAssertFalse(listing.models.isEmpty)
         XCTAssertEqual(listing.discoveryOutcome, .notRequested)
+    }
+
+    func testDeepSeekModelsEndpointFollowsConfiguredOrigin() async throws {
+        let deepSeek = try entry("DeepSeek")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .anthropic,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://gateway.example.invalid/proxy")!,
+            endpointSecurityPolicy: .custom
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "deepseek-v9", displayName: "DeepSeek V9")])
+
+        let listing = try await load(deepSeek, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(sent?.endpoint, URL(string: "https://gateway.example.invalid/models"))
+        XCTAssertEqual(sent?.protocol, .openAI)
+        XCTAssertEqual(sent?.authenticationMode, .bearer)
+        XCTAssertTrue(listing.models.contains { $0.id == "deepseek-v9" })
+    }
+
+    func testAnthropicModelsPathFollowsConfiguredBasePath() async throws {
+        let anthropic = try entry("Anthropic")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .anthropic,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://gateway.example.invalid/anthropic-proxy")!,
+            authenticationMode: .anthropicDual,
+            endpointSecurityPolicy: .custom
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "claude-future", displayName: "Claude Future")])
+
+        let listing = try await load(anthropic, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(
+            sent?.endpoint,
+            URL(string: "https://gateway.example.invalid/anthropic-proxy/v1/models")
+        )
+        XCTAssertEqual(sent?.protocol, .anthropic)
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+    }
+
+    func testMiniMaxModelsPathUsesConfiguredOriginWithoutPrefix() async throws {
+        let miniMax = try entry("MiniMax")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .miniMax,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://gateway.example.invalid/anthropic")!,
+            endpointSecurityPolicy: .custom
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "MiniMax-M9", displayName: "MiniMax M9")])
+
+        let listing = try await load(miniMax, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(sent?.endpoint, URL(string: "https://gateway.example.invalid/v1/models"))
+        XCTAssertEqual(sent?.protocol, .miniMax)
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+    }
+
+    func testZhipuFollowsConfiguredBaseForModelDiscovery() async throws {
+        let zhipu = try entry("Zhipu")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://gateway.example.invalid/proxy/v4")!,
+            endpointSecurityPolicy: .custom
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "glm-5.4", displayName: "GLM-5.4")])
+
+        let listing = try await load(zhipu, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(
+            sent?.endpoint,
+            URL(string: "https://gateway.example.invalid/proxy/v4/models")
+        )
+        XCTAssertEqual(sent?.protocol, .openAI)
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+        XCTAssertTrue(listing.models.contains { $0.id == "glm-5.4" })
+    }
+
+    func testZhipuCodingPlanAttemptsUpstreamBeforeBuiltIn() async throws {
+        let codingPlan = try entry("ZhipuCodingPlan")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!,
+            userAgent: "BoneAgentKit-tests"
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "glm-5.4", displayName: "GLM-5.4")])
+
+        let listing = try await load(codingPlan, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(
+            sent?.endpoint,
+            URL(string: "https://open.bigmodel.cn/api/anthropic/v1/models")
+        )
+        XCTAssertEqual(sent?.protocol, .anthropic)
+        XCTAssertEqual(sent?.authenticationMode, .bearerWithUserAgent)
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+        XCTAssertEqual(listing.models.map(\.id), ["glm-5.2", "glm-5.1", "glm-5.4"])
+    }
+
+    func testZhipuCodingPlanFallsBackToBuiltInWhenUpstreamFails() async throws {
+        let codingPlan = try entry("ZhipuCodingPlan")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!,
+            userAgent: "BoneAgentKit-tests"
+        )
+
+        let listing = try await load(
+            codingPlan,
+            configuration,
+            discoverer: FailingTransportDiscoverer()
+        )
+
+        XCTAssertEqual(listing.discoveryOutcome, .transportFailure(.invalidResponse))
+        XCTAssertEqual(listing.models.map(\.id), ["glm-5.2", "glm-5.1"])
     }
 
     func testNonTransportDiscovererErrorFallsBackAsGenericFailure() async throws {
@@ -265,6 +388,34 @@ final class ProviderModelListTests: XCTestCase {
     }
 
     // MARK: - Unified path through the real discovery client
+
+    func testZhipuCodingPlanDiscoverySendsAnthropicHeadersThroughRealClient() async throws {
+        let codingPlan = try entry("ZhipuCodingPlan")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!,
+            userAgent: "BoneAgentKit-tests"
+        )
+        let transport = ModelListTransport(
+            body: #"{"data":[{"id":"glm-5.4","display_name":"GLM-5.4"}]}"#
+        )
+        let client = BoneInferenceModelDiscoveryClient(
+            configuration: configuration,
+            transport: transport
+        )
+
+        let listing = try await load(codingPlan, configuration, discoverer: client)
+
+        let urls = await transport.requestURLs
+        let headers = await transport.lastHeaders
+        XCTAssertEqual(urls, [URL(string: "https://open.bigmodel.cn/api/anthropic/v1/models")])
+        XCTAssertEqual(headers["anthropic-version"], "2023-06-01")
+        XCTAssertEqual(headers["User-Agent"], "BoneAgentKit-tests")
+        XCTAssertEqual(headers["Authorization"], "Bearer fixture")
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+        XCTAssertTrue(listing.models.contains { $0.id == "glm-5.4" })
+    }
 
     func testListingUsesDiscoveryClientAndFollowsConfiguredAgnesSite() async throws {
         let agnes = try entry("Agnes")
@@ -350,9 +501,6 @@ private actor RecordingDiscoverer: BoneInferenceModelDiscovering {
         return models
     }
 
-    func fetchRaw(_ request: BoneInferenceRawModelListRequest) async throws -> Data {
-        throw BoneInferenceTransportError.invalidConfiguration
-    }
 }
 
 private actor FailingTransportDiscoverer: BoneInferenceModelDiscovering {
@@ -362,9 +510,6 @@ private actor FailingTransportDiscoverer: BoneInferenceModelDiscovering {
         throw BoneInferenceTransportError.invalidResponse
     }
 
-    func fetchRaw(_ request: BoneInferenceRawModelListRequest) async throws -> Data {
-        throw BoneInferenceTransportError.invalidResponse
-    }
 }
 
 private struct UnexpectedFailureDiscoverer: BoneInferenceModelDiscovering {
@@ -375,14 +520,11 @@ private struct UnexpectedFailureDiscoverer: BoneInferenceModelDiscovering {
     ) async throws -> [BoneInferenceModelDescriptor] {
         throw Failure()
     }
-
-    func fetchRaw(_ request: BoneInferenceRawModelListRequest) async throws -> Data {
-        throw Failure()
-    }
 }
 
 private actor ModelListTransport: BoneInferenceHTTPTransport {
     private(set) var requestURLs: [URL] = []
+    private(set) var lastHeaders: [String: String] = [:]
     private let status: Int
     private let body: Data
 
@@ -410,6 +552,7 @@ private actor ModelListTransport: BoneInferenceHTTPTransport {
         if let url = request.url {
             requestURLs.append(url)
         }
+        lastHeaders = request.allHTTPHeaderFields ?? [:]
         return BoneInferenceHTTPResponse(statusCode: status, data: body)
     }
 }

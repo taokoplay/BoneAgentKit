@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 获取模型统一为 `BoneInferenceService.modelList(forProvider:configuration:)`。`BoneInferenceProviderModelListLoader`、`BoneInferenceModelDiscoveryClient`、`BoneInferenceModelDiscovering` 与 `BoneInferenceRawModelListRequest` 改为 internal，`discoverAgnesModels()`、`discover(using:)`、`fetchRaw(_:)` 不再公开；需要代理或自定义网络时通过服务初始化器注入 `BoneInferenceHTTPTransport`。
+- 模型发现端点改为优先按当前 `baseURL` 解析目录 `apiPaths.models`，`modelDiscovery.endpoint` 只作绝对回退；为用户配置代理或自定义网关时，列表请求不再固定打官方域名。
+- 目录为 Anthropic、OpenAI、DeepSeek、Kimi、Zhipu、Doubao、通义千问、MiMo、MiniMax、SiliconFlow 等渠道补充 `models` 路径，并支持 `{origin}` 占位符（仅取 base 的 scheme/host/port）。智谱 Coding Plan 与小米 Token Plan 会先尝试上游列表，失败后回退内置模型；内置目录版本提升到 10。火山方舟 Coding Plan 等没有可确认端点的渠道仍只显示内置列表。
+
 ## [0.2.0-alpha.23] - 2026-10-23
 
 本版新增 Provider 与模型目录的统一入口，模型列表先请求上游、失败回退内置目录；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。

@@ -27,7 +27,7 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 
 ## 从 alpha.22 迁移到 alpha.23
 
-将 SwiftPM 精确版本更新为 `0.2.0-alpha.23` 并重新解析依赖。本版新增 Provider 与模型目录的统一入口：`BoneInferenceService` 聚合目录查询、模型列表与上游端点解析；`BoneInferenceProviderModelListLoader` 先请求上游模型列表，失败或不可请求时回退内置目录，并通过 `discoveryOutcome` 披露状态。`Entry.ident` 仍为字符串，既有目录查询、发现客户端和引擎调用不需要迁移；模型列表属于新增只读入口，不改变推理请求、凭据边界或持久化格式。完整用法见 [Provider 接入](ProviderIntegration.md#模型列表与上游地址)。本版未完成真实 Provider 或生产 Host 验收，不代表生产准入。
+将 SwiftPM 精确版本更新为 `0.2.0-alpha.23` 并重新解析依赖。本版新增 Provider 与模型目录的统一入口：`BoneInferenceService` 聚合目录查询、模型列表与上游端点解析；`modelList(forProvider:configuration:)` 先请求上游模型列表，失败或不可请求时回退内置目录，并通过 `discoveryOutcome` 披露状态。`Entry.ident` 仍为字符串，既有目录查询和引擎调用不需要迁移；发现客户端已内部化，获取模型统一走 `BoneInferenceService.modelList(forProvider:configuration:)`。模型列表属于新增只读入口，不改变推理请求、凭据边界或持久化格式。完整用法见 [Provider 接入](ProviderIntegration.md#模型列表与上游地址)。本版未完成真实 Provider 或生产 Host 验收，不代表生产准入。
 
 ## 从 alpha.21 迁移到 alpha.22
 

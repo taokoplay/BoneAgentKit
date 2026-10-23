@@ -14,29 +14,37 @@ final class BoneInferenceServiceTests: XCTestCase {
         XCTAssertNil(service.provider(ident: "FutureProvider"))
     }
 
-    func testModelListForProviderUsesInjectedDiscoverer() async throws {
-        let service = try BoneInferenceService.bundled()
+    func testModelListUsesInjectedTransportAndMergesDiscovery() async throws {
+        let transport = ServiceModelTransport(
+            body: #"{"data":[{"id":"gpt-future"}]}"#
+        )
+        let service = BoneInferenceService(
+            catalog: try .bundled(),
+            transport: transport
+        )
         let configuration = BoneInferenceProviderConfiguration(
             kind: .openAI,
             apiKey: "fixture",
             baseURL: URL(string: "https://api.openai.com/v1")!
         )
-        let discoverer = ServiceStubDiscoverer([
-            .init(id: "gpt-future", displayName: "GPT Future"),
-        ])
 
         let list = try await service.modelList(
             forProvider: "OpenAI",
-            configuration: configuration,
-            discoverer: discoverer
+            configuration: configuration
         )
 
         XCTAssertEqual(list.models.map(\.id), ["gpt-4.1-mini", "gpt-image-1", "gpt-future"])
         XCTAssertEqual(list.discoveryOutcome, .succeeded)
+        let url = await transport.requestURL
+        XCTAssertEqual(url, URL(string: "https://api.openai.com/v1/models"))
     }
 
-    func testModelListFallsBackWhenDiscoveryFails() async throws {
-        let service = try BoneInferenceService.bundled()
+    func testModelListFallsBackWhenTransportFails() async throws {
+        let transport = ServiceModelTransport(status: 500, body: #"{"error":"boom"}"#)
+        let service = BoneInferenceService(
+            catalog: try .bundled(),
+            transport: transport
+        )
         let configuration = BoneInferenceProviderConfiguration(
             kind: .openAI,
             apiKey: "fixture",
@@ -45,12 +53,11 @@ final class BoneInferenceServiceTests: XCTestCase {
 
         let list = try await service.modelList(
             forProvider: "OpenAI",
-            configuration: configuration,
-            discoverer: ServiceFailingDiscoverer()
+            configuration: configuration
         )
 
         XCTAssertEqual(list.models.map(\.id), ["gpt-4.1-mini", "gpt-image-1"])
-        XCTAssertEqual(list.discoveryOutcome, .transportFailure(.invalidResponse))
+        XCTAssertEqual(list.discoveryOutcome, .transportFailure(.httpStatus(500)))
     }
 
     func testUnknownProviderThrowsTypedFailure() async throws {
@@ -125,32 +132,33 @@ final class BoneInferenceServiceTests: XCTestCase {
     }
 }
 
-private actor ServiceStubDiscoverer: BoneInferenceModelDiscovering {
-    private let models: [BoneInferenceModelDescriptor]
+private actor ServiceModelTransport: BoneInferenceHTTPTransport {
+    private(set) var requestURL: URL?
+    private let status: Int
+    private let body: Data
 
-    init(_ models: [BoneInferenceModelDescriptor]) {
-        self.models = models
+    init(status: Int = 200, body: String) {
+        self.status = status
+        self.body = Data(body.utf8)
     }
 
-    func discover(
-        using discovery: BoneInferenceProviderCatalog.Discovery
-    ) async throws -> [BoneInferenceModelDescriptor] {
-        models
+    func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
+        record(request)
     }
 
-    func fetchRaw(_ request: BoneInferenceRawModelListRequest) async throws -> Data {
+    func sendRetryableForModels(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse {
+        record(request)
+    }
+
+    func sendEventStream(
+        _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions
+    ) async throws -> BoneInferenceEventStreamResponse {
         throw BoneInferenceTransportError.invalidConfiguration
     }
-}
 
-private actor ServiceFailingDiscoverer: BoneInferenceModelDiscovering {
-    func discover(
-        using discovery: BoneInferenceProviderCatalog.Discovery
-    ) async throws -> [BoneInferenceModelDescriptor] {
-        throw BoneInferenceTransportError.invalidResponse
-    }
-
-    func fetchRaw(_ request: BoneInferenceRawModelListRequest) async throws -> Data {
-        throw BoneInferenceTransportError.invalidResponse
+    private func record(_ request: URLRequest) -> BoneInferenceHTTPResponse {
+        requestURL = request.url
+        return BoneInferenceHTTPResponse(statusCode: status, data: body)
     }
 }

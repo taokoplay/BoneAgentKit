@@ -221,7 +221,8 @@ public extension BoneInferenceProviderCatalog.Entry {
     ///   - overrideBaseURL: Host 实际使用的基址；缺省回退到 `defaultBaseURL`。
     /// - Returns: 未声明该操作、路径为空或没有可用基址时返回 `nil`。
     ///
-    /// 这里只做拼接，不校验传输安全策略，也不发请求。
+    /// 路径支持 `{origin}`（基址的 scheme/host/port），用于模型列表固定在站点根路径、
+    /// 但对话端点带前缀的供应商。这里只做拼接，不校验传输安全策略，也不发请求。
     func resolvedEndpoint(
         operation: String,
         modelID: String? = nil,
@@ -230,11 +231,25 @@ public extension BoneInferenceProviderCatalog.Entry {
         guard let endpoint = apiPaths[operation], !endpoint.isEmpty else {
             return nil
         }
-        let path = modelID.map { endpoint.replacingOccurrences(of: "{model}", with: $0) } ?? endpoint
         guard let baseURL = overrideBaseURL ?? defaultBaseURL else {
             return nil
         }
+        var path = endpoint.replacingOccurrences(of: "{model}", with: modelID ?? "{model}")
+        if path.contains("{origin}") {
+            path = path.replacingOccurrences(of: "{origin}", with: try originString(of: baseURL))
+        }
         return try BoneInferenceEndpointSecurity.resolvedURL(baseURL: baseURL, endpoint: path)
+    }
+
+    private func originString(of baseURL: URL) throws -> String {
+        var components = URLComponents()
+        components.scheme = baseURL.scheme
+        components.host = baseURL.host
+        components.port = baseURL.port
+        guard let origin = components.string, !origin.isEmpty else {
+            throw BoneInferenceTransportError.invalidEndpoint
+        }
+        return origin
     }
 }
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": 8,
-  "verifiedAt": "2026-10-09",
+  "catalogVersion": 10,
+  "verifiedAt": "2026-10-23",
   "providers": [
     {
       "ident": "Anthropic",
@@ -20,7 +20,8 @@
         "authenticationMode": "anthropicDual"
       },
       "apiPaths": {
-        "chat": "/v1/messages"
+        "chat": "/v1/messages",
+        "models": "/v1/models"
       },
       "models": [
         {
@@ -191,7 +192,8 @@
       },
       "apiPaths": {
         "chat": "/chat/completions",
-        "image": "/images/generations"
+        "image": "/images/generations",
+        "models": "/models"
       },
       "models": [
         {
@@ -319,7 +321,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/v1/messages"
+        "chat": "/v1/messages",
+        "models": "{origin}/models"
       },
       "models": [
         {
@@ -653,7 +656,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/v1/messages"
+        "chat": "/v1/messages",
+        "models": "{origin}/v1/models"
       },
       "models": [
         {
@@ -737,7 +741,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/messages"
+        "chat": "/messages",
+        "models": "/models"
       },
       "models": [
         {
@@ -827,7 +832,8 @@
       },
       "apiPaths": {
         "chat": "/chat/completions",
-        "image": "/images/generations"
+        "image": "/images/generations",
+        "models": "/models"
       },
       "models": [
         {
@@ -984,7 +990,8 @@
       "defaultBaseURL": "https://open.bigmodel.cn/api/anthropic",
       "sortOrder": 90,
       "apiPaths": {
-        "chat": "/v1/messages"
+        "chat": "/v1/messages",
+        "models": "/v1/models"
       },
       "models": [
         {
@@ -1368,7 +1375,7 @@
       },
       "apiPaths": {
         "chat": "/v1/messages",
-        "models": "https://api.minimaxi.com/v1/models",
+        "models": "{origin}/v1/models",
         "image": "https://api.minimaxi.com/v1/image_generation"
       },
       "models": [
@@ -1530,7 +1537,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/chat/completions"
+        "chat": "/chat/completions",
+        "models": "/models"
       },
       "models": [
         {
@@ -1570,7 +1578,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "image": "/images/generations"
+        "image": "/images/generations",
+        "models": "/models"
       },
       "models": [
         {
@@ -1646,7 +1655,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/chat/completions"
+        "chat": "/chat/completions",
+        "models": "/models"
       },
       "models": [
         {
@@ -1929,7 +1939,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/v1/messages"
+        "chat": "/v1/messages",
+        "models": "{origin}/compatible-mode/v1/models"
       },
       "models": [
         {
@@ -2084,7 +2095,8 @@
         "authenticationMode": "bearer"
       },
       "apiPaths": {
-        "chat": "/anthropic/v1/messages"
+        "chat": "/anthropic/v1/messages",
+        "models": "{origin}/v1/models"
       },
       "models": [
         {
@@ -2655,7 +2667,8 @@
       },
       "apiPaths": {
         "chat": "/v1/chat/completions",
-        "image": "/v1/images/generations"
+        "image": "/v1/images/generations",
+        "models": "/v1/models"
       },
       "models": [
         {

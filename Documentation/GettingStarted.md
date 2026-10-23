@@ -86,8 +86,8 @@ list.models.first?.chatEndpoint
 list.discoveryOutcome
 ```
 
-先请求上游 `/models`，失败或没有 discoverer 时回退内置目录；服务不保存凭据、不缓存结果。
-完整边界与底层入口见 [Provider 接入](ProviderIntegration.md#模型列表与上游地址)。
+先请求上游 `/models`，失败或没有可用的 `models` 路径时回退内置目录；服务不保存凭据、不缓存结果。
+完整边界与代理 Transport 注入见 [Provider 接入](ProviderIntegration.md#模型列表与上游地址)。
 
 ## Tool
 

@@ -159,20 +159,17 @@ Agnes 目录使用 remote 模式，不再内置文本或图片模型列表。默
 用户配置应为 API Base URL 而非完整 chat endpoint。
 
 ```swift
-let loader = BoneInferenceProviderModelListLoader(
-    configuration: providerConfiguration,
-    discoverer: BoneInferenceModelDiscoveryClient(configuration: providerConfiguration)
+let service = try BoneInferenceService.bundled()
+let list = try await service.modelList(
+    forProvider: "Agnes",
+    configuration: providerConfiguration
 )
-let list = try await loader.load(for: entry)
 ```
 
 发现请求使用当前 Base URL 下的 `/models`，不固定请求国内域名；失败时列表回退内置模型
 （Agnes 内置为空，Host 应提示重试或展示自己的缓存），并用 `discoveryOutcome` 区分
 `transportFailure` 与 `notRequested`。返回值仅提供 ID/名称，不据名称猜测 Tool、视觉能力或 Token 限制。
 远端图片模型的协议、画幅等仍需 Host 配置，不能将所有发现结果默认作为聊天模型。
-
-需要原始描述符而非合并列表时，再直接使用 `discoverAgnesModels()` 或 `discover(using:)`；
-这两个是底层入口，失败会抛出且不做内置回退。
 
 Token 限制复用 `BoneModelContextLimits`（或 `decodeFromExtraConfiguration` 的 `tokenLimits`），
 由 Host 按站点与模型单独保存、编辑，再交给 `BoneContextWindowPlanner` 使用。
@@ -203,43 +200,40 @@ let endpoint = try service.endpoint(
 )
 ```
 
-服务默认创建 `BoneInferenceModelDiscoveryClient`，不保存凭据、不缓存结果；需要自定义
-Transport 或复用已有 discoverer 时直接传参。它的范围仅限 Provider 目录、模型列表与端点解析：
-文本推理仍走 `BoneInferenceEngine` 实现（`BoneOpenAIInferenceEngine` 等），多轮与工具编排走
-`BoneAgent`，本地模型走 `BoneAgentLocalModels`；这些域的会话、凭据、预算和持久化不由该服务代理。
-更底层的等价写法是 `BoneInferenceProviderModelListLoader`，两者行为一致：
+`modelList(forProvider:configuration:)` 是获取模型的唯一公开入口。服务不保存凭据、不缓存结果；
+需要代理或自定义网络时，在创建服务时注入 `BoneInferenceHTTPTransport`：
 
 ```swift
-let entry = try BoneInferenceProviderCatalog.bundled().provider(ident: "OpenAI")!
-let configuration = BoneInferenceProviderConfiguration(
-    kind: .openAI,
-    apiKey: credential,
-    baseURL: entry.defaultBaseURL!
+let service = try BoneInferenceService.bundled(transport: proxyTransport)
+let list = try await service.modelList(
+    forProvider: "OpenAI",
+    configuration: configuration
 )
-
-// 先请求上游；失败或无 discoverer 时回退内置模型，不抛网络错误。
-let loader = BoneInferenceProviderModelListLoader(
-    configuration: configuration,
-    discoverer: BoneInferenceModelDiscoveryClient(configuration: configuration)
-)
-let list = try await loader.load(for: entry)
 
 switch list.discoveryOutcome {
 case .succeeded: break                       // 已合并上游结果
-case .notRequested: break                    // 无端点、无 discoverer 或 manual
+case .notRequested: break                    // 无 models 路径或 manual
 case .transportFailure(let error): break     // 展示失败状态，列表为内置回退
-case .failed: break                          // 自定义 discoverer 抛出了非传输错误
+case .failed: break                          // Transport 抛出了非传输错误
 }
 
-// 只读：使用已缓存的发现结果，不发请求。
-let cached = try BoneInferenceProviderModelList(entry: entry, discovered: cachedDescriptors)
+// 只读：用 Host 自己缓存的 ID/名称构造列表，不发请求。
+let cached = try BoneInferenceProviderModelList(entry: entry, discovered: descriptors)
 ```
+
+服务的范围仅限 Provider 目录、模型列表与端点解析：文本推理仍走 `BoneInferenceEngine` 实现
+（`BoneOpenAIInferenceEngine` 等），多轮与工具编排走 `BoneAgent`，本地模型走
+`BoneAgentLocalModels`；这些域的会话、凭据、预算和持久化不由该服务代理。
 
 规则：
 
+- 列表端点优先按当前 `configuration.baseURL` 解析目录的 `apiPaths.models`，因此代理或自定义网关会跟随同一地址；`modelDiscovery.endpoint` 只在缺少相对路径时作为绝对回退。
+- 目录已为 Anthropic、OpenAI、DeepSeek、Kimi、Zhipu、Doubao、通义千问、MiMo、MiniMax、SiliconFlow 等渠道声明 `models` 路径。普通相对路径跟随当前 base 的路径前缀；`{origin}` 表示只取 base 的 scheme/host/port，用于模型列表固定在站点根路径、对话端点带前缀的渠道（如 DeepSeek、Kimi Anthropic、MiMo、MiniMax）。
+- 智谱 Coding Plan 与小米 Token Plan 现在也会先尝试上游列表；智谱 Coding Plan 使用 `{base}/v1/models`（默认 `https://open.bigmodel.cn/api/anthropic/v1/models`），失败后才回退内置模型。该端点是否真实可用需要真实凭据验证。
+- 火山方舟 Coding Plan 等仍没有可确认的列表端点，保持内置列表，不做无证据探测。
 - 上游成功时，内置顺序在前，远端新增按发现顺序追加；重复 ID 保留内置显示名与能力，只补 `.discovery` 来源。
 - 上游失败时返回目录内置模型（`remote` 可能为空），`discoveryOutcome` 披露失败类型；回退列表不代表在线可用性已核验。
-- `notRequested` 表示没有 discoverer、没有 `models` 路径（例如编码包渠道）或 `manual` 目录；`manual` 始终返回空列表，由 Host 维护用户模型。
+- `notRequested` 表示没有 `models` 路径（例如编码包渠道）或 `manual` 目录；`manual` 始终返回空列表，由 Host 维护用户模型。
 - 发现结果的能力字段恒为空集，接近“仅证明 ID 可见”。不要据此授予 Tool、视觉或 token 限制。
 - 只有基址、路径非法这类调用方配置错误会抛出；网络与解析失败不抛出。
 - 需要展示非 `chat` 操作时使用 `entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)`；需要发请求时仍走 `BoneInferenceProviderRequestBuilder`，`resolvedEndpoint` 不校验传输安全策略。
@@ -362,11 +356,11 @@ Harness 或 checkpoint，也不会改变 App 的错误映射逻辑。
 
 ## Host 从静态 Agnes 目录迁移
 
-`remote` 是模型目录来源，不是 NewAPI 响应协议。Agnes 使用标准 OpenAI 列表，展示层应通过
-`BoneInferenceProviderModelListLoader` 获取（失败自动回退内置）；需要原始描述符时用
-`discoverAgnesModels()`，不要要求 `success: true`；NewAPI 原有校验不要为此放宽。
+`remote` 是模型目录来源，不是 NewAPI 响应协议。Agnes 使用标准 OpenAI 列表，展示层统一通过
+`BoneInferenceService.modelList(forProvider:configuration:)` 获取（失败自动回退内置），
+不要要求 `success: true`；NewAPI 原有校验不要为此放宽。
 
-列表合并已由 `BoneInferenceProviderModelListLoader` 处理；持久化用户配置时仍建议 Host 执行以下显式流程：
+列表合并已由服务处理；持久化用户配置时仍建议 Host 执行以下显式流程：
 
 1. 保留原 Base URL、凭据引用及用户已选模型，按当前站点请求发现。
 2. 用“站点身份 + 模型 ID”匹配已保存记录，不仅按显示名匹配。

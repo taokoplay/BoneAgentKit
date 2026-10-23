@@ -6,7 +6,7 @@ final class ProviderCatalogTests: XCTestCase {
     func testBundledCatalogExposesSemanticIconIDsWithoutBundlingBrandAssets() throws {
         let catalog = try BoneInferenceProviderCatalog.bundled()
         XCTAssertEqual(catalog.schemaVersion, 1)
-        XCTAssertEqual(catalog.catalogVersion, 8)
+        XCTAssertEqual(catalog.catalogVersion, 10)
         XCTAssertEqual(catalog.providers.count, 21)
         XCTAssertEqual(catalog.provider(ident: "openai")?.providerKind, .openAI)
         XCTAssertEqual(catalog.provider(ident: "openai")?.iconID, "icon_ai_openAI")

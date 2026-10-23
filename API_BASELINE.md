@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 440 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次新增模型列表与加载器后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 436 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次收敛模型获取入口后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -19,7 +19,7 @@
 - `BoneInferenceEngine`、`BoneInferenceBufferedStreaming`、`BoneInferenceDetailedBufferedStreaming`、`BoneInferenceEventStreaming`
 - `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`、`BoneInferenceOutputConstraint`
 - `BoneInferenceGenerationOptions`、`BoneInferenceReasoningOptions`、`BoneInferenceReasoningProfile`
-- `BoneInferenceProviderCatalog`、`BoneInferenceProviderModelList`、`BoneInferenceProviderModelListLoader`、`BoneInferenceModelDiscoveryClient`、`BoneInferenceService`
+- `BoneInferenceProviderCatalog`、`BoneInferenceProviderModelList`、`BoneInferenceService`
 - `BoneModelMetadata`（目录声明与来源追踪，不等同执行能力）
 - `BoneResolvedInferenceCapabilities`、`BoneModelCapabilityProfile`、`BoneModelCapabilityEvidenceSource`
 - `BoneAgentRunModelSnapshot`、`BoneAgentModelSnapshotContext`、`BoneAgentModelSnapshotSink`
@@ -42,9 +42,11 @@
 
 ## Unreleased 模型列表与上游地址
 
-- 新增 `BoneInferenceProviderModelList`：单 Provider 的只读模型列表，合并内置声明与上游发现结果并标记来源（`catalog` / `discovery`）、能力与 `chatEndpoint`；`BoneInferenceProviderModelListLoader` 先请求上游，失败或不可请求时回退内置模型，由 `discoveryOutcome` 披露 `notRequested` / `succeeded` / `transportFailure` / `failed`。
+- 新增 `BoneInferenceProviderModelList`：单 Provider 的只读模型列表，合并内置声明与上游发现结果并标记来源（`catalog` / `discovery`）、能力与 `chatEndpoint`；`discoveryOutcome` 披露 `notRequested` / `succeeded` / `transportFailure` / `failed`。
+- 模型获取只有一个公开入口 `BoneInferenceService.modelList(forProvider:configuration:)`，先请求上游、失败回退内置；`BoneInferenceProviderModelListLoader`、`BoneInferenceModelDiscoveryClient`、`BoneInferenceModelDiscovering`、`BoneInferenceRawModelListRequest` 为 internal，`discoverAgnesModels()`、`discover(using:)`、`fetchRaw(_:)` 不再公开。代理与自定义网络通过 `BoneInferenceService` 初始化器的 `transport` 注入。
 - 新增 `BoneInferenceProviderCatalog.Entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)` 与 `BoneInferenceEndpointSecurity.resolvedURL(baseURL:endpoint:)`：复用请求层同一套路径拼接、去重与 `{model}` 替换规则，只做只读投影，不校验传输安全策略、不发请求。
 - 上游网络、HTTP 状态与解析失败不再从列表入口抛出，避免设置界面因离线无法展示；只有基址或操作路径非法这类调用方配置错误仍抛出。`manual` 目录始终返回空列表，不请求上游。
+- 模型发现端点优先按当前 `baseURL` 解析 `apiPaths.models`，目录 `modelDiscovery.endpoint` 仅作绝对回退。`resolvedEndpoint` 新增 `{origin}` 占位符（仅取基址 scheme/host/port）；内置目录已为主要渠道声明 `models` 路径，并提升到 `catalogVersion = 10`。
 - 发现结果的能力字段仍为空集：列表只证明模型 ID 可见，能力与 token 限制必须来自目录声明或 Host 证据。
 - 新增 `BoneInferenceService`：聚合目录查询、模型列表与端点解析的统一入口；默认创建发现客户端，支持注入目录、discoverer 或直接用底层加载器。服务不保存凭据、不缓存发现结果。
 
