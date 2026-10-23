@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.23] - 2026-10-23
+
+本版新增 Provider 与模型目录的统一入口，模型列表先请求上游、失败回退内置目录；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
+
 ### Added
 
 - 新增 `BoneInferenceProviderModelList` 与 `BoneInferenceProviderModelListLoader`：加载器先请求上游模型列表，成功时与内置目录合并并标记来源（`catalog` / `discovery`）及每条模型的 `chatEndpoint`；超时、HTTP 错误、解析失败或无 discoverer 时回退内置模型，由 `discoveryOutcome` 披露实际状态，不再让设置界面因离线报错。列表本身是纯数据值，缓存展示不经过网络入口。
