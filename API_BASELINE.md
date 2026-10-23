@@ -47,6 +47,7 @@
 - 新增 `BoneInferenceProviderCatalog.Entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)` 与 `BoneInferenceEndpointSecurity.resolvedURL(baseURL:endpoint:)`：复用请求层同一套路径拼接、去重与 `{model}` 替换规则，只做只读投影，不校验传输安全策略、不发请求。
 - 上游网络、HTTP 状态与解析失败不再从列表入口抛出，避免设置界面因离线无法展示；只有基址或操作路径非法这类调用方配置错误仍抛出。`manual` 目录始终返回空列表，不请求上游。
 - 模型发现端点优先按当前 `baseURL` 解析 `apiPaths.models`，目录 `modelDiscovery.endpoint` 仅作绝对回退。`resolvedEndpoint` 新增 `{origin}` 占位符（仅取基址 scheme/host/port）；内置目录已为主要渠道声明 `models` 路径，并提升到 `catalogVersion = 10`。
+- 兼容网关在 HTTP 200 内返回 `success: false` 时按业务错误码映射为 `invalidCredential` / `httpStatus`，避免把过期令牌误报为响应解析失败。
 - 发现结果的能力字段仍为空集：列表只证明模型 ID 可见，能力与 token 限制必须来自目录声明或 Host 证据。
 - 新增 `BoneInferenceService`：聚合目录查询、模型列表与端点解析的统一入口；默认创建发现客户端，支持注入目录、discoverer 或直接用底层加载器。服务不保存凭据、不缓存发现结果。
 

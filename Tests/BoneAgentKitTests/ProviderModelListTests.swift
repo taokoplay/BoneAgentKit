@@ -291,6 +291,26 @@ final class ProviderModelListTests: XCTestCase {
         XCTAssertEqual(listing.discoveryOutcome, .succeeded)
     }
 
+    func testQwenAnthropicModelsPathUsesCompatibleModeEndpoint() async throws {
+        let qwen = try entry("QwenAnthropic")
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://dashscope.aliyuncs.com/apps/anthropic")!
+        )
+        let discoverer = RecordingDiscoverer([.init(id: "qwen3.8-max", displayName: "Qwen3.8 Max")])
+
+        let listing = try await load(qwen, configuration, discoverer: discoverer)
+
+        let sent = await discoverer.lastDiscovery
+        XCTAssertEqual(
+            sent?.endpoint,
+            URL(string: "https://dashscope.aliyuncs.com/compatible-mode/v1/models")
+        )
+        XCTAssertEqual(sent?.protocol, .openAI)
+        XCTAssertEqual(listing.discoveryOutcome, .succeeded)
+    }
+
     func testMiniMaxModelsPathUsesConfiguredOriginWithoutPrefix() async throws {
         let miniMax = try entry("MiniMax")
         let configuration = BoneInferenceProviderConfiguration(

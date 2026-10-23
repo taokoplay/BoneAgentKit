@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 模型发现识别兼容网关的 HTTP 200 + `success: false` 错误包，按业务错误码映射为 `invalidCredential` / `httpStatus`，不再退化为 `invalidResponse`；MiniMax 与通义千问 Anthropic 渠道的模型列表路径补充实测依据。
+
 ## [0.2.0-alpha.24] - 2026-10-23
 
 本版收敛模型获取入口：统一使用 `BoneInferenceService.modelList(forProvider:configuration:)`，模型列表先请求上游、失败回退内置，并让列表端点跟随当前供应商 base；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。

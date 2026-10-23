@@ -60,6 +60,30 @@ final class BoneInferenceServiceTests: XCTestCase {
         XCTAssertEqual(list.discoveryOutcome, .transportFailure(.httpStatus(500)))
     }
 
+    func testGatewayErrorEnvelopeMapsToInvalidCredential() async throws {
+        let transport = ServiceModelTransport(
+            body: #"{"code":401,"msg":"令牌已过期或验证不正确","success":false}"#
+        )
+        let service = BoneInferenceService(
+            catalog: try .bundled(),
+            transport: transport
+        )
+        let configuration = BoneInferenceProviderConfiguration(
+            kind: .zhipu,
+            apiKey: "fixture",
+            baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!,
+            userAgent: "BoneAgentKit-tests"
+        )
+
+        let list = try await service.modelList(
+            forProvider: "ZhipuCodingPlan",
+            configuration: configuration
+        )
+
+        XCTAssertEqual(list.discoveryOutcome, .transportFailure(.invalidCredential))
+        XCTAssertEqual(list.models.map(\.id), ["glm-5.2", "glm-5.1"])
+    }
+
     func testUnknownProviderThrowsTypedFailure() async throws {
         let service = try BoneInferenceService.bundled()
         let configuration = BoneInferenceProviderConfiguration(

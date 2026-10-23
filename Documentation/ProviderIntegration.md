@@ -230,9 +230,11 @@ let cached = try BoneInferenceProviderModelList(entry: entry, discovered: descri
 - 列表端点优先按当前 `configuration.baseURL` 解析目录的 `apiPaths.models`，因此代理或自定义网关会跟随同一地址；`modelDiscovery.endpoint` 只在缺少相对路径时作为绝对回退。
 - 目录已为 Anthropic、OpenAI、DeepSeek、Kimi、Zhipu、Doubao、通义千问、MiMo、MiniMax、SiliconFlow 等渠道声明 `models` 路径。普通相对路径跟随当前 base 的路径前缀；`{origin}` 表示只取 base 的 scheme/host/port，用于模型列表固定在站点根路径、对话端点带前缀的渠道（如 DeepSeek、Kimi Anthropic、MiMo、MiniMax）。
 - 智谱 Coding Plan 与小米 Token Plan 现在也会先尝试上游列表；智谱 Coding Plan 使用 `{base}/v1/models`（默认 `https://open.bigmodel.cn/api/anthropic/v1/models`），失败后才回退内置模型。该端点是否真实可用需要真实凭据验证。
+- MiniMax 与通义千问 Anthropic 渠道的模型列表不在 `/anthropic` 前缀下：MiniMax 为 `{origin}/v1/models`（`Authorization: Bearer`），通义千问为 `{origin}/compatible-mode/v1/models`。不要按 Anthropic 版本路径机械推导，否则会命中 404 或错误的鉴权入口。
 - 火山方舟 Coding Plan 等仍没有可确认的列表端点，保持内置列表，不做无证据探测。
 - 上游成功时，内置顺序在前，远端新增按发现顺序追加；重复 ID 保留内置显示名与能力，只补 `.discovery` 来源。
 - 上游失败时返回目录内置模型（`remote` 可能为空），`discoveryOutcome` 披露失败类型；回退列表不代表在线可用性已核验。
+- 兼容网关可能用 HTTP 200 + `success: false` 返回业务错误；SDK 会按错误码映射为 `.transportFailure(.invalidCredential)` 或 `.httpStatus`，Host 可据此提示“令牌过期/套餐不支持”，而不是统一显示“请求失败”。
 - `notRequested` 表示没有 `models` 路径（例如编码包渠道）或 `manual` 目录；`manual` 始终返回空列表，由 Host 维护用户模型。
 - 发现结果的能力字段恒为空集，接近“仅证明 ID 可见”。不要据此授予 Tool、视觉或 token 限制。
 - 只有基址、路径非法这类调用方配置错误会抛出；网络与解析失败不抛出。

@@ -41,11 +41,28 @@ struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendabl
         )
         let response = try await transport.sendRetryableForModels(request)
         let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+        try Self.validateGatewayEnvelope(json)
         let descriptors = ModelDiscoveryParser.parse(json, protocol: discovery.protocol)
         guard !descriptors.isEmpty else {
             throw BoneInferenceTransportError.invalidResponse
         }
         return descriptors
+    }
+
+    /// 部分兼容网关在 HTTP 200 内返回 `success: false` 和业务错误码；不能当成空列表。
+    private static func validateGatewayEnvelope(_ json: [String: Any]) throws {
+        guard let success = json["success"] as? Bool, !success else {
+            return
+        }
+        let code = (json["code"] as? Int)
+            ?? (json["code"] as? String).flatMap(Int.init)
+        guard let code else {
+            throw BoneInferenceTransportError.invalidResponse
+        }
+        if code == 1001 {
+            throw BoneInferenceTransportError.invalidCredential
+        }
+        throw BoneInferenceProviderResponseValidator.mappedError(statusCode: code)
     }
 
     private func makeRequest(
