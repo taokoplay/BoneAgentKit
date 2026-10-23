@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.25] - 2026-10-23
+
+本版修复兼容网关以 HTTP 200 返回业务错误时的错误分类，模型列表失败会给出明确状态并继续回退内置目录；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
+
 ### Changed
 
 - 模型发现识别兼容网关的 HTTP 200 + `success: false` 错误包，按业务错误码映射为 `invalidCredential` / `httpStatus`，不再退化为 `invalidResponse`；MiniMax 与通义千问 Anthropic 渠道的模型列表路径补充实测依据。
