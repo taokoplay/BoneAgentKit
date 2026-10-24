@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.26] - 2026-10-24
+
+本版为 Provider 目录错误补充本地化文案：目录解码或校验失败时直接说明供应商与字段，不再只显示 `BoneInferenceProviderCatalog.Error 错误 N`；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
+
+### Changed
+
+- 模型列表上游失败时输出一行安全控制台日志，包含 Provider、错误类型与回退数量，不包含 URL、Header、凭据或响应正文。
+
+### Fixed
+
+- `BoneInferenceProviderCatalog.Error` 实现 `LocalizedError`，`localizedDescription` 直接给出供应商与字段，例如“供应商 KimiCodingPlan 的 modelDiscovery.endpoint 不是合法的 https 地址。”；此前这类配置错误只会显示带 case 序号的通用文案（如 `错误 7`），Host 与用户都无法据此定位。
+
 ## [0.2.0-alpha.25] - 2026-10-23
 
 本版修复兼容网关以 HTTP 200 返回业务错误时的错误分类，模型列表失败会给出明确状态并继续回退内置目录；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。

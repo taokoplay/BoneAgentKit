@@ -13,7 +13,7 @@ BoneAgentKit 通过独立 Git 仓库中的 Swift Package 分发。调用方应�
 
 基础调用方只需依赖 `BoneAgentKit`；本地模型基础设施和 Adapter 是独立 Product，不会因基础依赖自动启用。
 
-Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.25`。
+Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.26`。
 
 从 `0.2.0-alpha.5` 升级时，使用方的 `BoneLlamaRuntime` 实现必须适配新的真实 Token 容量契约：增加 `tokenize(prompt:)`，并将旧 `generate(prompt:options:)` 改为 `generate(prompt:executionPlan:options:)`。Runtime 必须按 `executionPlan.prefillRanges` 对完整 Prompt 的 Token IDs 分批 prefill；完整迁移要求见 [LocalModels.md](LocalModels.md#从-alpha5-迁移到-alpha6)。只使用云 Provider 或未链接 `BoneAgentLlama` 的调用方不受该协议变更影响。
 
@@ -24,6 +24,16 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 ## Alpha.12 测试能力
 
 需要验收 Host Persistence Adapter 时，在测试目标显式链接 `BoneAgentTesting`，调用 `BoneWorkflowPersistenceContractSuite`；无需修改生产目标依赖。此套件不随基础 Agent 自动运行，也不提供数据库。只使用 Agent 推理或本地只读查询的 App 不必为此新增任务持久化。示例及缺能力处理见 [Testing](Testing.md#host-持久化契约验收)。
+
+## 从 alpha.25 迁移到 alpha.26
+
+将 SwiftPM 精确版本更新为 `0.2.0-alpha.26` 并重新解析依赖。本版只补充可读错误文案与模型列表诊断日志：
+`BoneInferenceProviderCatalog.Error` 实现 `LocalizedError`，`localizedDescription` 直接说明供应商与字段
+（例如“供应商 KimiCodingPlan 的 modelDiscovery.endpoint 不是合法的 https 地址。”），Host 不再需要按 case
+序号自行映射；错误枚举的 case 与序号未变。模型列表上游失败时新增一行安全控制台日志，不含 URL、Header、
+凭据或响应正文。推理请求、凭据边界与持久化格式不变。完整用法见
+[Provider 接入](ProviderIntegration.md#模型列表与上游地址)。本版未完成真实 Provider 或生产 Host
+验收，不代表生产准入。
 
 ## 从 alpha.24 迁移到 alpha.25
 

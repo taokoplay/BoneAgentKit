@@ -235,9 +235,11 @@ let cached = try BoneInferenceProviderModelList(entry: entry, discovered: descri
 - 上游成功时，内置顺序在前，远端新增按发现顺序追加；重复 ID 保留内置显示名与能力，只补 `.discovery` 来源。
 - 上游失败时返回目录内置模型（`remote` 可能为空），`discoveryOutcome` 披露失败类型；回退列表不代表在线可用性已核验。
 - 兼容网关可能用 HTTP 200 + `success: false` 返回业务错误；SDK 会按错误码映射为 `.transportFailure(.invalidCredential)` 或 `.httpStatus`，Host 可据此提示“令牌过期/套餐不支持”，而不是统一显示“请求失败”。
+- 上游失败时会输出一行控制台日志，例如 `[BoneInference] model list upstream failed provider=OpenAI reason=httpStatus(500) fallback=2`；日志不含 URL、Header、凭据或响应正文。
 - `notRequested` 表示没有 `models` 路径（例如编码包渠道）或 `manual` 目录；`manual` 始终返回空列表，由 Host 维护用户模型。
 - 发现结果的能力字段恒为空集，接近“仅证明 ID 可见”。不要据此授予 Tool、视觉或 token 限制。
 - 只有基址、路径非法这类调用方配置错误会抛出；网络与解析失败不抛出。
+- `BoneInferenceProviderCatalog.Error` 实现 `LocalizedError`，`localizedDescription` 直接指出供应商与字段，例如“供应商 KimiCodingPlan 的 modelDiscovery.endpoint 不是合法的 https 地址。”；Host 可直接展示，不必再按枚举序号自行映射。文案只含目录字段与标识，不含凭据或请求内容。
 - 需要展示非 `chat` 操作时使用 `entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)`；需要发请求时仍走 `BoneInferenceProviderRequestBuilder`，`resolvedEndpoint` 不校验传输安全策略。
 
 ## 非流式安全响应诊断
