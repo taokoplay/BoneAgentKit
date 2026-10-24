@@ -52,12 +52,35 @@ struct BoneInferenceProviderModelListLoader: Sendable {
             } else {
                 outcome = .failed
             }
+            Self.logFailure(
+                provider: entry.ident,
+                outcome: outcome,
+                fallbackCount: entry.models.count
+            )
             return try BoneInferenceProviderModelList(
                 entry: entry,
                 baseURL: configuration.baseURL,
                 discoveryOutcome: outcome
             )
         }
+    }
+
+    /// 上游失败时输出一行安全控制台日志；不包含 URL、Header、凭据或响应正文。
+    private static func logFailure(
+        provider: String,
+        outcome: BoneInferenceProviderModelList.DiscoveryOutcome,
+        fallbackCount: Int
+    ) {
+        let reason: String
+        switch outcome {
+        case let .transportFailure(error):
+            reason = "\(error)"
+        case .failed:
+            reason = "unexpectedError"
+        case .notRequested, .succeeded:
+            reason = "unknown"
+        }
+        print("[BoneInference] model list upstream failed provider=\(provider) reason=\(reason) fallback=\(fallbackCount)")
     }
 
     /// 优先按当前 base 解析 `apiPaths.models`；没有该路径时使用目录声明的绝对发现端点。
