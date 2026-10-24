@@ -143,7 +143,10 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
     }
 
     /// Catalog 解码、校验或资源读取错误。
-    public enum Error: Swift.Error, Equatable, Sendable {
+    ///
+    /// 实现 `LocalizedError`，让 Host 直接展示 `localizedDescription` 时也能看到供应商与字段，
+    /// 不再退化成 `BoneInferenceProviderCatalog.Error 错误 7` 这类只含 case 序号的文案。
+    public enum Error: Swift.Error, LocalizedError, Equatable, Sendable {
         case resourceMissing(String)
         case invalidIconScale(Int)
         case unsupportedSchema(Int)
@@ -207,6 +210,56 @@ public struct BoneInferenceProviderCatalog: Equatable, Sendable {
             case let .resourceMissing(iconID, _):
                 throw Error.resourceMissing(iconID)
             }
+        }
+    }
+}
+
+extension BoneInferenceProviderCatalog.Error {
+    /// 面向用户的中文错误说明；只包含目录字段与标识，不含凭据或请求内容。
+    public var errorDescription: String? {
+        switch self {
+        case let .resourceMissing(name):
+            return "缺少内置资源 \(name)。"
+        case let .invalidIconScale(scale):
+            return "图标显示倍率 \(scale) 不受支持。"
+        case let .unsupportedSchema(version):
+            return "供应商目录 schemaVersion \(version) 不受支持，当前只接受 1。"
+        case let .duplicateProvider(provider):
+            return "供应商 \(provider) 在目录中重复声明。"
+        case let .missingParent(provider: provider, parent: parent):
+            return "供应商 \(provider) 继承的父供应商 \(parent) 不存在。"
+        case let .inheritanceCycle(providers):
+            return "供应商继承出现循环：\(providers.joined(separator: " → "))。"
+        case let .missingField(provider: provider, field: field):
+            return "供应商 \(provider) 缺少必需字段 \(field)。"
+        case let .invalidURL(provider: provider, field: field):
+            return "供应商 \(provider) 的 \(field) 不是合法的 https 地址。"
+        case let .unknownProviderProtocol(provider: provider, value: value):
+            return "供应商 \(provider) 的协议 \(value) 不受支持。"
+        case let .unknownAuthenticationMode(provider: provider, value: value):
+            return "供应商 \(provider) 的认证方式 \(value) 不受支持。"
+        case let .unknownCatalogMode(provider: provider, value: value):
+            return "供应商 \(provider) 的目录模式 \(value) 不受支持。"
+        case let .unknownDiscoveryProtocol(provider: provider, value: value):
+            return "供应商 \(provider) 的模型发现协议 \(value) 不受支持。"
+        case let .discoveryNotAllowed(provider: provider, mode: mode):
+            return "供应商 \(provider) 的目录模式 \(mode) 不允许声明模型发现端点。"
+        case let .unknownProtocolVariant(provider: provider, modelID: modelID, value: value):
+            return "供应商 \(provider) 的模型 \(modelID) 使用了不受支持的协议变体 \(value)。"
+        case let .unknownCapability(provider: provider, modelID: modelID, value: value):
+            return "供应商 \(provider) 的模型 \(modelID) 声明了不受支持的能力 \(value)。"
+        case let .duplicateModel(provider: provider, modelID: modelID):
+            return "供应商 \(provider) 的模型 \(modelID) 重复声明。"
+        case let .missingCapability(provider: provider, modelID: modelID):
+            return "供应商 \(provider) 的模型 \(modelID) 缺少必需的能力声明。"
+        case let .invalidModelParameter(provider: provider, modelID: modelID, field: field):
+            return "供应商 \(provider) 的模型 \(modelID) 的参数 \(field) 不合法。"
+        case let .invalidModelTokenLimit(provider: provider, modelID: modelID, field: field):
+            return "供应商 \(provider) 的模型 \(modelID) 的 Token 限制字段 \(field) 不合法。"
+        case let .invalidImageSize(provider: provider, modelID: modelID):
+            return "供应商 \(provider) 的模型 \(modelID) 声明了不合法的图片尺寸。"
+        case let .invalidImageCount(provider: provider, modelID: modelID, value: value):
+            return "供应商 \(provider) 的模型 \(modelID) 的图片数量 \(value) 不合法。"
         }
     }
 }

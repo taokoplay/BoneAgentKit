@@ -125,6 +125,49 @@ final class ProviderCatalogTests: XCTestCase {
         }
     }
 
+    func testCatalogErrorDescribesInvalidDiscoveryEndpoint() throws {
+        let data = Data(#"""
+        {
+          "schemaVersion": 1,
+          "catalogVersion": 1,
+          "verifiedAt": "2026-10-24",
+          "providers": [{
+            "ident": "KimiCodingPlan",
+            "title": "Kimi Coding Plan",
+            "icon": "icon_ai_kimi",
+            "adapter": "openAI",
+            "authenticationMode": "bearer",
+            "defaultBaseURL": "https://api.kimi.com/coding/v1",
+            "modelCatalogMode": "local",
+            "sortOrder": 1,
+            "modelDiscovery": {
+              "endpoint": "api.kimi.com/coding/v1/models",
+              "adapter": "openAI",
+              "authenticationMode": "bearer"
+            },
+            "models": [{
+              "id": "kimi-for-coding",
+              "displayName": "Kimi for Coding",
+              "capabilities": ["chat"],
+              "protocolVariant": "openAI",
+              "deprecated": false
+            }]
+          }]
+        }
+        """#.utf8)
+
+        XCTAssertThrowsError(try BoneInferenceProviderCatalog.decode(data: data)) { error in
+            XCTAssertEqual(
+                error as? BoneInferenceProviderCatalog.Error,
+                .invalidURL(provider: "KimiCodingPlan", field: "modelDiscovery.endpoint")
+            )
+            XCTAssertEqual(
+                error.localizedDescription,
+                "供应商 KimiCodingPlan 的 modelDiscovery.endpoint 不是合法的 https 地址。"
+            )
+        }
+    }
+
     private func catalogData(tokenLimits: String) -> Data {
         Data("""
         {
