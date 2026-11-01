@@ -157,7 +157,13 @@ enum BoneInferenceReasoningRequestSupport {
         guard let rawOptions = request.generationOptions.reasoning else { return [:] }
         _ = try rawOptions.validated()
         guard let options = try normalizedOptions(rawOptions, profile: profile) else { return [:] }
-        guard let profile else { throw BoneInferenceReasoningConfigurationError.missingProfile }
+        guard let profile else {
+            // Anthropic 兼容入口可以在无模型 profile 时明确关闭思考；开启/自适应仍必须有 Host 验证的 profile。
+            guard options.mode == .disabled, wire == .anthropic else {
+                throw BoneInferenceReasoningConfigurationError.missingProfile
+            }
+            return ["thinking": ["type": "disabled"]]
+        }
         try profile.validated(for: requestWire(wire))
         guard profile.modes.contains(options.mode) else {
             throw BoneInferenceReasoningConfigurationError.unsupportedMode

@@ -194,6 +194,16 @@ final class ReasoningConfigurationTests: XCTestCase {
         XCTAssertEqual((offFields["thinkingConfig"] as? [String: Int])?["thinkingBudget"], 0)
     }
 
+    func testAnthropicDisabledReasoningDoesNotNeedProfile() throws {
+        typealias S = BoneInferenceReasoningRequestSupport
+        let fields = try S.fields(
+            request: request(.init(selection: .disabled)),
+            profile: nil,
+            wire: .anthropic
+        )
+        XCTAssertEqual((fields["thinking"] as? [String: String])?["type"], "disabled")
+    }
+
     func testCanonicalSelectionRequiresProfileMapping() throws {
         typealias S = BoneInferenceReasoningRequestSupport
         let profile = BoneInferenceReasoningProfile(

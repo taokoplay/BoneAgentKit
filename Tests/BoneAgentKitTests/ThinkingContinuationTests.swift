@@ -129,6 +129,26 @@ final class ThinkingContinuationTests: XCTestCase {
         XCTAssertEqual(turn.toolCalls.first?.arguments, Data(#"{"a":1,"b":2}"#.utf8))
     }
 
+    func testAnthropicToolStreamAcceptsEarlyStopReasonBeforeBlockStop() throws {
+        let events: [BoneInferenceEventStreamEvent] = [
+            .init(data: #"{"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}"#),
+            .init(data: #"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#),
+            .init(data: #"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"private"}}"#),
+            .init(data: #"{"type":"content_block_stop","index":0}"#),
+            .init(data: #"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call","name":"lookup","input":{}}}"#),
+            .init(data: #"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"ok\":true}"}}"#),
+            .init(data: #"{"type":"message_delta","delta":{"stop_reason":"tool_use"}}"#),
+            .init(data: #"{"type":"content_block_stop","index":1}"#),
+            .init(data: #"{"type":"message_stop"}"#)
+        ]
+        let response = try BoneAnthropicToolStreamAggregator.aggregate(events: events, definitions: [tool()])
+        guard case let .assistantTurn(turn, reason, _, _, _) = response else {
+            return XCTFail("expected assistant turn")
+        }
+        XCTAssertEqual(reason, .toolCalls)
+        XCTAssertEqual(turn.toolCalls.first?.arguments, Data(#"{"ok":true}"#.utf8))
+    }
+
     func testAnthropicStreamingRoundTripRetainsThinkingBlocksForToolLoop() async throws {
         let firstEvents: [BoneInferenceEventStreamEvent] = [
             .init(data: #"{"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}"#),

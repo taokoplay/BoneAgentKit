@@ -11,10 +11,11 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 436 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次收敛模型获取入口后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 441 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次收敛模型获取入口后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
+- `BoneAgentBuilder`、`BoneAgentProviderFactory`
 - `BoneAgent`、`BoneAgentConfiguration`、`BoneAgentKitVersion`
 - `BoneInferenceEngine`、`BoneInferenceBufferedStreaming`、`BoneInferenceDetailedBufferedStreaming`、`BoneInferenceEventStreaming`
 - `BoneInferenceRequest`、`BoneInferenceMessage`、`BoneInferenceResponse`、`BoneInferenceOutputConstraint`
@@ -39,6 +40,11 @@
 - `BoneLlamaCompiledConstraint`、`BoneLlamaResolvedGenerationControl`、`BoneLlamaConstraintCompiling`、`BoneLlamaGBNFCompiler`
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
+
+## Unreleased Agent 组装入口
+
+- 新增 `BoneAgentProviderFactory`：按 Provider kind 选择内置 OpenAI 兼容、Anthropic Messages 或 Gemini Engine，不根据模型名称授予能力。
+- 新增 `BoneAgentBuilder`：用 Engine 或 Provider configuration、Tool、Context 和默认配置组装 `BoneAgent`；低层 Engine、Transport、Host profile 与 Workflow 接入仍可显式使用。
 
 ## Unreleased 模型列表与上游地址
 

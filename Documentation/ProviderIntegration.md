@@ -59,6 +59,27 @@ struct ExampleTextInferenceEngine: BoneInferenceEngine {
 - OpenAI、Gemini、Anthropic 的 Output Constraint 使用各自官方 JSON Schema 字段，不套本地 Prompt Template 或 Tool Envelope；首版不得与 structured `responseFormat` 或 Tool Catalog 混用；
 - Schema 必须经过 Provider 方言编译并在响应后本地复验；兼容 Endpoint、未知字段支持或身份漂移均在联网前失败。
 
+## 使用内置 Provider Engine 快速组装 Agent
+
+常见应用可以让 `BoneAgentProviderFactory` 按 Provider kind 选择 OpenAI 兼容、Anthropic Messages 或 Gemini Engine，再交给 `BoneAgentBuilder` 注册 Tool：
+
+```swift
+let agent = try BoneAgentBuilder(
+    providerConfiguration: providerConfiguration
+)
+    .withTool(ProjectTool())
+    .build()
+
+let result = try await agent.run(
+    modelID: "model-id",
+    messages: [.init(role: .user, content: "Run the task")]
+)
+```
+
+默认 Transport 使用 `BoneInferenceURLSessionTransport`。需要代理、录制或回放时显式传入自定义 `BoneInferenceHTTPTransport`。工厂只选择协议适配器，不根据模型名称推导 Tool、reasoning 或约束能力；这些能力仍需 Host profile 和对应 Smoke 证据。
+
+需要完全自定义 Provider 时，继续直接实现或注入 `BoneInferenceEngine`，无需使用 Builder。
+
 ## 模型元数据、思考参数与工具多轮续接
 
 模型目录接入、Host profile 注入和 OpenAI/Anthropic 私有思考续接的边界见

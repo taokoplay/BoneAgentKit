@@ -22,7 +22,10 @@ enum BoneAnthropicToolStreamAggregator {
                   event.event != "error", type != "error" else {
                 throw BoneInferenceTransportError.invalidResponse
             }
-            guard stopReason == nil || type == "message_stop" || type == "ping" else {
+            // 部分 Anthropic 兼容 Provider 会在 content_block_stop 之前发送 message_delta。
+            // 只要尚未收到 message_stop，仍允许当前 block 完成；最终终态继续严格校验。
+            guard stopReason == nil || type == "message_stop" || type == "ping"
+                || type == "content_block_stop" else {
                 throw BoneInferenceTransportError.invalidResponse
             }
             switch type {

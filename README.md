@@ -85,6 +85,27 @@ let result = try await agent.run(
 )
 ```
 
+如果已有 `BoneInferenceEngine`，也可以用 Builder 减少常见装配代码：
+
+```swift
+let agent = try BoneAgentBuilder(inferenceEngine: engine)
+    .withTool(EchoTool())
+    .build()
+```
+
+需要使用内置 OpenAI、Anthropic 或 Gemini 协议 Engine 时，可直接传入
+`BoneInferenceProviderConfiguration`；Provider kind 只选择协议适配器，不会替模型授予未经验证的能力：
+
+```swift
+let agent = try BoneAgentBuilder(
+    providerConfiguration: providerConfiguration
+)
+    .withTool(EchoTool())
+    .build()
+```
+
+`BoneAgentProviderFactory` 和 `BoneAgentBuilder` 不替代低层 Engine、Transport 或 Host profile 注入；它们只提供常见的组合入口。
+
 需要查看某个渠道当前可用的模型与上游地址时，使用 `BoneInferenceService`：
 
 ```swift

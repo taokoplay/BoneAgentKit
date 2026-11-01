@@ -142,6 +142,16 @@ enum QuickStartError: Error {
 
 该最短路径只完成进程内的一次 Agent Run，不会自动创建 Workflow、保存检查点或在重启后续跑。需要跨重启任务恢复时，另行接入 [Host Persistence Adapter](CharacterHostIntegration.md#persistence-adapter)；短期只读助手不必为此保存对话。
 
+如果不需要直接管理 Registry、Context 和默认配置，可以使用 Builder 保持同样的低层语义：
+
+```swift
+let agent = try BoneAgentBuilder(inferenceEngine: ExistingModelAdapter())
+    .withTool(EchoTool())
+    .build()
+```
+
+使用内置 Provider Engine 时，将 `inferenceEngine:` 换成 `providerConfiguration:` 即可。Builder 只负责常见装配；模型能力 profile、reasoning profile、Transport 和 Workflow 仍由 Host 按需显式配置。
+
 最短路径完成。下一步按顺序阅读：
 
 1. **5 分钟快速开始**（本页）

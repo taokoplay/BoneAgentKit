@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `BoneAgentProviderFactory` 和 `BoneAgentBuilder`，为常见 Provider、Tool、Context 与 Agent Run 提供更短的组合入口；低层 Engine 和自定义 Transport 仍可直接注入。
+
+### Fixed
+
+- Anthropic 兼容流允许 `message_delta` 先于当前 `content_block_stop` 到达，同时继续拒绝语义结束后的参数 delta。
+- Anthropic 显式 `disabled` reasoning 在没有模型 profile 时直接映射为 `thinking.type = disabled`；开启思考仍要求 Host profile。
+
 ## [0.2.0-alpha.28] - 2026-11-01
 
 本版将思考请求统一为 `BoneInferenceReasoningSelection` 和 Host profile 映射，移除旧的 `mode` / `effort` / `budgetTokens` 请求入口；当前未有上线接入方，调用方应直接迁移到 selection API。属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
