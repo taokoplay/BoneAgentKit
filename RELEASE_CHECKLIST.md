@@ -151,3 +151,13 @@ Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布�
 - 本地 SDK 已完成 660 项默认与严格测试，四库 Simulator Release、独立 fixture 和无网络 Provider dry-run；详细环境与证据边界见上节。
 - Host 的真实 Debug/Release、持久层冻结基线由调用方在更新后执行；最低 Swift 5.9、真实 Provider、资源权利与生产签发门禁继续保留未完成状态。
 - 不将未跟踪本地目录和构建缓存纳入提交。要求完全干净源码的 Host 应使用 tag 的独立检出，不复用含本地产物的开发目录。
+
+## Alpha.27 Anthropic 流式截断修复版签发范围（2026-11-01）
+
+本轮准备预发布 tag `0.2.0-alpha.27`，版本准备提交为 `9bffff2`；不创建 GitHub Release，不自动推送远端。最终 tag 解引用以本地创建后的核验结果为准。
+
+- Anthropic 普通文本真实流式响应在 `max_tokens` / `max_output_tokens` 时保留已生成文本并标记 `BoneInferenceFinishReason.length`；非流式、Tool Call、结构化输出和 thinking continuation 继续严格拒绝不完整终态。
+- `assistantTurn` Provider usage 继续进入 Agent 模型快照，避免用量丢失。
+- 全量 `swift test`：796 项通过；Swift strict concurrency + warnings-as-errors 构建通过；公开文档检查和 `git diff --check` 通过。
+- 未调用真实付费 Provider；真实 Anthropic/OpenAI/Gemini Smoke、生产 Host Debug/Release、最低 Swift 5.9、真机和许可证/资源权利验收仍由调用方完成。
+- `.proma/`、验证日志和构建缓存不进入提交。
