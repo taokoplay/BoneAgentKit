@@ -437,7 +437,15 @@ public enum BoneInferenceResponse: Codable, Equatable, Sendable {
         switch self {
         case .finish(let value): return .finish(.init(text: value.text, usage: usage ?? value.usage))
         case .structured(let value): return .structured(.init(data: value.data, usage: usage ?? value.usage))
-        default: return self
+        case let .assistantTurn(turn, finishReason, currentUsage, refusal, providerContinuation):
+            return .assistantTurn(
+                turn: turn,
+                finishReason: finishReason,
+                usage: usage ?? currentUsage,
+                refusal: refusal,
+                providerContinuation: providerContinuation
+            )
+        case .toolCall: return self
         }
     }
 

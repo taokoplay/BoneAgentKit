@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Anthropic 普通文本的非流式和流式聚合器在 `stop_reason = max_tokens` / `max_output_tokens` 时返回已生成文本与 `BoneInferenceFinishReason.length`；不再把可展示的文本整体拒绝。
+- Anthropic 普通文本的流式聚合器在 `stop_reason = max_tokens` / `max_output_tokens` 时返回已生成文本与 `BoneInferenceFinishReason.length`；非流式调用继续保持原有截断拒绝语义。
 - Anthropic Tool Call、结构化输出和 thinking continuation 继续要求完整终态，半截参数或结果仍 fail closed。
 
 ### Verification

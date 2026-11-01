@@ -74,7 +74,11 @@ public enum BoneAnthropicResponseAggregator {
     }
 
     public static func nonStreamingText(from json: [String: Any]) throws -> String {
-        try nonStreamingResult(from: json).text
+        let result = try nonStreamingResult(from: json)
+        guard result.finishReason != .length else {
+            throw BoneInferenceTransportError.outputTruncated
+        }
+        return result.text
     }
 
     public static func streamingText(
