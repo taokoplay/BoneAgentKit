@@ -61,7 +61,7 @@ let request = BoneInferenceRequest(
     messages: [.init(role: .user, content: "请检查这条记录")],
     generationOptions: .init(
         maximumOutputTokens: 4_096,
-        reasoning: .init(mode: .enabled, effort: "high")
+        reasoning: .init(selection: .level(.high))
     )
 )
 ```
@@ -95,7 +95,7 @@ let profile = BoneInferenceReasoningProfile(
 )
 ```
 
-`providerDefault` 不发送任何思考覆盖字段，`disabled` 明确关闭，`level` 按 profile 映射。请求等级不在 profile 支持集合时，SDK 按统一等级顺序选择最近的已支持等级；没有可用映射时 fail closed。新 selection 不能与旧的 `mode`、`effort` 或 `budgetTokens` 同时使用。旧构造方式继续有效，适合已经直接使用 Provider effort 或 budget 的 Host。
+`providerDefault` 不发送任何思考覆盖字段，`disabled` 明确关闭，`level` 按 profile 映射。请求等级不在 profile 支持集合时，SDK 按统一等级顺序选择最近的已支持等级；没有可用映射时 fail closed。统一 selection 是当前唯一公开的请求入口；Provider 的具体 effort/budget 只保留在 profile 内部映射中。
 
 统一等级只描述用户意图，不授予 Provider 能力。profile 仍必须绑定确切模型、协议和端点；模型目录的 `reasoning=true` 不会自动生成 profile，也不会自动发送字段。
 
@@ -117,9 +117,9 @@ OpenAI Responses API、`reasoning_details`、Anthropic beta header 和 Gemini �
 ## 校验与错误边界
 
 - reasoning 只有在 `BoneInferenceReasoningProfile` 存在时才可显式发送；未知模型不会因名称相似而推断协议。
-- `mode`、`effort`、`budgetTokens`、`temperature` 和协议格式在构造 URLRequest 前检查；非法组合抛出 `BoneInferenceReasoningConfigurationError`，不静默删除参数。
+- `selection`、`temperature` 和协议格式在构造 URLRequest 前检查；非法组合抛出 `BoneInferenceReasoningConfigurationError`，不静默删除参数。
 - metadata 的 `false` 只能收紧能力；metadata 的 `true` 或缺省值不能授予 Tool Calling、结构化输出、约束输出或固定 token 限制。
-- 旧的 `serverReasoning` 行为仍保留兼容路径；如果同时传入显式 reasoning 与互相冲突的 legacy 设置，则失败而不是选择一方。
+- `serverReasoning` 与显式 `selection` 不能同时配置；冲突会在发送前失败。
 - Llama 和其它没有实现该 wire 的引擎对显式 reasoning fail closed。
 
 ## OpenAI / Anthropic continuation

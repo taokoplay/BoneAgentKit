@@ -93,7 +93,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
         if serverReasoning != .providerDefault, request.generationOptions.reasoning != nil {
-            throw BoneInferenceReasoningConfigurationError.conflictingLegacySetting
+            throw BoneInferenceReasoningConfigurationError.conflictingServerReasoningSetting
         }
         if let profile = modelReasoningProfiles[request.modelID],
            profile.continuation != .none && profile.continuation != .reasoningContent {
@@ -452,7 +452,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             "messages": messages,
         ]
         if serverReasoning != .providerDefault, inferenceRequest.generationOptions.reasoning != nil {
-            throw BoneInferenceReasoningConfigurationError.conflictingLegacySetting
+            throw BoneInferenceReasoningConfigurationError.conflictingServerReasoningSetting
         }
         if serverReasoning == .enabled {
             body["chat_template_kwargs"] = ["enable_thinking": true]

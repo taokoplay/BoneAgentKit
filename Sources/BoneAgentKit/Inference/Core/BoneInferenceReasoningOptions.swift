@@ -19,38 +19,22 @@ public enum BoneInferenceReasoningSelection: Codable, Equatable, Sendable {
     case level(BoneInferenceThinkingLevel)
 }
 
-/// 生成策略，与 reasoningDisclosure（展示策略）独立。nil 选项保留服务端默认行为。
-public struct BoneInferenceReasoningOptions: Codable, Equatable, Sendable {
-    public enum Mode: String, Codable, Sendable { case enabled, disabled, adaptive }
-    public let mode: Mode?
-    public let effort: String?
-    /// -1 仅在显式配置允许的 Gemini 动态预算中使用。
-    public let budgetTokens: Int?
-    /// 可选的统一用户层思考选择；省略时使用旧的 mode/effort/budgetTokens 语义。
-    public let selection: BoneInferenceReasoningSelection?
+/// Provider profile 支持的请求模式；不是用户请求入口。
+public enum BoneInferenceReasoningMode: String, Codable, Sendable {
+    case enabled
+    case disabled
+    case adaptive
+}
 
-    public init(
-        mode: Mode? = nil,
-        effort: String? = nil,
-        budgetTokens: Int? = nil,
-        selection: BoneInferenceReasoningSelection? = nil
-    ) {
-        self.mode = mode
-        self.effort = effort
-        self.budgetTokens = budgetTokens
+/// 生成策略，与 reasoningDisclosure（展示策略）独立。
+public struct BoneInferenceReasoningOptions: Codable, Equatable, Sendable {
+    public let selection: BoneInferenceReasoningSelection
+
+    public init(selection: BoneInferenceReasoningSelection) {
         self.selection = selection
     }
 
-    public func validated() throws -> Self {
-        guard selection != nil || mode != nil || effort != nil || budgetTokens != nil,
-              effort.map({ !$0.isEmpty && $0.count <= 32 && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") } }) != false,
-              budgetTokens.map({ $0 >= -1 }) != false,
-              mode != .disabled || (effort == nil && budgetTokens == nil),
-              selection == nil || (mode == nil && effort == nil && budgetTokens == nil) else {
-            throw BoneInferenceReasoningConfigurationError.invalidOptions
-        }
-        return self
-    }
+    public func validated() throws -> Self { self }
 }
 
 public enum BoneInferenceReasoningConfigurationError: Error, Equatable, Sendable {
@@ -62,7 +46,7 @@ public enum BoneInferenceReasoningConfigurationError: Error, Equatable, Sendable
     case incompatibleProtocol
     case incompatibleOptions
     case temperatureUnsupported
-    case conflictingLegacySetting
+    case conflictingServerReasoningSetting
     case metadataMismatch
 }
 
@@ -85,12 +69,12 @@ public struct BoneInferenceReasoningProfile: Equatable, Sendable {
         case anthropicThinking
     }
     public let wireFormat: WireFormat
-    public let modes: Set<BoneInferenceReasoningOptions.Mode>
+    public let modes: Set<BoneInferenceReasoningMode>
     public let effortValues: Set<String>
     public let budgetRange: ClosedRange<Int>?
     public let allowsTemperature: Bool
     public let continuation: Continuation
-    /// profile 明确支持的统一思考等级；为空时保持旧 profile 的 effort/budget 入口兼容。
+    /// profile 明确支持的统一思考等级；为空时不提供 canonical level 映射。
     public let supportedLevels: Set<BoneInferenceThinkingLevel>
     /// 统一思考等级到 Provider effort/level 字符串的映射。
     public let levelMap: [BoneInferenceThinkingLevel: String]
@@ -99,7 +83,7 @@ public struct BoneInferenceReasoningProfile: Equatable, Sendable {
 
     public init(
         wireFormat: WireFormat,
-        modes: Set<BoneInferenceReasoningOptions.Mode> = [],
+        modes: Set<BoneInferenceReasoningMode> = [],
         effortValues: Set<String> = [],
         budgetRange: ClosedRange<Int>? = nil,
         allowsTemperature: Bool = false,

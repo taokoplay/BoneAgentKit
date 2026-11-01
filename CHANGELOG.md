@@ -4,17 +4,26 @@
 
 ## [Unreleased]
 
-本阶段新增统一思考等级选择与 Provider profile 映射；兼容旧的 `mode` / `effort` / `budgetTokens` 请求方式。
+## [0.2.0-alpha.28] - 2026-11-01
 
-### Added
+本版将思考请求统一为 `BoneInferenceReasoningSelection` 和 Host profile 映射，移除旧的 `mode` / `effort` / `budgetTokens` 请求入口；当前未有上线接入方，调用方应直接迁移到 selection API。属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
 
-- 新增 `BoneInferenceThinkingLevel` 与 `BoneInferenceReasoningSelection`，支持 `providerDefault`、`disabled` 和 profile 驱动的 `level`。
-- `BoneInferenceReasoningProfile` 新增 supported levels、effort 映射和 budget 映射；不完整或未核验映射继续 fail closed。
+### Changed
+
+- `BoneInferenceReasoningOptions` 现在只接受 `providerDefault`、`disabled` 或 profile 驱动的 `level`。
+- Provider 内部使用经过校验的 private resolved value 生成 mode/effort/budget，不再暴露这些请求字段。
+- `BoneInferenceReasoningProfile` 支持 `supportedLevels`、`levelMap` 和 `budgetByLevel`；等级按 profile 做最近值 clamp，没有映射时 fail closed。
+- OpenAI server reasoning 冲突错误改为 `conflictingServerReasoningSetting`。
+
+### Migration
+
+- 将 `reasoning: .init(mode: ..., effort: ..., budgetTokens: ...)` 改为 `reasoning: .init(selection: .level(...))`、`.init(selection: .disabled)` 或 `.init(selection: .providerDefault)`。
+- 为每个模型 profile 补充 `supportedLevels`、`levelMap` 或 `budgetByLevel`。
+- 旧 reasoning JSON 不会静默迁移，调用方应在升级前转换。
 
 ### Verification
 
 - 全量 `swift test`、strict concurrency + warnings-as-errors、公开文档检查与 `git diff --check` 通过。
-
 
 ## [0.2.0-alpha.27] - 2026-11-01
 

@@ -4,6 +4,14 @@ import Foundation
 enum BoneInferenceReasoningRequestSupport {
     enum Wire { case openAI, anthropic, gemini }
 
+    private struct ResolvedOptions: Sendable {
+        let mode: BoneInferenceReasoningMode
+        let effort: String?
+        let budgetTokens: Int?
+
+        var isActive: Bool { mode != .disabled }
+    }
+
     static func resolved(
         _ capabilities: Set<BoneInferenceCapability>,
         request: BoneInferenceRequest,
@@ -31,8 +39,8 @@ enum BoneInferenceReasoningRequestSupport {
             if declared.temperature == false, request.generationOptions.temperature != nil {
                 throw BoneInferenceReasoningConfigurationError.temperatureUnsupported
             }
-            if let rawOptions = request.generationOptions.reasoning, !isProviderDefault(rawOptions) {
-                let options = try normalizedOptions(rawOptions, profile: profile, wire: wire)
+            if let rawOptions = request.generationOptions.reasoning,
+               let options = try normalizedOptions(rawOptions, profile: profile) {
                 if declared.reasoning == false {
                     throw BoneInferenceReasoningConfigurationError.unsupportedMode
                 }
@@ -53,7 +61,7 @@ enum BoneInferenceReasoningRequestSupport {
         }
         if let rawOptions = request.generationOptions.reasoning {
             _ = try rawOptions.validated()
-            if !isProviderDefault(rawOptions) {
+            if try normalizedOptions(rawOptions, profile: profile) != nil {
                 _ = try fields(
                     request: request,
                     profile: profile,
@@ -71,11 +79,6 @@ enum BoneInferenceReasoningRequestSupport {
         case .anthropic: return .anthropic
         case .gemini: return .gemini
         }
-    }
-
-    private static func isProviderDefault(_ options: BoneInferenceReasoningOptions) -> Bool {
-        if case .some(.providerDefault) = options.selection { return true }
-        return false
     }
 
     private static func mappedEffort(
@@ -107,40 +110,40 @@ enum BoneInferenceReasoningRequestSupport {
 
     private static func normalizedOptions(
         _ options: BoneInferenceReasoningOptions,
-        profile: BoneInferenceReasoningProfile?,
-        wire: Wire
-    ) throws -> BoneInferenceReasoningOptions {
-        guard let selection = options.selection else { return options }
-        switch selection {
+        profile: BoneInferenceReasoningProfile?
+    ) throws -> ResolvedOptions? {
+        switch options.selection {
         case .providerDefault:
-            return .init(selection: .providerDefault)
+            return nil
         case .disabled:
-            return .init(mode: .disabled)
-        case .level(let level):
+            return .init(mode: .disabled, effort: nil, budgetTokens: nil)
+        case .level(let requestedLevel):
             guard let profile else { throw BoneInferenceReasoningConfigurationError.missingProfile }
-            let level = try clampedLevel(level, profile: profile)
-            if level == .off { return .init(mode: .disabled) }
+            let level = try clampedLevel(requestedLevel, profile: profile)
+            if level == .off {
+                return .init(mode: .disabled, effort: nil, budgetTokens: nil)
+            }
             switch profile.wireFormat {
             case .anthropicBudget, .enableThinking, .geminiBudget:
                 guard let budget = profile.budgetByLevel[level] else {
                     throw BoneInferenceReasoningConfigurationError.unsupportedBudget
                 }
-                return .init(mode: .enabled, budgetTokens: budget)
+                return .init(mode: .enabled, effort: nil, budgetTokens: budget)
             case .anthropicAdaptive:
                 guard let effort = mappedEffort(level, profile: profile) else {
                     throw BoneInferenceReasoningConfigurationError.unsupportedEffort
                 }
-                return .init(mode: .adaptive, effort: effort)
+                return .init(mode: .adaptive, effort: effort, budgetTokens: nil)
             case .geminiLevel:
                 guard let effort = mappedEffort(level, profile: profile) else {
                     throw BoneInferenceReasoningConfigurationError.unsupportedEffort
                 }
-                return .init(effort: effort)
+                return .init(mode: .enabled, effort: effort, budgetTokens: nil)
             case .openAIChat, .thinkingType, .anthropicCompatible:
                 guard let effort = mappedEffort(level, profile: profile) else {
                     throw BoneInferenceReasoningConfigurationError.unsupportedEffort
                 }
-                return .init(mode: .enabled, effort: effort)
+                return .init(mode: .enabled, effort: effort, budgetTokens: nil)
             }
         }
     }
@@ -153,11 +156,10 @@ enum BoneInferenceReasoningRequestSupport {
     ) throws -> [String: Any] {
         guard let rawOptions = request.generationOptions.reasoning else { return [:] }
         _ = try rawOptions.validated()
-        if isProviderDefault(rawOptions) { return [:] }
-        let options = try normalizedOptions(rawOptions, profile: profile, wire: wire)
+        guard let options = try normalizedOptions(rawOptions, profile: profile) else { return [:] }
         guard let profile else { throw BoneInferenceReasoningConfigurationError.missingProfile }
         try profile.validated(for: requestWire(wire))
-        if let mode = options.mode, !profile.modes.contains(mode) {
+        guard profile.modes.contains(options.mode) else {
             throw BoneInferenceReasoningConfigurationError.unsupportedMode
         }
         if let effort = options.effort, !profile.effortValues.contains(effort) {
@@ -167,15 +169,13 @@ enum BoneInferenceReasoningRequestSupport {
             throw BoneInferenceReasoningConfigurationError.unsupportedBudget
         }
         if request.generationOptions.temperature != nil,
-           options.mode != .disabled, !profile.allowsTemperature {
+           options.isActive, !profile.allowsTemperature {
             throw BoneInferenceReasoningConfigurationError.temperatureUnsupported
         }
-        let active = options.mode != .disabled
         switch profile.wireFormat {
         case .openAIChat:
-            guard wire == .openAI else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.budgetTokens == nil, options.mode != .adaptive else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .openAI, options.budgetTokens == nil, options.mode != .adaptive else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
             if options.mode == .disabled {
                 guard profile.effortValues.contains("none") else {
@@ -186,40 +186,32 @@ enum BoneInferenceReasoningRequestSupport {
             guard let effort = options.effort else {
                 throw BoneInferenceReasoningConfigurationError.unsupportedEffort
             }
-            guard options.mode != .enabled || effort != "none" else {
+            guard effort != "none" else {
                 throw BoneInferenceReasoningConfigurationError.incompatibleOptions
             }
             return ["reasoning_effort": effort]
         case .thinkingType:
-            guard wire == .openAI else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.mode != .adaptive, options.budgetTokens == nil else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .openAI, options.mode != .adaptive, options.budgetTokens == nil else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            var fields: [String: Any] = [:]
-            if let mode = options.mode { fields["thinking"] = ["type": mode.rawValue] }
+            var fields: [String: Any] = ["thinking": ["type": options.mode.rawValue]]
             if let effort = options.effort { fields["reasoning_effort"] = effort }
             return fields
         case .enableThinking:
-            guard wire == .openAI else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.mode != .adaptive, options.effort == nil else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .openAI, options.mode != .adaptive, options.effort == nil else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            var fields: [String: Any] = [:]
-            if let mode = options.mode { fields["enable_thinking"] = mode == .enabled }
+            var fields: [String: Any] = ["enable_thinking": options.isActive]
             if let budget = options.budgetTokens {
                 guard budget >= 0 else { throw BoneInferenceReasoningConfigurationError.unsupportedBudget }
                 fields["thinking_budget"] = budget
             }
             return fields
         case .anthropicBudget:
-            guard wire == .anthropic else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.mode != .adaptive, options.effort == nil else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .anthropic, options.mode != .adaptive, options.effort == nil else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            if !active { return ["thinking": ["type": "disabled"]] }
-            guard profile.modes.contains(.enabled) else {
-                throw BoneInferenceReasoningConfigurationError.unsupportedMode
-            }
+            if !options.isActive { return ["thinking": ["type": "disabled"]] }
             guard let budget = options.budgetTokens, budget >= 1024,
                   budget < (request.generationOptions.maximumOutputTokens ?? 4096) else {
                 throw BoneInferenceReasoningConfigurationError.unsupportedBudget
@@ -227,48 +219,31 @@ enum BoneInferenceReasoningRequestSupport {
             guard !forcedTool else { throw BoneInferenceReasoningConfigurationError.incompatibleOptions }
             return ["thinking": ["type": "enabled", "budget_tokens": budget]]
         case .anthropicAdaptive:
-            guard wire == .anthropic else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.budgetTokens == nil, options.mode != .enabled else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .anthropic, options.budgetTokens == nil, options.mode != .enabled else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            if !active { return ["thinking": ["type": "disabled"]] }
-            guard profile.modes.contains(.adaptive) else {
-                throw BoneInferenceReasoningConfigurationError.unsupportedMode
-            }
+            if !options.isActive { return ["thinking": ["type": "disabled"]] }
             var fields: [String: Any] = ["thinking": ["type": "adaptive"]]
             if let effort = options.effort { fields["output_config"] = ["effort": effort] }
             return fields
         case .anthropicCompatible:
-            guard wire == .anthropic else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.budgetTokens == nil, options.mode != .adaptive else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .anthropic, options.budgetTokens == nil, options.mode != .adaptive else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            var fields: [String: Any] = [:]
-            if let mode = options.mode { fields["thinking"] = ["type": mode.rawValue] }
+            var fields: [String: Any] = ["thinking": ["type": options.mode.rawValue]]
             if let effort = options.effort { fields["output_config"] = ["effort": effort] }
             return fields
         case .geminiBudget:
-            guard wire == .gemini else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.effort == nil, options.mode != .adaptive else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+            guard wire == .gemini, options.effort == nil, options.mode != .adaptive else {
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
-            let budget: Int
-            if !active { budget = 0 }
-            else if let value = options.budgetTokens { budget = value }
-            else { budget = -1 }
-            guard profile.budgetRange?.contains(budget) == true else {
-                throw BoneInferenceReasoningConfigurationError.unsupportedBudget
-            }
-            guard options.mode != .enabled || budget != 0 else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
-            }
+            let budget = options.isActive ? (options.budgetTokens ?? -1) : 0
             return ["thinkingConfig": ["thinkingBudget": budget]]
         case .geminiLevel:
-            guard wire == .gemini else { throw BoneInferenceReasoningConfigurationError.incompatibleProtocol }
-            guard options.budgetTokens == nil, options.mode == nil,
+            guard wire == .gemini, options.budgetTokens == nil,
                   let effort = options.effort,
                   ["minimal", "low", "medium", "high"].contains(effort) else {
-                throw BoneInferenceReasoningConfigurationError.incompatibleOptions
+                throw BoneInferenceReasoningConfigurationError.incompatibleProtocol
             }
             return ["thinkingConfig": ["thinkingLevel": effort.uppercased()]]
         }
