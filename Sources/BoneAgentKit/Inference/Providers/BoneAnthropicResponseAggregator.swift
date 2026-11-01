@@ -2,18 +2,25 @@ import Foundation
 
 /// 聚合 Anthropic Messages 完整响应和 SSE 事件，不保留原始载荷。
 public enum BoneAnthropicResponseAggregator {
-    /// 命中表示输出预算耗尽的 stop_reason 集合；只拦截明确截断，未知原因保持宽容。
-    static let truncationStopReasons: Set<String> = ["max_tokens", "max_output_tokens"]
+    public struct TextResult: Equatable, Sendable {
+        public let text: String
+        public let finishReason: BoneInferenceFinishReason
 
-    public static func nonStreamingText(from json: [String: Any]) throws -> String {
+        public init(text: String, finishReason: BoneInferenceFinishReason) {
+            self.text = text
+            self.finishReason = finishReason
+        }
+    }
+
+    public static func nonStreamingResult(from json: [String: Any]) throws -> TextResult {
         guard let reason = json["stop_reason"] as? String else {
             throw BoneInferenceTransportError.invalidResponse
         }
-        if truncationStopReasons.contains(reason) {
-            throw BoneInferenceTransportError.outputTruncated
-        }
-        guard ["end_turn", "stop_sequence"].contains(reason) else {
-            throw BoneInferenceTransportError.invalidResponse
+        let finishReason: BoneInferenceFinishReason
+        switch reason {
+        case "max_tokens", "max_output_tokens": finishReason = .length
+        case "end_turn", "stop_sequence": finishReason = .stop
+        default: throw BoneInferenceTransportError.invalidResponse
         }
         let blocks = json["content"] as? [[String: Any]] ?? []
         let text = blocks.compactMap { block -> String? in
@@ -23,14 +30,15 @@ public enum BoneAnthropicResponseAggregator {
             return value
         }.joined(separator: "\n")
         guard !text.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
-        return text
+        return .init(text: text, finishReason: finishReason)
     }
 
-    public static func streamingText(
+    public static func streamingResult(
         from events: [BoneInferenceEventStreamEvent]
-    ) throws -> String {
+    ) throws -> TextResult {
         var text = ""
         var completed = false
+        var finishReason: BoneInferenceFinishReason?
         for event in events {
             guard let object = try? JSONSerialization.jsonObject(with: Data(event.data.utf8)),
                   let json = object as? [String: Any],
@@ -47,9 +55,12 @@ public enum BoneAnthropicResponseAggregator {
             if type == "ping" { continue }
             if type == "message_delta",
                let delta = json["delta"] as? [String: Any],
-               let reason = delta["stop_reason"] as? String,
-               truncationStopReasons.contains(reason) {
-                throw BoneInferenceTransportError.outputTruncated
+               let reason = delta["stop_reason"] as? String {
+                switch reason {
+                case "max_tokens", "max_output_tokens": finishReason = .length
+                case "end_turn", "stop_sequence": finishReason = .stop
+                default: throw BoneInferenceTransportError.invalidResponse
+                }
             }
             if type == "content_block_delta",
                let delta = json["delta"] as? [String: Any],
@@ -59,6 +70,16 @@ public enum BoneAnthropicResponseAggregator {
             }
         }
         guard completed, !text.isEmpty else { throw BoneInferenceTransportError.invalidResponse }
-        return text
+        return .init(text: text, finishReason: finishReason ?? .stop)
+    }
+
+    public static func nonStreamingText(from json: [String: Any]) throws -> String {
+        try nonStreamingResult(from: json).text
+    }
+
+    public static func streamingText(
+        from events: [BoneInferenceEventStreamEvent]
+    ) throws -> String {
+        try streamingResult(from: events).text
     }
 }

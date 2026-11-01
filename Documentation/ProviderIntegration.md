@@ -455,6 +455,7 @@ Host 应在启动 Agent 前查询支持情况。
 
 OpenAI-compatible 流式请求统一发送 `stream_options.include_usage=true`；不支持该字段的兼容网关可在 Engine 构造时显式传 `requestsStreamingUsage: false`，不请求用量但仍保留实际返回的 usage。SDK 不因拒绝而自动重试已提交的推理。usage chunk 按累计值保留，不累加重复 chunk。`finish_reason:null` 是中间状态，不发出工具或推理完成事件。
 
+Anthropic 普通文本的 `streamingText` 与 `streamingResult` 会在收到 `message_stop` 后交付已生成文本；`stop_reason` 为 `max_tokens` 或 `max_output_tokens` 时将终止原因映射为 `BoneInferenceFinishReason.length`，不丢弃已经收到的文本。该语义只适用于普通文本。Tool Call、结构化输出和 thinking continuation 仍要求完整、可验证的终态，半截 JSON、参数或 opaque continuation 继续 fail closed。
 SSE Framer 支持 LF、CRLF 和单 CR 换行，包括跨 chunk 的 CR/LF；EOF 仍不能替代缺失的空行结束符。
 
 

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+本次修复 Anthropic 普通文本流式响应在输出预算耗尽时的处理：保留已生成内容并标记 `length`，同时继续对 Tool Call 与结构化输出执行完整性校验。
+
+### Changed
+
+- Anthropic 普通文本的非流式和流式聚合器在 `stop_reason = max_tokens` / `max_output_tokens` 时返回已生成文本与 `BoneInferenceFinishReason.length`；不再把可展示的文本整体拒绝。
+- Anthropic Tool Call、结构化输出和 thinking continuation 继续要求完整终态，半截参数或结果仍 fail closed。
+
+### Verification
+
+- Anthropic 聚合器、reasoning disclosure 与 server reasoning 定向测试：21 项通过。
+- 结构化输出与 Anthropic Tool 相关定向测试：22 项通过。
+
 ## [0.2.0-alpha.26] - 2026-10-24
 
 本版为 Provider 目录错误补充本地化文案：目录解码或校验失败时直接说明供应商与字段，不再只显示 `BoneInferenceProviderCatalog.Error 错误 N`；属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。

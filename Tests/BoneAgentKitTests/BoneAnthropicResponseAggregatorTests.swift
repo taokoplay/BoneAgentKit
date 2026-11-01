@@ -2,44 +2,38 @@ import Foundation
 import XCTest
 @testable import BoneAgentKit
 
-/// Anthropic 聚合器在 stop_reason 显示输出预算耗尽时必须显式失败，禁止静默交付半截正文。
+/// Anthropic 普通文本在预算耗尽时保留已生成内容，并显式标记 length；Tool/结构化路径另行严格拒绝。
 final class BoneAnthropicResponseAggregatorTests: XCTestCase {
     private func event(_ name: String, _ payload: String) -> BoneInferenceEventStreamEvent {
         BoneInferenceEventStreamEvent(event: name, id: nil, data: payload)
     }
 
-    func testStreamingMaxTokensStopReasonThrowsOutputTruncated() {
-        let partialText = "{\\\"characters\\\":["
+    func testStreamingMaxTokensStopReasonReturnsPartialTextAndLength() throws {
+        let partialJSON = "{\\\"characters\\\":["
         let events = [
-            event(
-                "message_start",
-                "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\"}}"
-            ),
-            event(
-                "content_block_delta",
-                "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\(partialText)\"}}"
-            ),
-            event(
-                "message_delta",
-                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null}}"
-            ),
+            event("message_start", "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\"}}"),
+            event("content_block_delta", "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\(partialJSON)\"}}"),
+            event("message_delta", "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null}}"),
             event("message_stop", "{\"type\":\"message_stop\"}"),
         ]
-        XCTAssertThrowsError(try BoneAnthropicResponseAggregator.streamingText(from: events)) { error in
-            XCTAssertEqual(error as? BoneInferenceTransportError, .outputTruncated)
-        }
+        let result = try BoneAnthropicResponseAggregator.streamingResult(from: events)
+        XCTAssertEqual(result.text, "{\"characters\":[")
+        XCTAssertEqual(result.finishReason, .length)
+    }
+
+    func testStreamingTextCompatibilityAPIReturnsPartialTextOnMaxTokens() throws {
+        let events = [
+            event("content_block_delta", "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}"),
+            event("message_delta", "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}"),
+            event("message_stop", "{\"type\":\"message_stop\"}"),
+        ]
+        XCTAssertEqual(try BoneAnthropicResponseAggregator.streamingText(from: events), "partial")
     }
 
     func testStreamingEndTurnStillDeliversText() throws {
         let events = [
-            event(
-                "content_block_delta",
-                "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"{}\"}}"
-            ),
-            event(
-                "message_delta",
-                "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}}"
-            ),
+            event("content_block_delta", "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"{}\"}}"),
+            event("message_delta", "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}}"),
             event("message_stop", "{\"type\":\"message_stop\"}"),
         ]
         XCTAssertEqual(try BoneAnthropicResponseAggregator.streamingText(from: events), "{}")
@@ -47,26 +41,20 @@ final class BoneAnthropicResponseAggregatorTests: XCTestCase {
 
     func testStreamingMissingStopReasonKeepsLegacyLenientBehavior() throws {
         let events = [
-            event(
-                "content_block_delta",
-                "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}"
-            ),
+            event("content_block_delta", "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}"),
             event("message_stop", "{\"type\":\"message_stop\"}"),
         ]
         XCTAssertEqual(try BoneAnthropicResponseAggregator.streamingText(from: events), "ok")
     }
 
-    func testNonStreamingMaxTokensTopLevelStopReasonThrowsOutputTruncated() {
+    func testNonStreamingMaxTokensReturnsPartialTextAndLength() throws {
         let json: [String: Any] = [
             "stop_reason": "max_tokens",
-            "content": [[
-                "type": "text",
-                "text": "{\"characters\":[",
-            ]],
+            "content": [["type": "text", "text": "partial"]],
         ]
-        XCTAssertThrowsError(try BoneAnthropicResponseAggregator.nonStreamingText(from: json)) { error in
-            XCTAssertEqual(error as? BoneInferenceTransportError, .outputTruncated)
-        }
+        let result = try BoneAnthropicResponseAggregator.nonStreamingResult(from: json)
+        XCTAssertEqual(result.text, "partial")
+        XCTAssertEqual(result.finishReason, .length)
     }
 
     func testNonStreamingEndTurnDeliversText() throws {

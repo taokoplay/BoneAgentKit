@@ -161,8 +161,13 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                     // checked before opaque thinking blocks are replayed on the next request.
                     finalResponse = try parseAnthropicToolResponse(json, definitions: [])
                 } else {
-                    finalResponse = .finish(
-                        .init(text: try BoneAnthropicResponseAggregator.nonStreamingText(from: json))
+                    let textResult = try BoneAnthropicResponseAggregator.nonStreamingResult(from: json)
+                    finalResponse = try .assistantTurn(
+                        turn: BoneInferenceAssistantTurn(content: [.text(textResult.text)]),
+                        finishReason: textResult.finishReason,
+                        usage: nil,
+                        refusal: nil,
+                        providerContinuation: nil
                     )
                 }
             } else {
@@ -322,8 +327,13 @@ public struct BoneAnthropicInferenceEngine: BoneInferenceEngine, BoneInferenceBu
                         definitions: []
                     )
                 } else {
-                    finalResponse = .finish(
-                        .init(text: try BoneAnthropicResponseAggregator.streamingText(from: response.events))
+                    let textResult = try BoneAnthropicResponseAggregator.streamingResult(from: response.events)
+                    finalResponse = try .assistantTurn(
+                        turn: BoneInferenceAssistantTurn(content: [.text(textResult.text)]),
+                        finishReason: textResult.finishReason,
+                        usage: nil,
+                        refusal: nil,
+                        providerContinuation: nil
                     )
                 }
             }
