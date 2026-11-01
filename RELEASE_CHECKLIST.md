@@ -161,3 +161,12 @@ Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布�
 - 全量 `swift test`：796 项通过；Swift strict concurrency + warnings-as-errors 构建通过；公开文档检查和 `git diff --check` 通过。
 - 未调用真实付费 Provider；真实 Anthropic/OpenAI/Gemini Smoke、生产 Host Debug/Release、最低 Swift 5.9、真机和许可证/资源权利验收仍由调用方完成。
 - `.proma/`、验证日志和构建缓存不进入提交。
+
+## Alpha.28 selection-only reasoning 版签发范围（2026-11-01）
+
+本轮准备预发布 tag `0.2.0-alpha.28`，版本准备提交为 `9b00da0`；不创建 GitHub Release，不自动推送远端。最终 tag 解引用以本地创建后的核验结果为准。
+
+- 本版移除 `BoneInferenceReasoningOptions` 的公开 `mode`、`effort`、`budgetTokens` 请求字段，统一使用 `BoneInferenceReasoningSelection` 与 Host profile 映射；Provider 内部使用 private resolved type。
+- 全量 `swift test`：799 项通过；Swift strict concurrency + warnings-as-errors 构建通过；`BoneAgentKitVersionTests`、公开文档检查和 `git diff --check` 通过。
+- 未调用真实付费 Provider；真实 Anthropic/OpenAI/Gemini Smoke、生产 Host Debug/Release、最低 Swift 5.9、真机和许可证/资源权利验收仍由调用方完成。
+- `.proma/`、验证日志和构建缓存不进入提交。
