@@ -4,17 +4,22 @@
 
 ## [Unreleased]
 
-本次修复 Anthropic 普通文本流式响应在输出预算耗尽时的处理：保留已生成内容并标记 `length`，同时继续对 Tool Call 与结构化输出执行完整性校验。
+## [0.2.0-alpha.27] - 2026-11-01
+
+本版修复 Anthropic 普通文本真实流式响应在输出预算耗尽时的处理：保留已生成文本并标记 `length`；非流式调用、Tool Call 与结构化输出继续严格拒绝不完整终态。另修复 `assistantTurn` Provider usage 在 Agent 快照路径中的保留。属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
 
 ### Changed
 
-- Anthropic 普通文本的流式聚合器在 `stop_reason = max_tokens` / `max_output_tokens` 时返回已生成文本与 `BoneInferenceFinishReason.length`；非流式调用继续保持原有截断拒绝语义。
-- Anthropic Tool Call、结构化输出和 thinking continuation 继续要求完整终态，半截参数或结果仍 fail closed。
+- Anthropic 普通文本流式聚合器在 `stop_reason = max_tokens` / `max_output_tokens` 时返回已生成文本与 `BoneInferenceFinishReason.length`。
+- 非流式调用继续保持原有截断拒绝语义；Tool Call、结构化输出和 thinking continuation 继续要求完整终态。
+- `BoneInferenceResponse.retainingUsage` 为 `assistantTurn` 保留 Provider usage，避免 Agent 模型快照丢失用量。
 
 ### Verification
 
-- Anthropic 聚合器、reasoning disclosure 与 server reasoning 定向测试：21 项通过。
-- 结构化输出与 Anthropic Tool 相关定向测试：22 项通过。
+- 全量 `swift test`：796 项通过。
+- Swift strict concurrency + warnings-as-errors 构建通过。
+- 公开文档检查与 `git diff --check` 通过。
+- 未调用真实付费 Provider；真实 Host、最低 Swift 5.9、真机和生产验收仍需单独完成。
 
 ## [0.2.0-alpha.26] - 2026-10-24
 
