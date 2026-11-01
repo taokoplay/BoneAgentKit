@@ -60,6 +60,12 @@
 - Gemini 继续使用既有 `thoughtSignature` 机制；不与 OpenAI/Anthropic continuation 互换。
 - 详见 [模型元数据与思考参数](Documentation/ModelMetadataAndReasoning.md)。
 
+## Unreleased 统一思考等级
+
+- 新增 `BoneInferenceThinkingLevel`：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
+- 新增 `BoneInferenceReasoningSelection`：`providerDefault`、`disabled` 和 profile 驱动的 `level`；旧的 `mode`、`effort`、`budgetTokens` 入口继续兼容。
+- `BoneInferenceReasoningProfile` 新增 `supportedLevels`、`levelMap` 与 `budgetByLevel`；请求等级按 profile 的支持集合做最近等级选择，没有可用映射时拒绝，不根据 Provider 名称或目录 `reasoning=true` 猜测。
+
 ## Alpha.22 失败诊断
 
 - `BoneInferenceResponseDiagnostic` 新增归一化 `bodyKind` 与 `errorCategory`；仅白名单枚举，不含 Header、原始错误码或文案。

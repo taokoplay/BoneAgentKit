@@ -45,6 +45,87 @@ final class ReasoningConfigurationTests: XCTestCase {
         XCTAssertEqual((fields["thinkingConfig"] as? [String: String])?["thinkingLevel"], "LOW")
     }
 
+    func testCanonicalSelectionsMapByProfileAndKeepProviderDefaultEmpty() throws {
+        typealias S = BoneInferenceReasoningRequestSupport
+        let openAI = BoneInferenceReasoningProfile(
+            wireFormat: .openAIChat,
+            modes: [.enabled, .disabled],
+            effortValues: ["low", "high", "none"],
+            supportedLevels: [.low, .high],
+            levelMap: [.low: "low", .high: "high"]
+        )
+        let high = request(.init(selection: .level(.high)))
+        let fields = try S.fields(request: high, profile: openAI, wire: .openAI)
+        XCTAssertEqual(fields["reasoning_effort"] as? String, "high")
+
+        let defaultFields = try S.fields(
+            request: request(.init(selection: .providerDefault)),
+            profile: nil,
+            wire: .openAI
+        )
+        XCTAssertTrue(defaultFields.isEmpty)
+        let clamped = try S.fields(
+            request: request(.init(selection: .level(.medium))),
+            profile: openAI,
+            wire: .openAI
+        )
+        XCTAssertEqual(clamped["reasoning_effort"] as? String, "high")
+
+        let gemini = BoneInferenceReasoningProfile(
+            wireFormat: .geminiBudget,
+            modes: [.enabled, .disabled],
+            budgetRange: 0...32_000,
+            supportedLevels: [.low, .high],
+            budgetByLevel: [.low: 2_048, .high: 16_384]
+        )
+        let lowFields = try S.fields(
+            request: request(.init(selection: .level(.low))),
+            profile: gemini,
+            wire: .gemini
+        )
+        XCTAssertEqual((lowFields["thinkingConfig"] as? [String: Int])?["thinkingBudget"], 2_048)
+        let offFields = try S.fields(
+            request: request(.init(selection: .disabled)),
+            profile: gemini,
+            wire: .gemini
+        )
+        XCTAssertEqual((offFields["thinkingConfig"] as? [String: Int])?["thinkingBudget"], 0)
+    }
+
+    func testCanonicalSelectionRequiresProfileMappingAndCannotMixLegacyFields() throws {
+        typealias S = BoneInferenceReasoningRequestSupport
+        let profile = BoneInferenceReasoningProfile(
+            wireFormat: .openAIChat,
+            modes: [.enabled],
+            effortValues: [],
+            supportedLevels: [.high]
+        )
+        XCTAssertThrowsError(try S.fields(
+            request: request(.init(selection: .level(.high))),
+            profile: profile,
+            wire: .openAI
+        ))
+        XCTAssertThrowsError(try BoneInferenceReasoningOptions(
+            effort: "high",
+            selection: .level(.high)
+        ).validated())
+    }
+
+    func testCanonicalSelectionCodableRoundTrips() throws {
+        for selection in [
+            BoneInferenceReasoningSelection.providerDefault,
+            .disabled,
+            .level(.high),
+        ] {
+            let options = BoneInferenceReasoningOptions(selection: selection)
+            let decoded = try JSONDecoder().decode(
+                BoneInferenceReasoningOptions.self,
+                from: JSONEncoder().encode(options)
+            )
+            XCTAssertEqual(decoded, options)
+        }
+    }
+
     func testInvalidCombinationsFailRatherThanDowngrade() throws {
         typealias S = BoneInferenceReasoningRequestSupport
         XCTAssertThrowsError(try request(.init(mode: .disabled, effort: "high")).generationOptions.validated())

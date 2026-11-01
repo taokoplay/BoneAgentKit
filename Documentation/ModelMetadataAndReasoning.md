@@ -68,6 +68,37 @@ let request = BoneInferenceRequest(
 
 实际初始化器还需要传入与 Host 已验证结果对应的 `modelCapabilityProfiles`、上下文限制和可选 `modelMetadata`。示例 profile 不是对供应商成功率的承诺，也不包含凭据。
 
+## 统一思考等级与 Provider 映射
+
+Host 可以使用 `BoneInferenceReasoningSelection` 表达用户层意图，而不直接把 Provider 字符串暴露给 UI：
+
+```swift
+let request = BoneInferenceRequest(
+    modelID: "deepseek-v4-pro",
+    messages: [.init(role: .user, content: "请检查这条记录")],
+    generationOptions: .init(
+        reasoning: .init(selection: .level(.high))
+    )
+)
+```
+
+统一等级为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。实际可用等级、等级到 effort 的映射以及等级到 thinking budget 的映射必须由 `BoneInferenceReasoningProfile` 显式注入：
+
+```swift
+let profile = BoneInferenceReasoningProfile(
+    wireFormat: .anthropicBudget,
+    modes: [.enabled, .disabled],
+    budgetRange: 1_024 ... 32_000,
+    supportedLevels: [.low, .medium, .high],
+    budgetByLevel: [.low: 2_048, .medium: 8_192, .high: 16_384],
+    continuation: .anthropicThinking
+)
+```
+
+`providerDefault` 不发送任何思考覆盖字段，`disabled` 明确关闭，`level` 按 profile 映射。请求等级不在 profile 支持集合时，SDK 按统一等级顺序选择最近的已支持等级；没有可用映射时 fail closed。新 selection 不能与旧的 `mode`、`effort` 或 `budgetTokens` 同时使用。旧构造方式继续有效，适合已经直接使用 Provider effort 或 budget 的 Host。
+
+统一等级只描述用户意图，不授予 Provider 能力。profile 仍必须绑定确切模型、协议和端点；模型目录的 `reasoning=true` 不会自动生成 profile，也不会自动发送字段。
+
 ## wire 映射矩阵
 
 | profile wireFormat | 目标协议 | 请求字段 | 续接 | 说明 |

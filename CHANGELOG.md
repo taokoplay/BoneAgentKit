@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+本阶段新增统一思考等级选择与 Provider profile 映射；兼容旧的 `mode` / `effort` / `budgetTokens` 请求方式。
+
+### Added
+
+- 新增 `BoneInferenceThinkingLevel` 与 `BoneInferenceReasoningSelection`，支持 `providerDefault`、`disabled` 和 profile 驱动的 `level`。
+- `BoneInferenceReasoningProfile` 新增 supported levels、effort 映射和 budget 映射；不完整或未核验映射继续 fail closed。
+
+### Verification
+
+- 全量 `swift test`、strict concurrency + warnings-as-errors、公开文档检查与 `git diff --check` 通过。
+
+
 ## [0.2.0-alpha.27] - 2026-11-01
 
 本版修复 Anthropic 普通文本真实流式响应在输出预算耗尽时的处理：保留已生成文本并标记 `length`；非流式调用、Tool Call 与结构化输出继续严格拒绝不完整终态。另修复 `assistantTurn` Provider usage 在 Agent 快照路径中的保留。属于预发布 SDK，未完成真实 Provider、生产 Host 或真机验收，不代表生产准入。
