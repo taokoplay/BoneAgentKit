@@ -8,6 +8,8 @@ public enum BoneInferenceCapability: String, Codable, CaseIterable, Hashable, Se
     case toolCalling
     case streaming
     case imageGeneration
+    /// 原生图片输入；需 Provider 实现与精确模型视觉预算配置同时具备。
+    case imageInput
 }
 
 /// BoneInference 边界上的稳定错误。

@@ -28,7 +28,8 @@ public enum BoneContextWindowPlanner {
         configuredOutputTokens: Int?,
         preferredOutputTokens: Int?,
         protocolReserveTokens: Int = defaultProtocolReserveTokens,
-        safetyMarginTokens: Int? = nil
+        safetyMarginTokens: Int? = nil,
+        imageTokenEstimator: BoneInferenceImageTokenEstimator? = nil
     ) throws -> BoneContextWindowPlan {
         try plan(
             mandatoryMessages: mandatoryMessages,
@@ -37,7 +38,8 @@ public enum BoneContextWindowPlanner {
             configuredOutputTokens: configuredOutputTokens,
             preferredOutputTokens: preferredOutputTokens,
             protocolReserveTokens: protocolReserveTokens,
-            safetyMarginTokens: safetyMarginTokens
+            safetyMarginTokens: safetyMarginTokens,
+            imageTokenEstimator: imageTokenEstimator
         )
     }
 
@@ -48,7 +50,8 @@ public enum BoneContextWindowPlanner {
         configuredOutputTokens: Int?,
         preferredOutputTokens: Int?,
         protocolReserveTokens: Int = defaultProtocolReserveTokens,
-        safetyMarginTokens: Int? = nil
+        safetyMarginTokens: Int? = nil,
+        imageTokenEstimator: BoneInferenceImageTokenEstimator? = nil
     ) throws -> BoneContextWindowPlan {
         let capacity = try budget.availableInputTokens(
             configuredOutputTokens: configuredOutputTokens,
@@ -58,7 +61,7 @@ public enum BoneContextWindowPlanner {
         )
         let maximumOutputTokens = capacity.maximumOutputTokens
         let availableInputTokens = capacity.availableInputTokens
-        let mandatoryTokens = BoneTokenEstimator.estimateMessages(mandatoryMessages)
+        let mandatoryTokens = try BoneTokenEstimator.estimateMessages(mandatoryMessages, imageTokenEstimator: imageTokenEstimator)
         guard mandatoryTokens <= availableInputTokens else {
             throw BoneContextWindowError.inputTokensExceeded(
                 estimated: mandatoryTokens,
@@ -69,11 +72,20 @@ public enum BoneContextWindowPlanner {
         let historyLimit = availableInputTokens - mandatoryTokens
         var keptReversed: [BoneInferenceMessage] = []
         var historyTokens = 0
-        for message in history.reversed() {
-            let messageTokens = BoneTokenEstimator.estimateMessage(message)
-            guard historyTokens + messageTokens <= historyLimit else { break }
-            keptReversed.append(message)
-            historyTokens += messageTokens
+        let hasImages = (mandatoryMessages + history).contains { !$0.imageInputs.isEmpty }
+        let historyGroups: [[BoneInferenceMessage]]
+        if hasImages {
+            let segmented = try BoneContextTurn.split(history)
+            guard segmented.head.isEmpty else { throw BoneContextCompactionError.invalidHistory }
+            historyGroups = segmented.turns.map(\.messages)
+        } else {
+            historyGroups = history.map { [$0] }
+        }
+        for group in historyGroups.reversed() {
+            let groupTokens = try BoneTokenEstimator.estimateMessages(group, imageTokenEstimator: imageTokenEstimator)
+            guard groupTokens <= historyLimit - historyTokens else { break }
+            keptReversed.append(contentsOf: group.reversed())
+            historyTokens += groupTokens
         }
         let keptHistory = Array(keptReversed.reversed())
         let messages: [BoneInferenceMessage]
@@ -84,6 +96,7 @@ public enum BoneContextWindowPlanner {
         } else {
             messages = keptHistory + mandatoryMessages
         }
+        if hasImages { _ = try BoneContextTurn.split(messages) }
         return BoneContextWindowPlan(
             messages: messages,
             maximumOutputTokens: maximumOutputTokens,

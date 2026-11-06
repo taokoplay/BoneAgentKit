@@ -17,6 +17,50 @@ Package 提供独立 `BoneAgentTesting` Product，生产 `BoneAgentKit` Target �
 
 Fixture 不提供 cassette recorder，不自动落盘，不记录 URL query、Header 值、请求/响应 body 或 SSE data。
 
+## 输出校验与修正测试
+
+`InferenceOutputValidationTests` 验证泛型输入/输出/反馈、合法空值、固定报告与默认关闭；`InferenceOutputCorrectionTests` 验证次数、最新反馈、错误、协作取消及并发隔离；`InferenceOutputValidationIntegrationTests` 使用本地文本修正和 `BoneScriptedInferenceEngine` 结构化响应验证组合，并检查预算拒绝不触发推理。
+
+这些离线用例不联网、不接入业务数据库，不证明真实模型质量或跨重启幂等。调用方自定义执行器内部的重试也不在计数保证中。详见 [输出校验与有界修正](OutputValidationAndCorrection.md)。
+
+## Agent 多场景任务验收
+
+`AgentTaskAcceptanceTests` 通过真实 Agent 和工具完成多步计算、双来源汇总、漏项修正与文件回读；同时验证可选工具失败、错误答案、非法参数、未授权写入和预算停止。成功结果按独立输入预期核对，拒绝/停止不算业务交付成功。模型由确定性请求驱动替身提供，不能据此声称真实模型具备自主规划能力。场景、观测结果及复现命令见 [Agent 多场景任务验收](AgentTaskAcceptance.md)。
+
+## 工具文本资源测试
+
+`ToolTextResourceTests` 验证版本引用、严格 Codable、真实 UTF-8 分页、返回页复验、资源级授权与有效期变化、取消和序列化容量。`ToolTextResourceTaskTests` 让真实 Agent 先读预览，再回读超过 1 MiB 合成资源的末尾数据；另在压缩移除旧交换后由摘要引用找回原版本并通过独立数值验收。它同时检查引用丢失/失效、权限拒绝、分页预算及错误答案不能假报通过。
+
+模型与摘要均为确定性替身，不能据此声称真实模型会保留引用或实际费用下降。详见 [工具文本资源预览与回读](ToolTextResources.md)。
+
+需要可直接操作的演示时，运行独立 [ResourceReadingDemo](../Examples/ResourceReadingDemo/README.md)。`bash Scripts/check-resource-demo.sh` 会运行六个离线场景，独立核对 JSON 报告，并检查自定义输入、预期拒绝退出码、报告回读和答案篡改检测；不需要真实模型凭据。
+
+## 图片理解输入测试
+
+`VisionInputTests`、`VisionProviderTests`、`ImagePreprocessingTests` 与 `LlamaVisionInputTests` 共 64 项：覆盖图片引用/解析完整性、真实 Apple 编解码、总视觉 Token 与字节预算、图片触发压缩、当前内容超限零解析/零发送、普通及流式 wire、图片用户锚点的思考续接、连续工具结果配对、Agent 工具循环和私有会话恢复。Provider 和 Agent 使用离线响应，不证明真实模型 OCR/识图质量。接入方式见 [图片理解输入与预算](ImageUnderstanding.md)。
+
+2026-11-06 本地工作树在 Swift 6.4 / Xcode 27.1 下，默认语言模式、strict concurrency + warnings-as-errors、显式 Swift 6 + warnings-as-errors 均为 948 项通过；Release 构建、四个公开 Product 的 `arm64-apple-ios13.0-simulator` 直接模块编译、iOS 15 Simulator Product 构建、文档示例 Swift 5/6 类型检查和资源回读 Demo 回归通过。iOS 13 检查使用显式 swiftc target，不能用 SwiftPM 自动抬高后的部署版本代替。此记录不代表最低 Swift 5.9 工具链、真机运行、Linux 或真实付费 Provider 验收。
+
+## 统一运行状态测试
+
+`AgentStatusTests` 新增 20 项，`InferenceActivityTests` 新增 11 项，覆盖普通/聚合流/实时流/会话、压缩和摘要前通知、隐藏思考阶段、图片读取、并行工具保留、有序回调、重入拒绝、取消、单终态和迟到报告隔离。全部使用离线 Engine/Transport，接入方式见 [Agent 统一运行状态](AgentStatus.md)。
+
+2026-11-06 状态功能完成后的本地工作树：默认、strict concurrency + warnings-as-errors、Swift 6 + warnings-as-errors 各 979 项通过；Release 严格并发构建、四个公开 Product 的 iOS 13 Simulator 目标直接模块编译、文档示例 Swift 5/6 类型检查和文档/差异检查通过。工具链为 Swift 6.4 / Xcode 27.1，未运行最低 Swift 5.9 工具链、真机或真实 Provider。
+
+## Token 与会话统计测试
+
+`AgentTokenStatisticsTests` 新增 21 项，`ProviderTelemetryTests` 新增 10 项，使用可控时钟、合成 HTTP/SSE 和真实 Agent/Conversation 流程，覆盖累计快照去重、最终用量覆盖度、摘要隔离、图片压缩阈值、并行工具耗时并集、三轮会话、活动耗时查询、TTFT/TPS、缓冲回放门禁、取消与观察器时序。接口及截图字段映射见 [Token 与会话统计](TokenStatistics.md)。
+
+2026-11-06 在 Swift 6.4 / Xcode 27.1 的本地工作树验证：默认、strict concurrency + warnings-as-errors、Swift 6 + warnings-as-errors 各 1010 项通过；Release 严格并发构建、四个公开 Product 的 iOS 13 Simulator 目标直接模块编译、文档示例 Swift 5/6 类型检查及文档/差异检查通过。默认模式最后一次因磁盘紧张使用 `--disable-index-store -j 2`；仅清理本会话临时构建产物后完成。未运行真实 Provider、最低 Swift 5.9 工具链或真机验收。TTFT/TPS 为客户端流式观测，仍受网络分块和观察回调影响，不代表服务端性能基准。
+
+## 长会话观测性能测试
+
+`AgentObservationPerformanceTests` 新增 13 项，验证有界请求/工具/模型明细、完整累计与未知值保留、极端时间溢出、环形缓存不改写旧快照、10000 次突发 usage 合并、1600 次并行工具通知有序、对象释放及配置贯通。压力场景包括 128 份会话统计各 1000 轮，以及 64 个真实 Agent/Conversation 对象各 100 轮（离线引擎、启用上下文管理，结束后全部释放）。
+
+固定 2000 次请求逐次产生/读取统计的本机 Debug 微基准：优化前约 5.19 秒并保留 2000 条明细，优化后约 0.017 秒并保留 64 条；累计 200000 输入 Token 一致。测试不以耗时阈值判定通过，避免不同机器的速度造成误报；明细保留上限和累计正确性为硬断言。真实多会话场景测试进程峰值约 37.5 MiB，包含测试框架；此数不代表真实模型/图片/业务缓存或 iOS 真机内存上限。运行 `swift test --filter AgentObservationPerformanceTests` 可复现，测试只输出计数和时间，不输出模型内容。
+
+2026-11-06 最终工作树以 Swift 6.4 / Xcode 27.1 验证：strict concurrency + warnings-as-errors（Swift 5 模式）及显式 Swift 6 各 1023 项通过，Release 严格并发构建、四个公开 Product 的 `arm64-apple-ios13.0-simulator` 直接模块编译、示例 Swift 5/6 类型检查和文档/差异检查通过。构建关闭代码索引并限制并行数以减少临时磁盘占用；未进行真机长期驻留、真实付费 Provider 或最低 Swift 5.9 工具链测试。
+
 ## 推荐矩阵
 
 ```bash

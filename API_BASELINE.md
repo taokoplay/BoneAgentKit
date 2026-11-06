@@ -11,7 +11,7 @@
 
 最低平台：iOS 13、macOS 13。最低工具链：Swift 5.9。
 
-当前静态回归统计 441 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计；本次收敛模型获取入口后更新）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
+当前静态回归统计 491 个顶层 public 类型声明（按四个公开 Product 的 `Sources` 文件中行首 `public struct/enum/class/actor/protocol/typealias` 统计，不含内部资源 Target；输出校验新增 7 个，文本资源回读新增 8 个，图片理解输入新增 18 个，统一运行状态新增 5 个，Token/会话统计新增 10 个，观测性能策略新增 2 个，原有 441 个未删除；ImageIO 类型在 Apple 条件编译内）。该数字用于发现意外减少，不等价于完整 ABI 或 source compatibility 证明。
 
 ## 1.0 候选关键入口
 
@@ -40,6 +40,50 @@
 - `BoneLlamaCompiledConstraint`、`BoneLlamaResolvedGenerationControl`、`BoneLlamaConstraintCompiling`、`BoneLlamaGBNFCompiler`
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
+
+## Unreleased 观测性能与有界保留
+
+- 新增 `BoneAgentObservationPolicy` / `BoneAgentObservationPolicyError`，通过 Agent configuration 注入。默认保留 64 条已完成请求、128 条已结束工具明细、16 个模型分项；活动调用额外保留，累计总数不受淘汰影响。
+- Token snapshot 新增 `omittedRequestCount` / `omittedToolTimingCount` / `omittedModelRequestCount` / `hasModelBreakdown(for:)`。明细数组不再承诺完整 Run 历史，调用方须使用聚合 totals/statistics，不得自行把明细求和作为总量。
+- 高频统计默认合并 100 ms 内的更新，生命周期/终态立即投递；间隔 0 显式恢复逐次变化通知。无后台定时器。会话统计只保留当前轮快照和固定大小累计量，不再归档全部结束轮次。
+- 只收紧观察数据保留，不改变上下文、执行或旧模型快照契约。详见 [Token 与会话统计](Documentation/TokenStatistics.md)。
+
+## Unreleased Token 与会话统计
+
+- 新增 `BoneAgentContextTokens`、`BoneAgentTokenRequest`、`BoneAgentTokenTotals`、`BoneAgentTokenSnapshot`、`BoneAgentTokenSink`；`BoneAgentConfiguration.tokenSink`、`BoneAgent.currentTokens`、`BoneAgentStatus.tokens` 贯通普通、buffered、实时流与会话，预算估算与实际用量分开。
+- 新增 `BoneAgentToolTiming`、`BoneAgentStatistics` 和 Conversation `statistics`：轮次/步骤、模型与摘要耗时、工具累计及去重并行时间、TTFT 均值和加权 TPS；统计采用安全元数据，不改变会话存储。恢复后 `isHistoryComplete` 明示缺少早期运行统计。
+- 新增 `BoneInferenceTelemetryEvent/Sink/Reporting`，按调用作用域观察累计 usage 和实际传输时点。Anthropic 流合并累计用量，三家 Provider 支持；同 ID 临时报告替换、最终响应累计一次，缺失/中断/溢出明确标识。
+- `BoneInferenceHTTPTransport.providesLiveEventTiming` 新增默认 false 的可选实现，默认 URLSession 逐事件桥接为 true，缓冲回放不伪造 TTFT/TPS。状态阶段相同但统计变化时也会通知；既有事件 enum 不变。详见 [Token 与会话统计](Documentation/TokenStatistics.md)。
+
+## Unreleased 统一运行状态
+
+- 新增 `BoneAgentStatus` / `BoneAgentStatusSink`，`BoneAgentConfiguration.statusSink` 默认空观察，`BoneAgent.currentStatus` 提供当前或最后终态快照。涵盖普通 Run、实时流、buffered 和会话，带 Run ID、递增序号、步骤与并行工具列表。
+- 新增 `BoneInferenceActivity` / `BoneInferenceActivitySink` / `BoneInferenceActivityReporting`，按 Task-local 作用域观察 Provider 和自定义 Engine 阶段，不改变请求 Codable 或既有必需协议方法。
+- 思考阶段与正文披露独立；内置 Provider 隐藏正文仍可报告明确的流式推理信号，非流式不伪造阶段。旧事件 enum 保持不变，失败/取消与成功停止边界收口为唯一状态终态。
+- 回调为串行 await 的非 throwing 观察，不是持久化、重试许可或外部 Workflow 提交证明。构造器追加默认参数，不承诺旧函数引用/预编译 ABI 兼容。详见 [运行状态](Documentation/AgentStatus.md)。
+
+## Unreleased 图片理解输入与预算
+
+- 新增 `.imageInput`、`BoneInferenceInputContent`、不可变图片引用/元数据/PreparedImage、Host Resolver、可注入 Preprocessor 与 Apple ImageIO 实现。图片字节不进入消息 Codable。
+- 新增精确模型 `BoneInferenceImageInputProfile/Configuration` 与 `BoneInferenceImageTokenProviding`；视觉 Token、文字、工具 Schema、来源标签与 continuation 一并计入输入预算，输出和安全余量先预留；Base64/body 单独限额。
+- OpenAI/Anthropic/Gemini 构造器追加可选 `imageInputConfiguration`，所有普通/流式入口复用门禁与映射。Llama 当前拒绝图片。
+- 新增 `BoneAgentContentTool`、`.multimodal` Tool Result、`executeContent`、Builder 内容工具重载与 Conversation `send(content:)`；普通 JSON 工具不自动解包。压缩保留完整配对并按视觉成本重新测量。
+- enum 穷尽 switch 需接入新 case；追加参数保持普通带标签调用兼容，不承诺既有函数引用或 ABI 兼容。详见 [图片理解输入](Documentation/ImageUnderstanding.md)。
+
+## Unreleased 工具文本资源回读
+
+- 新增 `BoneToolTextResourceReference`、`BoneToolTextResourcePreview`、`BoneToolTextResourceReadRequest` 与 `BoneToolTextResourcePage`：引用绑定不透明 ID/版本/UTF-8 总长；预览最多 4 KiB、分页请求 4…64 KiB，进展与结束字段解码复验。
+- 新增 `BoneToolTextResourceSnapshot`、`BoneToolTextResourceReader<Context>`、`BoneToolTextResourceReadTool<Context>` 及固定错误 `BoneToolTextResourceError`。Snapshot 只提供内存前缀与分页辅助，Reader 注入可信 Context 且复验返回页，Tool 显式注册并要求本地私有只读 impact policy。
+- 不提供存储、网络、缓存、授权实现或自动引用保留，不改动现有 Tool Result wire 与 Agent/压缩默认行为。Host 每次检查权限、scope、有效期和原版本；读取仍经过既有次数、时间及容量门禁。
+- 详见 [工具文本资源预览与回读](Documentation/ToolTextResources.md)。
+
+## Unreleased 输出校验与有界修正
+
+- 新增 `BoneInferenceOutputIssue`、`BoneInferenceOutputRejection<Feedback>` 与 `BoneInferenceOutputValidation<Value, Feedback>`，区分明确拒绝与操作性错误；私有输入和反馈不自动编码或记录。
+- 新增 `BoneInferenceOutputCorrectionPolicy`，默认 0 次，显式上限为 `0...Int.max-1`；每个拒绝还须明确允许修正。
+- 新增 `BoneInferenceValidatedOutputProcessor<Input, Value, Feedback>`、`BoneInferenceOutputProcessingResult` 与 `BoneInferenceOutputProcessingReceipt`；复用同一泛型校验器检查每份候选，修正闭包接收最新拒绝与 1 起始序号。回执仅含本次调用的计数和终态分类。
+- 独立 opt-in 入口，不改变 Provider、Agent、Tool 或持久化语义。取消与闭包错误直接传播，未完成协议响应和未知副作用不能降级为普通修正。跨调用／跨重启限额、授权及费用由已有执行边界承担。
+- 详见 [输出校验与有界修正](Documentation/OutputValidationAndCorrection.md)。
 
 ## Unreleased Agent 组装入口
 

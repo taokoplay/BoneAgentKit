@@ -28,6 +28,12 @@ public struct BoneAgentToolRegistry: Sendable {
         toolsByID[id]
     }
 
+    public func executeContent(id: String, input: Data,
+                               context: any BoneAgentToolContext) async throws -> BoneToolResultContent {
+        guard let tool = toolsByID[id] else { throw BoneAgentToolError.toolNotFound(id) }
+        return try await tool.executeContent(input: input, context: context)
+    }
+
     public func execute(
         id: String,
         input: Data,

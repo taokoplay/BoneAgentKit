@@ -31,6 +31,12 @@ let configuration = try BoneAgentConfiguration(
 
 没有可选 `BoneInferenceContextBudgetProviding` 能力的自定义 Engine，可在配置中注入 `budgetProvider`。默认在线估算包含消息、工具定义、响应格式/输出约束与不透明续接数据的保守开销；估算不是厂商真实 Tokenizer，仍可能低估，不能保证远端永不拒绝。当前不因远端 400/网络错误自动重试。
 
+## 图片输入
+
+显式配置 `.imageInput` 的请求按精确模型的视觉估算器计入每张图片，连同文本、Tool Schema、来源标签、输出格式和续接开销一起参与 85%/65% 阈值判断。输出额度与安全余量先预留；图片安全余量使用 profile 与上下文策略中的较大值。Base64 字节仅用于传输限额，不当作视觉 Token。
+
+预处理先于预算，引用固定最终发送尺寸；候选重测不重新缩小图片。当前用户图片及受保护的工具交换装不下时，在解析/网络发送前拒绝；旧图片随完整轮次/交换移除。多模态结果不进行文本 clamp。摘要器只读取文本和引用元数据，明确不读取像素，不承诺保留图片细节。详见 [图片理解输入与预算](ImageUnderstanding.md)。
+
 ## 本地 Llama
 
 `BoneLlamaInferenceEngine` 从 `BoneLocalRuntimePlan` 暴露 runtime budget；Kit Core 不反向依赖 Llama。它还实现 `BoneInferenceContextTokenCounting`，经实际 Renderer 和 Runtime Tokenizer 计算完整 Prompt，包括模板和 Tool Envelope。
@@ -129,3 +135,7 @@ let context = try BoneContextManagementConfiguration(
 离线回归覆盖三类云协议映射、Llama Runtime Fixture、共享本地摘要、预算计费、失败/取消、UTF-8、Tool 配对与 Gemini 签名重绑定。测试不使用真实凭据，不证明特定在线模型或实际 GGUF 摘要质量。
 
 默认不拆分当前用户 Turn；显式开启当前 Turn 旧工具交换整理后，只处理完整且已完成的旧交换。单条过大用户输入或必须保留的最近交换仍无法缓解时稳定失败。公开消息结构自身的字节/数量限制、Llama 的基本请求校验仍适用。高级分块摘要、跨 Run 自动恢复、Provider-native compact API、长期记忆和 KV Cache 压缩不属于本期交付。
+
+## 工具原文的按需回读
+
+工具可显式返回 `BoneToolTextResourcePreview`，通过 `BoneToolTextResourceReadTool` 按固定版本回读原文页，避免把大结果始终塞入历史。完整资源由 Host 保管和授权；它不是摘要器，也不改变本页压缩规则。预览/页建议保留 `.retain` 并在生成时控制大小，额外 clamp 可能破坏引用 JSON。旧交换被移除时，引用需要通过调用方的发现入口或摘要保留；本版本不自动固定引用。读取成功还需任务结果验收，参见 [工具文本资源预览与回读](ToolTextResources.md)。

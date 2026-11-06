@@ -11,6 +11,7 @@
 | [Provider 与 Tool 扩展](ProviderIntegration.md) | 接入模型 SDK、Provider、Tool 和业务 Service |
 | [模型元数据与思考参数](ModelMetadataAndReasoning.md) | models.dev 来源边界、Host profile、思考参数映射与私有续接 |
 | [MinimalWorkflowHost](../Examples/MinimalWorkflowHost/README.md) | 编译运行独立 Host Fixture |
+| [ResourceReadingDemo](../Examples/ResourceReadingDemo/README.md) | 一条命令演示预览、压缩、回读和验收；另附六场景自动核验脚本 |
 
 ## 核心概念
 
@@ -21,6 +22,12 @@
 | [Workflow 与恢复](WorkflowAndRecovery.md) | 状态机、CAS、lease、Effect 和恢复语义 |
 | [跨 Run 会话连续性](ConversationContinuity.md) | 私有 Conversation Session、导出/恢复、revision 和失败锁定 |
 | [Agent 实时事件流](AgentStreaming.md) | 显式实时 delta、Tool 生命周期、终态与 Llama 能力边界 |
+| [Agent 统一运行状态](AgentStatus.md) | 普通/流式/会话共用状态、压缩与思考阶段、并行工具及终态 |
+| [Token 与会话统计](TokenStatistics.md) | 实时累计用量、上下文占用/压缩阈值、轮次步骤、耗时和 TTFT/TPS |
+| [输出校验与有界修正](OutputValidationAndCorrection.md) | 泛型校验、显式修正次数、取消、预算组合与持久责任 |
+| [工具文本资源预览与回读](ToolTextResources.md) | 固定版本引用、有界 UTF-8 分页、资源权限与压缩后回读 |
+| [图片理解输入与预算](ImageUnderstanding.md) | 用户/工具图片、预处理、视觉 Token、Provider 映射与压缩 |
+| [上下文压缩](ContextCompaction.md) | 总输入预算、完整轮次裁剪、工具配对与可选摘要 |
 | [App Host 集成边界](CharacterHostIntegration.md) | 不透明引用、Persistence Adapter 和产品职责 |
 | [Workflow Host 迁移与发布交接](WorkflowHostMigration.md) | alpha.17 → alpha.18 Workflow 接入、旧数据策略、事务责任与验收清单 |
 
@@ -37,6 +44,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [Testing 与 Harness](Testing.md) | Product 隔离、Host 持久化契约验收、测试矩阵、事件和排错 |
+| [Agent 多场景任务验收](AgentTaskAcceptance.md) | 真实工具执行、独立交付验收、预期拒绝与脚本模型边界 |
 | [安全与隐私](SecurityAndPrivacy.md) | 数据边界、日志、Endpoint 和真实 Smoke |
 | [公开 API 基线](../API_BASELINE.md) | 稳定范围、关键入口和兼容承诺 |
 | [发布检查清单](../RELEASE_CHECKLIST.md) | 技术、安全、许可、迁移和回滚门禁 |

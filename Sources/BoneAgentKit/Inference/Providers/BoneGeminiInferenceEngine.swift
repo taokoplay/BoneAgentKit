@@ -5,16 +5,29 @@ import FoundationNetworking
 
 /// Gemini GenerateContent 协议的通用推理实现。
 public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding, BoneInferenceImageTokenProviding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
     public let imageGenerator: (any BoneInferenceImageGenerating)? = nil
 
     private let modelContextLimits: [String: BoneModelContextLimits]
+    private let imageInputConfiguration: BoneInferenceImageInputConfiguration?
 
     public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
-        modelContextLimits[modelID]?.contextWindowBudget
+        let existing = modelContextLimits[modelID]?.contextWindowBudget
+        guard let imageInputConfiguration else { return existing }
+        return try imageInputConfiguration.contextBudget(for: modelID, constrainedBy: existing)
+    }
+
+    public func imageTokens(for image: BoneInferenceImageInput, modelID: String) throws -> Int {
+        guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+        return try imageInputConfiguration.imageTokens(for: image, modelID: modelID)
+    }
+
+    public func imageInputSafetyMarginTokens(for modelID: String) throws -> Int {
+        guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+        return try imageInputConfiguration.profile(modelID).safetyMarginTokens
     }
 
     private let configuration: BoneInferenceProviderConfiguration
@@ -31,8 +44,10 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         modelContextLimits: [String: BoneModelContextLimits] = [:],
         modelMetadata: [String: BoneModelMetadata] = [:],
         modelReasoningProfiles: [String: BoneInferenceReasoningProfile] = [:],
-        diagnostics: BoneInferenceDiagnosticSink = .init()
+        diagnostics: BoneInferenceDiagnosticSink = .init(),
+        imageInputConfiguration: BoneInferenceImageInputConfiguration? = nil
     ) {
+        self.imageInputConfiguration = imageInputConfiguration
         self.modelMetadata = modelMetadata
         self.modelReasoningProfiles = modelReasoningProfiles
         self.modelContextLimits = modelContextLimits
@@ -51,8 +66,16 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         for request: BoneInferenceRequest,
         invocation: BoneInferenceInvocationMode
     ) throws -> BoneResolvedInferenceCapabilities {
-        var resolved = modelCapabilityProfiles[request.modelID]?
-            .resolved(engineCapabilities: capabilities) ?? capabilities
+        var resolved = capabilities
+        if imageInputConfiguration?.profiles[request.modelID] != nil {
+            resolved.insert(.imageInput)
+        }
+        if let modalities = modelMetadata[request.modelID]?.declaration.modalities, !modalities.input.contains("image") {
+            resolved.remove(.imageInput)
+        }
+        if let profile = modelCapabilityProfiles[request.modelID] {
+            resolved = profile.resolved(engineCapabilities: resolved)
+        }
         resolved.remove(.constrainedOutput)
         if let constraint = request.outputConstraint,
            configuration.kind == .google,
@@ -83,16 +106,24 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             capabilities: resolved.capabilities,
             invocation: resolved.invocation
         )
-        let urlRequest = try makeRequest(request, streaming: false)
+        let urlRequest = try await makeRequest(request, streaming: false)
         let diagnosticID = UUID()
         var receivedResponse = false
         var failureStage: BoneInferenceDiagnosticEvent.FailureStage = .transport
         diagnostics.emit(diagnosticID, .transportAttempt, wire: .gemini)
         do {
+            try Task.checkCancellation()
+            await BoneInferenceActivityReporting.report(.waitingForModel)
+            try Task.checkCancellation()
+            await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: false))
+            try Task.checkCancellation()
             let response = try await transport.send(urlRequest)
+            await BoneInferenceTelemetryReporting.report(.responseFinished)
             receivedResponse = true
             diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .gemini)
             failureStage = (200...299).contains(response.statusCode) ? .jsonDecoding : .httpStatus
+            await BoneInferenceActivityReporting.report(.validatingResponse)
+            try Task.checkCancellation()
             let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
             failureStage = .resultValidation
             let finalResponse: BoneInferenceResponse
@@ -154,7 +185,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         capabilities: resolved.capabilities,
                         invocation: resolved.invocation
                     )
-                    let urlRequest = try makeRequest(request, streaming: true)
+                    let urlRequest = try await makeRequest(request, streaming: true)
                     var events: [BoneInferenceEventStreamEvent] = []
                     let localCallNamespace = UUID().uuidString
                     var mapper = BoneGeminiNormalizedEventMapper(
@@ -162,13 +193,40 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         definitions: request.availableTools,
                         localCallNamespace: localCallNamespace
                     )
+                    let liveTiming = transport.providesLiveEventTiming
+                    var reportedFirstOutputToken = false
+                    try Task.checkCancellation()
+                    await BoneInferenceActivityReporting.report(.waitingForModel)
+                    try Task.checkCancellation()
+                    await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
+                    try Task.checkCancellation()
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
                         let mappedEvents = try mapper.consume(event)
+                        if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
+                            reportedFirstOutputToken = true
+                            await BoneInferenceTelemetryReporting.report(.firstOutputToken)
+                        }
+                        for mapped in mappedEvents {
+                            if case .usage(let usage) = mapped {
+                                await BoneInferenceTelemetryReporting.report(.usage(usage))
+                            }
+                        }
+                        try Task.checkCancellation()
+                        for activity in mapper.activities {
+                            await BoneInferenceActivityReporting.report(activity)
+                            try Task.checkCancellation()
+                        }
                         if request.outputConstraint == nil {
                             for mapped in mappedEvents { continuation.yield(mapped) }
                         }
                     }
+                    await BoneInferenceTelemetryReporting.report(.responseFinished)
+                    mapper.finish()
+                    for activity in mapper.activities {
+                        await BoneInferenceActivityReporting.report(activity)
+                    }
+                    try Task.checkCancellation()
                     let aggregated = try BoneGeminiToolStreamAggregator.aggregate(events: events, definitions: request.availableTools, localCallNamespace: localCallNamespace)
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {
@@ -214,10 +272,18 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             capabilities: resolved.capabilities,
             invocation: resolved.invocation
         )
-        let urlRequest = try makeRequest(request, streaming: true)
+        let urlRequest = try await makeRequest(request, streaming: true)
         let response: BoneInferenceEventStreamResponse
         do {
+            try Task.checkCancellation()
+            await BoneInferenceActivityReporting.report(.waitingForModel)
+            try Task.checkCancellation()
+            await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: false))
+            try Task.checkCancellation()
             response = try await transport.sendEventStream(urlRequest, options: options)
+            await BoneInferenceTelemetryReporting.report(.responseFinished)
+            await BoneInferenceActivityReporting.report(.validatingResponse)
+            try Task.checkCancellation()
         } catch let error as BoneInferenceTransportError {
             if case let .httpStatus(statusCode) = error {
                 throw BoneInferenceProviderResponseValidator.mappedError(statusCode: statusCode)
@@ -273,7 +339,8 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     private func makeRequest(
         _ inferenceRequest: BoneInferenceRequest,
         streaming: Bool
-    ) throws -> URLRequest {
+    ) async throws -> URLRequest {
+        try Task.checkCancellation()
         guard configuration.authenticationMode == .googleAPIKey else {
             throw BoneInferenceTransportError.invalidConfiguration
         }
@@ -287,6 +354,16 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         let responseFormat = try inferenceRequest.responseFormat.validated()
         guard !responseFormat.isStructured || inferenceRequest.availableTools.isEmpty else {
             throw BoneInferenceError.invalidStructuredOutputContract
+        }
+        let images: BoneProviderImageWire.Images
+        var maximumOutputTokens = options.maximumOutputTokens
+        if !inferenceRequest.imageInputs.isEmpty {
+            guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+            let budget = try contextBudget(for: inferenceRequest.modelID)
+            images = try await imageInputConfiguration.prepare(inferenceRequest, engineBudget: budget, supportsDetail: false)
+            maximumOutputTokens = try imageInputConfiguration.maximumOutputTokens(for: inferenceRequest, budget: budget)
+        } else {
+            images = [:]
         }
         let modelID = inferenceRequest.modelID.hasPrefix("models/")
             ? String(inferenceRequest.modelID.dropFirst("models/".count))
@@ -338,7 +415,8 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         let contents = try BoneGeminiToolWire.contents(
             conversation,
             definitions: inferenceRequest.availableTools,
-            continuation: inferenceRequest.providerContinuation
+            continuation: inferenceRequest.providerContinuation,
+            images: images
         )
         var body: [String: Any] = [
             "contents": contents,
@@ -351,7 +429,7 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         }
         var generationConfig = [String: Any]()
         if let temperature = options.temperature { generationConfig["temperature"] = temperature }
-        if let maximumOutputTokens = options.maximumOutputTokens {
+        if let maximumOutputTokens {
             generationConfig["maxOutputTokens"] = maximumOutputTokens
         }
         if let constraint = inferenceRequest.outputConstraint {
@@ -372,7 +450,10 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             BoneInferenceReasoningRequestSupport.fields(request: inferenceRequest,
                 profile: modelReasoningProfiles[inferenceRequest.modelID], wire: .gemini), into: &generationConfig)
         if !generationConfig.isEmpty { body["generationConfig"] = generationConfig }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        try imageInputConfiguration?.validateBody(data, for: inferenceRequest)
+        try Task.checkCancellation()
+        request.httpBody = data
         return request
     }
 

@@ -82,15 +82,32 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
     public let assistantTurn: BoneInferenceAssistantTurn?
     public let toolResult: BoneInferenceToolResult?
     public let toolResults: BoneInferenceToolResultBatch?
+    /// 仅用户消息可用的多模态输入；只含引用，没有图片正文。
+    public let inputContent: [BoneInferenceInputContent]?
 
     public init(role: BoneInferenceMessageRole, content: String) {
         precondition(role != .tool, "tool role 不能使用文本 payload")
         precondition(!content.isEmpty, "文本消息内容不能为空")
         self.role = role
         self.content = content
+        inputContent = nil
         assistantTurn = nil
         toolResult = nil
         toolResults = nil
+    }
+
+    public static func user(content: [BoneInferenceInputContent]) throws -> Self {
+        try BoneInferenceInputContent.validate(content)
+        return Self(inputContent: content)
+    }
+
+    private init(inputContent: [BoneInferenceInputContent]) {
+        role = .user
+        content = nil
+        assistantTurn = nil
+        toolResult = nil
+        toolResults = nil
+        self.inputContent = inputContent
     }
 
     public init(from decoder: any Decoder) throws {
@@ -100,6 +117,17 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         let assistantTurn = try container.decodeIfPresent(BoneInferenceAssistantTurn.self, forKey: .assistantTurn)
         let toolResult = try container.decodeIfPresent(BoneInferenceToolResult.self, forKey: .toolResult)
         let toolResults = try container.decodeIfPresent(BoneInferenceToolResultBatch.self, forKey: .toolResults)
+        let inputContent = try container.decodeIfPresent([BoneInferenceInputContent].self, forKey: .inputContent)
+        if let inputContent {
+            guard role == .user, content == nil, assistantTurn == nil, toolResult == nil, toolResults == nil else {
+                throw BoneInferenceError.invalidMessage
+            }
+            try BoneInferenceInputContent.validate(inputContent)
+            self.role = role; self.content = nil; self.assistantTurn = nil
+            self.toolResult = nil; self.toolResults = nil; self.inputContent = inputContent
+            return
+        }
+        self.inputContent = nil
         let payloadCount = [content != nil, assistantTurn != nil, toolResult != nil, toolResults != nil]
             .filter { $0 }
             .count
@@ -140,6 +168,14 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(role, forKey: .role)
+        if let inputContent {
+            guard role == .user, content == nil, assistantTurn == nil, toolResult == nil, toolResults == nil else {
+                throw BoneInferenceError.invalidMessage
+            }
+            try BoneInferenceInputContent.validate(inputContent)
+            try container.encode(inputContent, forKey: .inputContent)
+            return
+        }
         switch role {
         case .system, .user:
             guard let content, !content.isEmpty,
@@ -180,6 +216,7 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         self.assistantTurn = assistantTurn
         toolResult = nil
         toolResults = nil
+        inputContent = nil
     }
 
     private init(role: BoneInferenceMessageRole, toolResult: BoneInferenceToolResult) {
@@ -188,6 +225,7 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         assistantTurn = nil
         self.toolResult = toolResult
         toolResults = nil
+        inputContent = nil
     }
 
     private init(role: BoneInferenceMessageRole, toolResults: BoneInferenceToolResultBatch) {
@@ -196,6 +234,7 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
         assistantTurn = nil
         toolResult = nil
         self.toolResults = toolResults
+        inputContent = nil
     }
 
     public static func assistant(_ turn: BoneInferenceAssistantTurn) -> Self {
@@ -245,7 +284,7 @@ public struct BoneInferenceMessage: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: CodingKey {
-        case role, content, assistantTurn, toolResult, toolResults
+        case role, content, assistantTurn, toolResult, toolResults, inputContent
     }
 }
 

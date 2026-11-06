@@ -55,7 +55,8 @@ enum BoneAnthropicToolWire {
 
     static func messages(
         _ values: [BoneInferenceMessage],
-        definitions: [BoneAgentToolDefinition]
+        definitions: [BoneAgentToolDefinition],
+        images: [BoneInferenceImageReference: BoneInferencePreparedImage] = [:]
     ) throws -> [[String: Any]] {
         let definitions = try validated(definitions)
         let wireNames = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
@@ -63,6 +64,14 @@ enum BoneAnthropicToolWire {
         var result: [[String: Any]] = []
 
         for message in values {
+            if let parts = message.inputContent {
+                guard message.role == .user, message.content == nil,
+                      message.assistantTurn == nil, message.toolResult == nil, message.toolResults == nil else {
+                    throw BoneInferenceError.invalidMessage
+                }
+                result.append(["role": "user", "content": try BoneProviderImageWire.anthropic(parts, images: images)])
+                continue
+            }
             if let text = message.content {
                 guard message.role == .user || message.role == .assistant,
                       message.assistantTurn == nil,
@@ -109,7 +118,7 @@ enum BoneAnthropicToolWire {
                     return [
                         "type": "tool_result",
                         "tool_use_id": value.callID,
-                        "content": try contentString(value.content),
+                        "content": try content(value.content, images: images),
                         "is_error": value.isError,
                     ]
                 }
@@ -219,7 +228,7 @@ private extension BoneAnthropicToolWire {
         return values
     }
 
-    static func contentString(_ value: BoneToolResultContent) throws -> String {
+    static func content(_ value: BoneToolResultContent, images: BoneProviderImageWire.Images) throws -> Any {
         switch value {
         case let .text(text): return text
         case let .json(data):
@@ -227,6 +236,8 @@ private extension BoneAnthropicToolWire {
                 throw BoneInferenceError.invalidToolResult
             }
             return text
+        case let .multimodal(parts):
+            return try BoneProviderImageWire.anthropic(parts, images: images)
         }
     }
 

@@ -40,6 +40,17 @@ public struct BoneContextTurn: Equatable, Sendable {
         var seen = Set<String>()
         for message in messages {
             if message.role == .tool {
+                // Legacy single-result messages use ordinal zero per envelope.
+                // Match the next pending call and require the remaining results
+                // before any assistant/user message can follow.
+                if let result = message.toolResult {
+                    guard let call = pending.first, result.ordinal == 0,
+                          call.id == result.callID, call.toolID == result.toolID else {
+                        throw BoneContextCompactionError.invalidHistory
+                    }
+                    pending.removeFirst()
+                    continue
+                }
                 let results = try message.requiredToolResults().results
                 guard !pending.isEmpty, results.count == pending.count else { throw BoneContextCompactionError.invalidHistory }
                 for (call, result) in zip(pending, results) {

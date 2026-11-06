@@ -12,6 +12,16 @@ public actor BoneAgent {
     private let toolScheduler: BoneToolCallScheduler
     private let monotonicClock: @Sendable () -> TimeInterval
     private var isRunning = false
+    private var statusReporter: BoneAgentStatusReporter?
+
+    /// Latest in-memory status, including the last terminal state. Nil before the first accepted Run.
+    public var currentStatus: BoneAgentStatus? {
+        get async { await statusReporter?.current }
+    }
+
+    public var currentTokens: BoneAgentTokenSnapshot? {
+        get async { await statusReporter?.currentTokens }
+    }
 
     /// monotonicClock 必须返回同一时基的单调 uptime 秒数；默认使用系统时钟。
     /// 自定义时钟主要用于确定性验证协作截止，不改变 Host 的执行/Receipt 生命周期。
@@ -89,8 +99,9 @@ public actor BoneAgent {
         return BoneAgentConversation(agent: self, state: state)
     }
 
-    func runConversation(state: BoneAgentConversationState, userMessage: String,
-                         snapshotContext: BoneAgentModelSnapshotContext?) async throws -> BoneAgentConversationCompletion {
+    func runConversation(state: BoneAgentConversationState, userMessage: BoneInferenceMessage,
+                         snapshotContext: BoneAgentModelSnapshotContext?,
+                         tokenObserver: BoneAgentTokenSink? = nil) async throws -> BoneAgentConversationCompletion {
         guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
         isRunning = true
         defer { isRunning = false }
@@ -99,11 +110,11 @@ public actor BoneAgent {
         guard state.tools == toolRegistry.definitions else { throw BoneAgentConversationError.toolsChanged }
         if state.summary != nil, configuration.contextManagement == nil { throw BoneAgentConversationError.contextPolicyRequired }
         let request = BoneInferenceRequest(modelID: state.modelID,
-            messages: state.messages + [.init(role: .user, content: userMessage)],
+            messages: state.messages + [userMessage],
             generationOptions: state.generationOptions, outputConstraint: state.outputConstraint,
             reasoningDisclosure: state.reasoningDisclosure)
         let completed = try await executeRunUntilBoundary(request: request, boundary: .untilModelFinish,
-            snapshotContext: snapshotContext, conversationSeed: state)
+            snapshotContext: snapshotContext, conversationSeed: state, tokenObserver: tokenObserver)
         guard let next = completed.conversation, case let .modelFinished(output) = completed.boundary.completion else {
             throw BoneAgentConversationError.invalidState
         }
@@ -285,7 +296,41 @@ public actor BoneAgent {
         conversationSeed: BoneAgentConversationState? = nil,
         streamingOverride: Bool = false,
         streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
-        streamOptions: BoneInferenceEventStreamOptions? = nil
+        streamOptions: BoneInferenceEventStreamOptions? = nil,
+        tokenObserver: BoneAgentTokenSink? = nil
+    ) async throws -> BoneAgentExecutionResult {
+        let status = BoneAgentStatusReporter(sink: configuration.statusSink,
+            tokenSink: .init { [configuration] value in
+                await tokenObserver?.receive(value)
+                await configuration.tokenSink.receive(value)
+            }, clock: monotonicClock, policy: configuration.observationPolicy)
+        statusReporter = status
+        await status.transition(.preparingInput)
+        do {
+            let result = try await executeRunBody(request: initialRequest, boundary: boundary,
+                snapshotContext: snapshotContext, conversationSeed: conversationSeed,
+                streamingOverride: streamingOverride, streamEmitter: streamEmitter,
+                streamOptions: streamOptions, status: status)
+            // Success already crossed its commit boundary; observer cancellation cannot replace it.
+            await status.transition(.finished(.succeeded))
+            return result
+        } catch {
+            let terminal: BoneAgentRunTerminalState = error is CancellationError ? .cancelled
+                : .failed((error as? BoneAgentError) ?? .inferenceFailed)
+            await status.transition(.finished(terminal))
+            throw error
+        }
+    }
+
+    private func executeRunBody(
+        request initialRequest: BoneInferenceRequest,
+        boundary: BoneAgentRunBoundary,
+        snapshotContext: BoneAgentModelSnapshotContext?,
+        conversationSeed: BoneAgentConversationState?,
+        streamingOverride: Bool,
+        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)?,
+        streamOptions: BoneInferenceEventStreamOptions?,
+        status: BoneAgentStatusReporter
     ) async throws -> BoneAgentExecutionResult {
         guard initialRequest.responseFormat == .text else { throw BoneAgentError.inferenceFailed }
         let preparedInitialRequest = BoneInferenceRequest(
@@ -353,6 +398,8 @@ public actor BoneAgent {
                                                     summary: conversationSeed?.summary, summaryCalls: 0)
             for step in 1...configuration.maximumSteps {
                 try Task.checkCancellation()
+                await status.transition(.checkingBudget, step: step)
+                try Task.checkCancellation()
                 configuration.logging.write(.debug, "inference.step.started", context: BoneAgentLogContext(["step": "\(step)", "messageCount": "\(messages.count)"]))
                 var nextRequest = BoneInferenceRequest(
                     modelID: preparedInitialRequest.modelID, messages: messages,
@@ -366,7 +413,9 @@ public actor BoneAgent {
                     let prepared: BoneContextSession.Prepared
                     do {
                         prepared = try await contextSession.prepare(request: nextRequest, engine: inferenceEngine,
-                            policy: policy, meter: budgetMeter, clock: monotonicClock)
+                            policy: policy, meter: budgetMeter, clock: monotonicClock,
+                            activity: { await status.transition($0 == .compacting ? .compactingContext : .summarizingContext, step: step) },
+                            observer: status, step: step)
                     } catch is CancellationError { throw CancellationError() }
                     catch let error as BoneRunBudgetError { throw error }
                     catch {
@@ -388,6 +437,9 @@ public actor BoneAgent {
                     try Task.checkCancellation()
                     try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
                 }
+                if !contextManaged {
+                    await status.contextTokens(BoneContextTokenObservation.unmanaged(request: nextRequest, engine: inferenceEngine, step: step))
+                }
                 let response = try await infer(
                     template: nextRequest,
                     messages: nextRequest.messages,
@@ -398,7 +450,7 @@ public actor BoneAgent {
                     omitsPrivateRequest: conversationSeed != nil,
                     streamEmitter: streamEmitter,
                     streamOptions: streamOptions,
-                    streamStep: step
+                    streamStep: step, status: status
                 )
                 try await progressSink.receive(.inferenceResponsePrepared(
                     step: step,
@@ -420,7 +472,7 @@ public actor BoneAgent {
                         messages.append(.assistant(try .init(content: [.toolCall(call)])))
                     }
                     try await executeLegacySingle(call, messages: &messages, budgetMeter: budgetMeter,
-                                                  step: step, streamEmitter: streamEmitter)
+                                                  step: step, streamEmitter: streamEmitter, status: status)
                     runSnapshot.toolResultCount += 1
                     if boundary == .afterFirstToolTurn {
                         return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
@@ -449,7 +501,7 @@ public actor BoneAgent {
                             budgetMeter: budgetMeter,
                             onResultsReceived: { runSnapshot.toolResultCount += $0 },
                             step: step,
-                            streamEmitter: streamEmitter
+                            streamEmitter: streamEmitter, status: status
                         )
                         if boundary == .afterFirstToolTurn {
                             return try await succeedBoundary(completion: .toolTurnCompleted, steps: step, budgetMeter: budgetMeter, snapshot: runSnapshot)
@@ -491,7 +543,8 @@ public actor BoneAgent {
         options: BoneInferenceEventStreamOptions,
         runDeadline: TimeInterval?,
         streamStep: Int,
-        streamEmitter: @Sendable (BoneAgentStreamEvent) -> Void
+        streamEmitter: @Sendable (BoneAgentStreamEvent) -> Void,
+        status: BoneAgentStatusReporter, inferenceID: UUID
     ) async throws -> BoneInferenceResponse {
         guard let streaming = inferenceEngine as? any BoneInferenceEventStreaming else {
             throw BoneAgentError.unsupportedCapability(.streaming)
@@ -513,14 +566,19 @@ public actor BoneAgent {
             guard completed == nil else { throw BoneInferenceError.invalidResponse }
             switch event {
             case let .reasoningStarted(kind):
+                await status.streamActivity(.reasoning, id: inferenceID)
                 streamEmitter(.reasoningStarted(step: streamStep, kind: kind))
             case let .reasoningDelta(text):
+                await status.streamActivity(.reasoning, id: inferenceID)
                 streamEmitter(.reasoningDelta(step: streamStep, text: text))
             case .reasoningCompleted:
+                await status.streamReasoningCompleted(id: inferenceID)
                 streamEmitter(.reasoningCompleted(step: streamStep))
             case let .textDelta(text):
+                await status.streamActivity(.generatingResponse, id: inferenceID)
                 streamEmitter(.textDelta(step: streamStep, text: text))
             case let .toolCallStarted(id, toolID):
+                await status.streamActivity(.generatingToolCall, id: inferenceID)
                 toolIDs[id] = toolID
                 streamEmitter(.modelToolCallStarted(step: streamStep, callID: id, toolID: toolID))
             case let .toolArgumentsDelta(id, _):
@@ -530,13 +588,18 @@ public actor BoneAgent {
                 guard let toolID = toolIDs[id] else { throw BoneInferenceError.invalidResponse }
                 streamEmitter(.modelToolCallFinished(step: streamStep, callID: id, toolID: toolID))
             case let .usage(usage):
+                await status.streamUsage(usage, id: inferenceID)
                 streamEmitter(.usage(step: streamStep, usage: usage))
             case let .completed(result):
+                await status.streamActivity(.validatingResponse, id: inferenceID)
                 guard completed == nil else { throw BoneInferenceError.invalidResponse }
                 completed = result
             }
         }
-        guard let result = completed else { throw BoneInferenceError.invalidResponse }
+        guard let result = completed else {
+            try Task.checkCancellation()
+            throw BoneInferenceError.invalidResponse
+        }
         return result.response
     }
 
@@ -550,7 +613,8 @@ public actor BoneAgent {
         omitsPrivateRequest: Bool = false,
         streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
         streamOptions: BoneInferenceEventStreamOptions? = nil,
-        streamStep: Int = 0
+        streamStep: Int = 0,
+        status: BoneAgentStatusReporter
     ) async throws -> BoneInferenceResponse {
         do {
             let request = BoneInferenceRequest(
@@ -563,8 +627,10 @@ public actor BoneAgent {
                 providerContinuation: providerContinuation,
                 reasoningDisclosure: template.reasoningDisclosure
             )
+            await status.transition(.checkingBudget, step: streamStep)
+            try Task.checkCancellation()
             let inputData = try JSONEncoder().encode(request)
-            let inputBytes = inputData.count
+            let inputBytes = try request.accountedInputBytes
             configuration.logging.write(.debug, "inference.request", context: BoneAgentLogContext(["modelID": request.modelID, "requestBytes": "\(inputBytes)", "request": (configuration.logging.includesSensitivePayloads && configuration.contextManagement == nil && !omitsPrivateRequest) ? String(decoding: inputData, as: UTF8.self) : "[omitted]"]))
             let estimatedCostMicrounits: Int64
             if budgetMeter != nil {
@@ -583,39 +649,57 @@ public actor BoneAgent {
                 estimatedCostMicrounits: estimatedCostMicrounits,
                 nowUptime: monotonicClock()
             )
+            let inferenceID = await status.beginInference(step: streamStep, modelID: request.modelID)
+            let activitySink = BoneInferenceActivitySink { await status.inferenceActivity($0, id: inferenceID) }
             let response: BoneInferenceResponse
-            if let streamEmitter {
-                response = try await inferUsingEvents(
-                    request: request,
-                    options: streamOptions ?? .init(),
-                    runDeadline: runDeadline,
-                    streamStep: streamStep,
-                    streamEmitter: streamEmitter
-                )
-            } else {
-                switch configuration.inferenceMode {
-                case .nonStreaming:
-                    response = try await inferenceEngine.infer(request: request)
-                case .bufferedStreaming(let options):
-                guard let streaming = inferenceEngine as? any BoneInferenceBufferedStreaming else {
-                    throw BoneAgentError.unsupportedCapability(.streaming)
+            do {
+                response = try await BoneInferenceTelemetryReporting.withSink(.init { await status.telemetry($0, id: inferenceID) }) {
+                    try await BoneInferenceActivityReporting.withSink(activitySink) { [inferenceEngine, configuration, monotonicClock] in
+                    try Task.checkCancellation()
+                    try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+                    if let streamEmitter {
+                        return try await self.inferUsingEvents(
+                            request: request,
+                            options: streamOptions ?? .init(),
+                            runDeadline: runDeadline,
+                            streamStep: streamStep,
+                            streamEmitter: streamEmitter, status: status, inferenceID: inferenceID
+                        )
+                    }
+                    switch configuration.inferenceMode {
+                    case .nonStreaming:
+                        return try await inferenceEngine.infer(request: request)
+                    case .bufferedStreaming(let options):
+                        guard let streaming = inferenceEngine as? any BoneInferenceBufferedStreaming else {
+                            throw BoneAgentError.unsupportedCapability(.streaming)
+                        }
+                        // 将注入时钟的剩余额度转换为真实 uptime，不逐步重置 Run 预算。
+                        let remaining = runDeadline.map { $0 - monotonicClock() }
+                        let budgetDeadline = remaining.map { ProcessInfo.processInfo.systemUptime + $0 }
+                        let deadline = [options.deadlineUptime, budgetDeadline].compactMap { $0 }.min()
+                        if let remaining, remaining <= 0 { throw BoneRunBudgetError.wallClockLimitReached }
+                        if let deadline, deadline <= ProcessInfo.processInfo.systemUptime { throw BoneInferenceStreamDeadlineExceeded() }
+                        return try await streaming.inferUsingStream(request: request, options: .init(
+                            firstEventTimeout: options.firstEventTimeout, idleTimeout: options.idleTimeout,
+                            maximumBytes: options.maximumBytes, totalTimeout: options.totalTimeout,
+                            deadlineUptime: deadline
+                        ))
+                    }
                 }
-                // 将测试可注入时钟的剩余额度转换为真实 uptime，不逐步重置 Run 预算。
-                let remaining = runDeadline.map { $0 - monotonicClock() }
-                let budgetDeadline = remaining.map { ProcessInfo.processInfo.systemUptime + $0 }
-                let deadline = [options.deadlineUptime, budgetDeadline].compactMap { $0 }.min()
-                if let remaining, remaining <= 0 { throw BoneRunBudgetError.wallClockLimitReached }
-                if let deadline, deadline <= ProcessInfo.processInfo.systemUptime { throw BoneInferenceStreamDeadlineExceeded() }
-                    response = try await streaming.inferUsingStream(request: request, options: .init(
-                        firstEventTimeout: options.firstEventTimeout, idleTimeout: options.idleTimeout,
-                        maximumBytes: options.maximumBytes, totalTimeout: options.totalTimeout,
-                        deadlineUptime: deadline
-                    ))
                 }
+                await status.endInference(inferenceID)
+            } catch {
+                await status.endInference(inferenceID)
+                let cancelled = Task.isCancelled || error is CancellationError || (error as? BoneInferenceTransportError) == .cancelled
+                await status.finishTokenRequest(inferenceID, state: cancelled ? .cancelled : .failed, usage: nil)
+                if cancelled { throw CancellationError() }
+                throw error
             }
             // Engine 已交付该响应，Provider 调用已经发生；先记录事实，再做取消、预算与
             // checkpoint 判定，之后任何失败都不能把已计费的响应从记录里抹掉。
             onResponseDelivered(response)
+            await status.finishTokenRequest(inferenceID, state: .responseReceived, usage: response.usage)
+            await status.transition(.validatingResponse, step: streamStep)
             configuration.logging.write(.debug, "inference.result.validated", context: BoneAgentLogContext(["modelID": request.modelID, "messageCount": "\(request.messages.count)", "responseBytes": (try? JSONEncoder().encode(response)).map { String($0.count) } ?? "unknown"]))
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
@@ -667,15 +751,17 @@ public actor BoneAgent {
         messages: inout [BoneInferenceMessage],
         budgetMeter: BoneRunBudgetMeter?,
         step: Int = 0,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil
+        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        status: BoneAgentStatusReporter
     ) async throws {
         guard call.arguments.count <= BoneInferenceToolCall.maximumArgumentsByteCount else {
             throw BoneAgentError.toolPayloadTooLarge
         }
         try Task.checkCancellation()
-        guard let definition = toolRegistry.tool(id: call.toolID)?.definition else {
+        guard let tool = toolRegistry.tool(id: call.toolID) else {
             throw BoneAgentError.toolNotFound
         }
+        let definition = tool.definition
         if let mismatch = try validate(call: call, definition: definition) {
             try await progressSink.receive(.toolArgumentsRejected(toolID: call.toolID, mismatch: mismatch))
             throw BoneAgentError.toolArgumentsInvalid
@@ -689,7 +775,10 @@ public actor BoneAgent {
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
             streamEmitter?(.toolExecutionStarted(step: step, callID: call.id, toolID: call.toolID))
-            output = try await executeThroughPipeline(call, definition: definition, budgetMeter: budgetMeter)
+            output = try await status.withTool(call, step: step) {
+                try await self.executeThroughPipeline(call, definition: definition, budgetMeter: budgetMeter,
+                                                      step: step, status: status)
+            }
         } catch {
             await budgetMeter?.releaseConcurrentTool()
             throw error
@@ -708,7 +797,9 @@ public actor BoneAgent {
             configuration.logging.write(.info, "tool.finished", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "resultBytes": "\(output.count)"]))
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-            messages.append(try .toolResult(callID: call.id, toolID: call.toolID, result: output))
+            let content = try tool.resultContent(output)
+            messages.append(.toolResult(try .init(callID: call.id, toolID: call.toolID,
+                                                 content: content, isError: false, ordinal: 0)))
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as BoneAgentError {
@@ -730,7 +821,8 @@ public actor BoneAgent {
         budgetMeter: BoneRunBudgetMeter?,
         onResultsReceived: (Int) -> Void,
         step: Int = 0,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil
+        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        status: BoneAgentStatusReporter
     ) async throws {
         messages.append(.assistant(turn))
         let results: [BoneInferenceToolResult]
@@ -740,13 +832,15 @@ public actor BoneAgent {
                 calls: turn.toolCalls,
                 definitions: toolRegistry.definitions
             ) { [toolRegistry, toolContext, eventSink, progressSink, configuration, monotonicClock] call in
+                return try await status.withTool(call, step: step) {
                 guard call.arguments.count <= BoneInferenceToolCall.maximumArgumentsByteCount else {
                     throw BoneAgentError.toolPayloadTooLarge
                 }
                 try Task.checkCancellation()
-                guard let definition = toolRegistry.tool(id: call.toolID)?.definition else {
+                guard let tool = toolRegistry.tool(id: call.toolID) else {
                     throw BoneAgentError.toolNotFound
                 }
+                let definition = tool.definition
                 if let mismatch = try Self.validate(
                     call: call,
                     definition: definition,
@@ -771,11 +865,11 @@ public actor BoneAgent {
                         definition: definition,
                         context: executionContext
                     ) {
-                        try await toolRegistry.execute(
-                            id: call.toolID,
-                            input: call.arguments,
-                            context: toolContext
-                        )
+                        return try await status.measureTool(call, step: step) {
+                            try Task.checkCancellation()
+                            try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+                            return try await toolRegistry.execute(id: call.toolID, input: call.arguments, context: toolContext)
+                        }
                     }
                 } catch is CancellationError {
                     await budgetMeter?.releaseConcurrentTool()
@@ -813,7 +907,9 @@ public actor BoneAgent {
                 try await budgetMeter?.commitTool(resultBytes: output.count)
                 streamEmitter?(.toolResultReady(step: step, callID: call.id, toolID: call.toolID, isError: false))
                 await eventSink.receive(.toolCallFinished)
-                return .json(output)
+                do { return try tool.resultContent(output) }
+                catch { throw BoneAgentError.toolRecoveryRequired }
+                }
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -908,7 +1004,7 @@ public actor BoneAgent {
     private func executeThroughPipeline(
         _ call: BoneInferenceToolCall,
         definition: BoneAgentToolDefinition,
-        budgetMeter: BoneRunBudgetMeter?
+        budgetMeter: BoneRunBudgetMeter?, step: Int, status: BoneAgentStatusReporter
     ) async throws -> Data {
         do {
             let executionContext = try await configuration.toolExecutionContextProvider?(call, definition)
@@ -918,8 +1014,12 @@ public actor BoneAgent {
                 arguments: call.arguments,
                 definition: definition,
                 context: executionContext
-            ) { [toolRegistry, toolContext] in
-                try await toolRegistry.execute(id: call.toolID, input: call.arguments, context: toolContext)
+            ) { [toolRegistry, toolContext, monotonicClock] in
+                return try await status.measureTool(call, step: step) {
+                    try Task.checkCancellation()
+                    try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
+                    return try await toolRegistry.execute(id: call.toolID, input: call.arguments, context: toolContext)
+                }
             }
         } catch is CancellationError {
             throw CancellationError()

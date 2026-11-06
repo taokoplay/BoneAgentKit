@@ -4,11 +4,19 @@ import Foundation
 public enum BoneToolResultContent: Codable, Equatable, Sendable {
     case json(Data)
     case text(String)
+    /// 有序文本与图片引用；图片正文不进入工具历史。
+    case multimodal([BoneInferenceInputContent])
+
+    public var imageInputs: [BoneInferenceImageInput] {
+        guard case .multimodal(let parts) = self else { return [] }
+        return parts.compactMap { if case .image(let value) = $0 { return value }; return nil }
+    }
 
     public var byteCount: Int {
         switch self {
         case let .json(data): data.count
         case let .text(value): value.lengthOfBytes(using: .utf8)
+        case let .multimodal(parts): (try? JSONEncoder().encode(parts).count) ?? Int.max
         }
     }
 
@@ -18,8 +26,9 @@ public enum BoneToolResultContent: Codable, Equatable, Sendable {
             guard (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
                 throw BoneInferenceError.invalidToolResult
             }
-        case .text:
-            break
+        case .text: break
+        case .multimodal(let parts):
+            try BoneInferenceInputContent.validate(parts)
         }
         return self
     }

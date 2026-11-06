@@ -59,6 +59,11 @@ public struct BoneAgentBuilder: Sendable {
         withTool(BoneAnyAgentTool(tool))
     }
 
+    /// 添加返回文本/图片引用内容的 Tool。
+    public func withTool<Tool: BoneAgentContentTool>(_ tool: Tool) -> Self {
+        withTool(BoneAnyAgentTool(tool))
+    }
+
     /// 添加已经完成类型擦除的 Tool。
     public func withTool(_ tool: BoneAnyAgentTool) -> Self {
         var copy = self

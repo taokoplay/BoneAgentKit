@@ -56,14 +56,24 @@ enum BoneOpenAIToolWire {
 
     static func messages(
         _ values: [BoneInferenceMessage],
-        definitions: [BoneAgentToolDefinition]
+        definitions: [BoneAgentToolDefinition],
+        images: [BoneInferenceImageReference: BoneInferencePreparedImage] = [:]
     ) throws -> [[String: Any]] {
         let definitions = try validatedDefinitions(definitions)
         let wireNames = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
         var result: [[String: Any]] = []
         var knownCallIDs: [String: String] = [:]
+        var pendingAttachments: [BoneInferenceInputContent] = []
 
-        for message in values {
+        for (messageIndex, message) in values.enumerated() {
+            if let parts = message.inputContent {
+                guard message.role == .user, message.content == nil,
+                      message.assistantTurn == nil, message.toolResult == nil, message.toolResults == nil else {
+                    throw BoneInferenceError.invalidMessage
+                }
+                result.append(["role": "user", "content": try BoneProviderImageWire.openAI(parts, images: images)])
+                continue
+            }
             if let content = message.content {
                 guard message.assistantTurn == nil,
                       message.toolResult == nil,
@@ -115,8 +125,14 @@ enum BoneOpenAIToolWire {
                     result.append([
                         "role": "tool",
                         "tool_call_id": toolResult.callID,
-                        "content": try contentString(toolResult.content),
+                        "content": try contentString(toolResult),
                     ])
+                }
+                pendingAttachments += batch.results.flatMap { BoneProviderImageWire.toolAttachments($0) }
+                let nextIsTool = values.indices.contains(messageIndex + 1) && values[messageIndex + 1].role == .tool
+                if !nextIsTool, !pendingAttachments.isEmpty {
+                    result.append(["role": "user", "content": try BoneProviderImageWire.openAI(pendingAttachments, images: images)])
+                    pendingAttachments.removeAll()
                 }
                 continue
             }
@@ -237,14 +253,16 @@ private extension BoneOpenAIToolWire {
         return value
     }
 
-    static func contentString(_ value: BoneToolResultContent) throws -> String {
-        switch value {
+    static func contentString(_ result: BoneInferenceToolResult) throws -> String {
+        switch result.content {
         case let .text(text): return text
         case let .json(data):
             guard let string = String(data: data, encoding: .utf8) else {
                 throw BoneInferenceError.invalidToolResult
             }
             return string
+        case .multimodal:
+            return BoneProviderImageWire.toolText(result)
         }
     }
 

@@ -5,7 +5,7 @@ import FoundationNetworking
 
 /// OpenAI Chat Completions 及兼容协议的通用推理实现。
 public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBufferedStreaming,
-    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding {
+    BoneInferenceDetailedResultProviding, BoneInferenceDetailedBufferedStreaming, BoneInferenceEventStreaming, BoneInferenceContextBudgetProviding, BoneInferenceContextRebinding, BoneInferenceImageTokenProviding {
     public let nonImageCapabilities: Set<BoneInferenceCapability> = [
         .text, .structuredOutput, .constrainedOutput, .toolCalling, .streaming,
     ]
@@ -15,9 +15,22 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
     private let requestsStreamingUsage: Bool
     private let verifiedThinkingModelIDs: Set<String>
     private let modelContextLimits: [String: BoneModelContextLimits]
+    private let imageInputConfiguration: BoneInferenceImageInputConfiguration?
 
     public func contextBudget(for modelID: String) throws -> BoneContextWindowBudget? {
-        modelContextLimits[modelID]?.contextWindowBudget
+        let existing = modelContextLimits[modelID]?.contextWindowBudget
+        guard let imageInputConfiguration else { return existing }
+        return try imageInputConfiguration.contextBudget(for: modelID, constrainedBy: existing)
+    }
+
+    public func imageTokens(for image: BoneInferenceImageInput, modelID: String) throws -> Int {
+        guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+        return try imageInputConfiguration.imageTokens(for: image, modelID: modelID)
+    }
+
+    public func imageInputSafetyMarginTokens(for modelID: String) throws -> Int {
+        guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+        return try imageInputConfiguration.profile(modelID).safetyMarginTokens
     }
 
     private let configuration: BoneInferenceProviderConfiguration
@@ -37,8 +50,10 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         diagnostics: BoneInferenceDiagnosticSink = .init(),
         serverReasoning: BoneInferenceServerReasoning = .providerDefault,
         verifiedThinkingModelIDs: Set<String> = [],
-        requestsStreamingUsage: Bool = true
+        requestsStreamingUsage: Bool = true,
+        imageInputConfiguration: BoneInferenceImageInputConfiguration? = nil
     ) {
+        self.imageInputConfiguration = imageInputConfiguration
         self.requestsStreamingUsage = requestsStreamingUsage
         self.serverReasoning = serverReasoning
         self.verifiedThinkingModelIDs = verifiedThinkingModelIDs
@@ -101,6 +116,12 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         }
         _ = try BoneThinkingContinuation.payloads(request: request, configuration: configuration, profiles: modelReasoningProfiles)
         var resolved = capabilities
+        if imageInputConfiguration?.profiles[request.modelID] != nil {
+            resolved.insert(.imageInput)
+        }
+        if let modalities = modelMetadata[request.modelID]?.declaration.modalities, !modalities.input.contains("image") {
+            resolved.remove(.imageInput)
+        }
         // 兼容网关只承诺 OpenAI wire shape，不据此承诺官方原生约束。
         if configuration.kind != .openAI {
             resolved.remove(.structuredOutput)
@@ -145,16 +166,24 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             invocation: resolved.invocation
         )
         let prepared = try preparedRequest(request)
-        let urlRequest = try makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
+        let urlRequest = try await makeRequest(prepared.request, streaming: false, forcedTool: prepared.tool)
         let diagnosticID = UUID()
         var receivedResponse = false
         var failureStage: BoneInferenceDiagnosticEvent.FailureStage = .transport
         diagnostics.emit(diagnosticID, .transportAttempt, wire: .openAI)
         do {
+            try Task.checkCancellation()
+            await BoneInferenceActivityReporting.report(.waitingForModel)
+            try Task.checkCancellation()
+            await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: false))
+            try Task.checkCancellation()
             let response = try await transport.send(urlRequest)
+            await BoneInferenceTelemetryReporting.report(.responseFinished)
             receivedResponse = true
             diagnostics.emit(diagnosticID, .httpResponseReceived, response: response, wire: .openAI)
             failureStage = (200...299).contains(response.statusCode) ? .jsonDecoding : .httpStatus
+            await BoneInferenceActivityReporting.report(.validatingResponse)
+            try Task.checkCancellation()
             let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
             failureStage = .resultValidation
             let finalResponse: BoneInferenceResponse
@@ -222,19 +251,46 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                         invocation: resolved.invocation
                     )
                     let prepared = try preparedRequest(request)
-                    let urlRequest = try makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
+                    let urlRequest = try await makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
                     var events: [BoneInferenceEventStreamEvent] = []
                     var mapper = BoneOpenAINormalizedEventMapper(
                         disclosure: request.reasoningDisclosure,
                         definitions: prepared.request.availableTools
                     )
+                    let liveTiming = transport.providesLiveEventTiming
+                    var reportedFirstOutputToken = false
+                    try Task.checkCancellation()
+                    await BoneInferenceActivityReporting.report(.waitingForModel)
+                    try Task.checkCancellation()
+                    await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
+                    try Task.checkCancellation()
                     for try await event in transport.eventStream(urlRequest, options: options) {
                         events.append(event)
                         let mappedEvents = try mapper.consume(event)
+                        if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
+                            reportedFirstOutputToken = true
+                            await BoneInferenceTelemetryReporting.report(.firstOutputToken)
+                        }
+                        for mapped in mappedEvents {
+                            if case .usage(let usage) = mapped {
+                                await BoneInferenceTelemetryReporting.report(.usage(usage))
+                            }
+                        }
+                        try Task.checkCancellation()
+                        for activity in mapper.activities {
+                            await BoneInferenceActivityReporting.report(activity)
+                            try Task.checkCancellation()
+                        }
                         if request.outputConstraint == nil {
                             for mapped in mappedEvents { continuation.yield(mapped) }
                         }
                     }
+                    await BoneInferenceTelemetryReporting.report(.responseFinished)
+                    mapper.finish()
+                    for activity in mapper.activities {
+                        await BoneInferenceActivityReporting.report(activity)
+                    }
+                    try Task.checkCancellation()
                     let response: BoneInferenceResponse
                     if let constraint = request.outputConstraint {
                         let text = try BoneOpenAIResponseAggregator.streamingText(
@@ -281,10 +337,18 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             invocation: resolved.invocation
         )
         let prepared = try preparedRequest(request)
-        let urlRequest = try makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
+        let urlRequest = try await makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
         let response: BoneInferenceEventStreamResponse
         do {
+            try Task.checkCancellation()
+            await BoneInferenceActivityReporting.report(.waitingForModel)
+            try Task.checkCancellation()
+            await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: false))
+            try Task.checkCancellation()
             response = try await transport.sendEventStream(urlRequest, options: options)
+            await BoneInferenceTelemetryReporting.report(.responseFinished)
+            await BoneInferenceActivityReporting.report(.validatingResponse)
+            try Task.checkCancellation()
         } catch let error as BoneInferenceTransportError {
             if case .httpStatus(let statusCode) = error {
                 throw BoneInferenceProviderResponseValidator.mappedError(statusCode: statusCode)
@@ -402,7 +466,8 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         _ inferenceRequest: BoneInferenceRequest,
         streaming: Bool,
         forcedTool: BoneAgentToolDefinition? = nil
-    ) throws -> URLRequest {
+    ) async throws -> URLRequest {
+        try Task.checkCancellation()
         guard try supportedServerReasoning(for: inferenceRequest, invocation: streaming ? .streaming : .nonStreaming).contains(serverReasoning) else {
             throw BoneInferenceUnsupportedServerReasoning(requested: serverReasoning)
         }
@@ -413,14 +478,26 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         guard !responseFormat.isStructured || inferenceRequest.availableTools.isEmpty else {
             throw BoneInferenceError.invalidStructuredOutputContract
         }
+        let images: BoneProviderImageWire.Images
+        var maximumOutputTokens = inferenceRequest.generationOptions.maximumOutputTokens
+        if !inferenceRequest.imageInputs.isEmpty {
+            guard let imageInputConfiguration else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+            let budget = try contextBudget(for: inferenceRequest.modelID)
+            images = try await imageInputConfiguration.prepare(inferenceRequest, engineBudget: budget, supportsDetail: true)
+            maximumOutputTokens = try imageInputConfiguration.maximumOutputTokens(for: inferenceRequest, budget: budget)
+        } else {
+            images = [:]
+        }
         var messages = try BoneOpenAIToolWire.messages(
             inferenceRequest.messages,
-            definitions: inferenceRequest.availableTools
+            definitions: inferenceRequest.availableTools,
+            images: images
         )
         let privatePayloads = try BoneThinkingContinuation.payloads(request: inferenceRequest, configuration: configuration, profiles: modelReasoningProfiles)
         var semanticIndex = 0
         var wireIndex = 0
-        for message in inferenceRequest.messages {
+        var pendingToolImages = false
+        for (messageIndex, message) in inferenceRequest.messages.enumerated() {
             if message.role != .system {
                 if let payload = privatePayloads[semanticIndex] {
                     guard let fields = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -432,7 +509,19 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
                 }
                 semanticIndex += 1
             }
-            wireIndex += message.role == .tool ? try message.requiredToolResults().results.count : 1
+            if message.role == .tool {
+                wireIndex += try message.requiredToolResults().results.count
+                pendingToolImages = pendingToolImages || !message.imageInputs.isEmpty
+                let nextIsTool = inferenceRequest.messages.indices.contains(messageIndex + 1)
+                    && inferenceRequest.messages[messageIndex + 1].role == .tool
+                // Match the single attachment row after all consecutive tool responses.
+                if !nextIsTool, pendingToolImages {
+                    wireIndex += 1
+                    pendingToolImages = false
+                }
+            } else {
+                wireIndex += 1
+            }
         }
         let options = try inferenceRequest.generationOptions.validated()
         let defaultPath = configuration.kind == .zhipu
@@ -473,7 +562,7 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
             body["response_format"] = nativeFormat
         }
         if let temperature = options.temperature { body["temperature"] = temperature }
-        if let maximumOutputTokens = options.maximumOutputTokens {
+        if let maximumOutputTokens {
             let usesCompletionTokens = modelReasoningProfiles[inferenceRequest.modelID]?.wireFormat == .openAIChat
             body[usesCompletionTokens ? "max_completion_tokens" : "max_tokens"] = maximumOutputTokens
         }
@@ -484,7 +573,10 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         try BoneInferenceReasoningRequestSupport.merge(
             BoneInferenceReasoningRequestSupport.fields(request: inferenceRequest,
                 profile: modelReasoningProfiles[inferenceRequest.modelID], wire: .openAI, forcedTool: forcedTool != nil), into: &body)
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        try imageInputConfiguration?.validateBody(data, for: inferenceRequest)
+        try Task.checkCancellation()
+        request.httpBody = data
         return request
     }
 

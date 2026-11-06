@@ -5,6 +5,7 @@ struct BoneContextSession {
     var revision: UInt64 = 0
     var summary: String?
     var summaryCalls = 0
+    enum Activity: Sendable { case compacting, summarizing }
 
     struct Prepared {
         let request: BoneInferenceRequest
@@ -16,7 +17,9 @@ struct BoneContextSession {
     mutating func prepare(
         request: BoneInferenceRequest, engine: any BoneInferenceEngine,
         policy: BoneContextManagementConfiguration, meter: BoneRunBudgetMeter?,
-        clock: @Sendable () -> TimeInterval
+        clock: @Sendable () -> TimeInterval,
+        activity: @Sendable (Activity) async -> Void = { _ in },
+        observer: BoneAgentStatusReporter? = nil, step: Int = 0
     ) async throws -> Prepared {
         try Task.checkCancellation()
         try await meter?.checkWallClock(nowUptime: clock())
@@ -32,7 +35,15 @@ struct BoneContextSession {
         }
         _ = try BoneContextTurn.split(request.messages)
         let effectiveBudget = try budget.constrained(by: engineBudget)
-        let capacity = try Self.capacity(effectiveBudget, request: request, policy: policy)
+        let imageMargin = request.imageInputs.isEmpty ? 0
+            : try (engine as? any BoneInferenceImageTokenProviding)?.imageInputSafetyMarginTokens(for: request.modelID) ?? 0
+        let capacity = try Self.capacity(effectiveBudget, request: request, policy: policy, minimumSafetyMargin: imageMargin)
+        let observe: @Sendable (BoneInferenceRequest, Int?, Int?, BoneAgentContextTokens.Stage, UInt64) async -> Void = { measured, count, before, stage, revision in
+            await observer?.contextTokens(BoneContextTokenObservation.managed(request: measured, count: count,
+                before: before, stage: stage, budget: effectiveBudget, capacity: capacity, policy: policy,
+                imageMargin: imageMargin, step: step, revision: revision, engine: engine,
+                protocolReserve: max(policy.protocolReserveTokens, request.imageInputs.isEmpty ? 0 : 128)))
+        }
         let effectiveMessages = try compose(request.messages, summary: summary)
         let normalizedContinuation: BoneInferenceProviderContinuation?
         if let continuation = request.providerContinuation, effectiveMessages != request.messages {
@@ -60,11 +71,20 @@ struct BoneContextSession {
             continuation: normalizedContinuation, replaceContinuation: true
         )
         let original = Self.replacing(baseRequest, messages: effectiveMessages, output: capacity.maximumOutputTokens)
-        let initialCount = try await Self.count(original, engine: engine)
+        let initialCount: Int
+        do { initialCount = try await Self.count(original, engine: engine) }
+        catch { await observe(original, nil, nil, .rejected, revision); throw error }
+        await observe(original, initialCount, initialCount, .beforeCompaction, revision)
         try Task.checkCancellation()
         try await meter?.checkWallClock(nowUptime: clock())
         let threshold = Self.fraction(capacity.availableInputTokens, policy.triggerFraction)
-        guard initialCount >= threshold else { return .init(request: original, history: request.messages, receipt: nil) }
+        guard initialCount >= threshold else {
+            await observe(original, initialCount, initialCount, .ready, revision)
+            return .init(request: original, history: request.messages, receipt: nil)
+        }
+        await activity(.compacting)
+        try Task.checkCancellation()
+        try await meter?.checkWallClock(nowUptime: clock())
         let groups = try BoneContextTurn.split(request.messages)
         let clamped = try BoneContextCompactor.clampToolResults(in: request.messages, policy: policy.toolResultPolicy)
         let segments = try BoneContextTurn.split(clamped.messages)
@@ -75,11 +95,13 @@ struct BoneContextSession {
         var candidate = try rebound(baseRequest, history: history, summary: summary, engine: engine, output: capacity.maximumOutputTokens)
         let target = Self.fraction(capacity.availableInputTokens, policy.targetFraction)
         var count = try await Self.count(candidate, engine: engine)
+        await observe(candidate, count, initialCount, .compactionCandidate, revision)
         while count > target, dropped < maximumDrop {
             dropped += 1
             history = segments.head + segments.turns.dropFirst(dropped).flatMap(\.messages)
             candidate = try rebound(baseRequest, history: history, summary: summary, engine: engine, output: capacity.maximumOutputTokens)
             count = try await Self.count(candidate, engine: engine)
+            await observe(candidate, count, initialCount, .compactionCandidate, revision)
             try Task.checkCancellation()
             try await meter?.checkWallClock(nowUptime: clock())
         }
@@ -91,7 +113,8 @@ struct BoneContextSession {
             let currentStart = history.lastIndex(where: { $0.role == .user }) ?? history.count
             let pairs = history.indices.filter { index in
                 index > currentStart && index + 1 < history.count &&
-                !(history[index].assistantTurn?.toolCalls.isEmpty ?? true) && history[index + 1].role == .tool
+                !(history[index].assistantTurn?.toolCalls.isEmpty ?? true) && history[index + 1].role == .tool &&
+                (index + 2 >= history.count || history[index + 2].role != .tool)
             }
             var removedIndices = Set<Int>()
             for index in pairs.dropLast(min(keep, pairs.count)) where count > target {
@@ -101,6 +124,7 @@ struct BoneContextSession {
                 let trimmed = history.enumerated().filter { !removedIndices.contains($0.offset) }.map(\.element)
                 candidate = try rebound(baseRequest, history: trimmed, summary: summary, engine: engine, output: capacity.maximumOutputTokens)
                 count = try await Self.count(candidate, engine: engine)
+                await observe(candidate, count, initialCount, .compactionCandidate, revision)
                 try Task.checkCancellation()
                 try await meter?.checkWallClock(nowUptime: clock())
             }
@@ -108,6 +132,7 @@ struct BoneContextSession {
             _ = try BoneContextTurn.split(history)
         }
         guard count <= capacity.availableInputTokens else {
+            await observe(candidate, count, initialCount, .rejected, revision)
             throw BoneContextCompactionError.mandatoryMessagesExceedBudget(estimated: count, limit: capacity.availableInputTokens)
         }
         var nextSummary = summary
@@ -115,9 +140,12 @@ struct BoneContextSession {
         var fallback = false
         if !removed.isEmpty, let summarizer = policy.summarizer {
             do {
-                let value = try await summarize(removed, binding: summarizer, policy: policy, meter: meter, clock: clock)
+                let value = try await summarize(removed, binding: summarizer, policy: policy, meter: meter,
+                    clock: clock, activity: activity, observer: observer, step: step)
+                await activity(.compacting)
                 let summarized = try rebound(baseRequest, history: history, summary: value, engine: engine, output: capacity.maximumOutputTokens)
                 let summarizedCount = try await Self.count(summarized, engine: engine)
+                await observe(summarized, summarizedCount, initialCount, .compactionCandidate, revision)
                 guard summarizedCount <= capacity.availableInputTokens, summarizedCount < initialCount else {
                     throw BoneContextSummarizerError.summaryTooLarge
                 }
@@ -131,12 +159,16 @@ struct BoneContextSession {
                 guard error is BoneContextSummarizerError else { throw BoneContextCompactionError.summaryUnavailable }
                 guard policy.fallbackToTrimming else { throw BoneContextCompactionError.summaryUnavailable }
                 fallback = true
+                await activity(.compacting)
             }
         }
         try Task.checkCancellation()
         try await meter?.checkWallClock(nowUptime: clock())
         // 所有校验完成后才提交 run-local 状态；无变化时不增长 revision。
-        guard history != request.messages || usedSummary else { return .init(request: original, history: request.messages, receipt: nil) }
+        guard history != request.messages || usedSummary else {
+            await observe(original, initialCount, initialCount, .ready, revision)
+            return .init(request: original, history: request.messages, receipt: nil)
+        }
         guard count < initialCount else { throw BoneContextCompactionError.noProgress }
         guard revision < UInt64.max else { throw BoneContextCompactionError.revisionOverflow }
         let receipt = BoneContextCompactionReceipt(
@@ -147,12 +179,15 @@ struct BoneContextSession {
             usedModelSummary: usedSummary, fallbackUsed: fallback, removedToolExchangeCount: removedExchanges
         )
         revision += 1; summary = nextSummary
+        await observe(candidate, count, initialCount, .ready, revision)
         return .init(request: candidate, history: history, receipt: receipt)
     }
 
     private mutating func summarize(_ removed: [BoneInferenceMessage], binding: any BoneContextSummarizing,
                                     policy: BoneContextManagementConfiguration, meter: BoneRunBudgetMeter?,
-                                    clock: @Sendable () -> TimeInterval) async throws -> String {
+                                    clock: @Sendable () -> TimeInterval,
+                                    activity: @Sendable (Activity) async -> Void,
+                                    observer: BoneAgentStatusReporter?, step: Int) async throws -> String {
         guard summaryCalls < policy.maximumSummaryCallsPerRun else { throw BoneContextSummarizerError.callLimitReached }
         let engineBudget = try (binding.engine as? any BoneInferenceContextBudgetProviding)?.contextBudget(for: binding.modelID)
         let effectiveBudget = try binding.budget.constrained(by: engineBudget)
@@ -163,7 +198,12 @@ struct BoneContextSession {
         output = capacity.maximumOutputTokens
         request = Self.replacing(request, messages: request.messages, output: output)
         let available = capacity.availableInputTokens
-        guard try await Self.count(request, engine: binding.engine) <= available else { throw BoneContextSummarizerError.inputTooLarge }
+        let count = try await Self.count(request, engine: binding.engine)
+        await observer?.contextTokens(BoneContextTokenObservation.managed(request: request, count: count,
+            before: nil, stage: count <= available ? .ready : .rejected, budget: effectiveBudget,
+            capacity: capacity, policy: policy, imageMargin: 0, step: step, revision: revision,
+            engine: binding.engine, summary: true), summary: true)
+        guard count <= available else { throw BoneContextSummarizerError.inputTooLarge }
         let resolved = try binding.engine.resolvedCapabilities(for: request, invocation: .nonStreaming)
         try BoneInferenceCapabilityValidator.validate(request: request, capabilities: resolved.capabilities, invocation: resolved.invocation)
         try Task.checkCancellation()
@@ -172,14 +212,28 @@ struct BoneContextSession {
             guard let estimate = binding.costEstimator else { throw BoneRunBudgetError.invalidBudget }
             cost = try estimate(request)
         }
-        try await meter?.reserveInference(inputBytes: JSONEncoder().encode(request).count, estimatedCostMicrounits: cost, nowUptime: clock())
+        try await meter?.reserveInference(inputBytes: request.accountedInputBytes, estimatedCostMicrounits: cost, nowUptime: clock())
         summaryCalls += 1
         var delivered = false
         var usage: BoneInferenceUsage?
+        var requestID: UUID?
         do {
-            let response = try await binding.engine.infer(request: request)
+            await activity(.summarizing)
+            try Task.checkCancellation()
+            try await meter?.checkWallClock(nowUptime: clock())
+            requestID = await observer?.beginTokenRequest(modelID: binding.modelID, step: step, purpose: .summary)
+            let id = requestID
+            let summaryRequest = request
+            let response = try await BoneInferenceTelemetryReporting.withSink(.init { event in
+                if let id { await observer?.telemetry(event, id: id) }
+            }) {
+                try Task.checkCancellation()
+                try await meter?.checkWallClock(nowUptime: clock())
+                return try await binding.engine.infer(request: summaryRequest)
+            }
             delivered = true
             usage = response.usage
+            if let requestID { await observer?.finishTokenRequest(requestID, state: .responseReceived, usage: usage) }
             try await meter?.commitInference(outputBytes: JSONEncoder().encode(response).count)
             try Task.checkCancellation()
             try await meter?.checkWallClock(nowUptime: clock())
@@ -188,6 +242,9 @@ struct BoneContextSession {
             return text
         } catch {
             let cancelled = Task.isCancelled || error is CancellationError || (error as? BoneInferenceTransportError) == .cancelled
+            if let requestID, !delivered {
+                await observer?.finishTokenRequest(requestID, state: cancelled ? .cancelled : .failed, usage: nil)
+            }
             await policy.summaryAttemptSink(.init(modelID: binding.modelID,
                 outcome: cancelled ? .cancelled : (delivered ? .rejected : .failed), usage: usage, responseDelivered: delivered))
             if cancelled { throw CancellationError() }
@@ -214,15 +271,24 @@ struct BoneContextSession {
     }
 
     static func capacity(_ budget: BoneContextWindowBudget, request: BoneInferenceRequest,
-                         policy: BoneContextManagementConfiguration) throws -> (maximumOutputTokens: Int, availableInputTokens: Int) {
+                         policy: BoneContextManagementConfiguration,
+                         minimumSafetyMargin: Int = 0) throws -> (maximumOutputTokens: Int, availableInputTokens: Int) {
         let preferred = policy.preferredOutputTokens ?? min(4_096, max(1, budget.contextWindowTokens / 4))
         return try budget.availableInputTokens(configuredOutputTokens: request.generationOptions.maximumOutputTokens,
                                               preferredOutputTokens: preferred,
-                                              protocolReserveTokens: policy.protocolReserveTokens,
-                                              safetyMarginTokens: policy.safetyMarginTokens ?? max(16, budget.contextWindowTokens / 50))
+                                              protocolReserveTokens: max(policy.protocolReserveTokens, request.imageInputs.isEmpty ? 0 : 128),
+                                              safetyMarginTokens: max(minimumSafetyMargin, policy.safetyMarginTokens ?? max(16, budget.contextWindowTokens / 50)))
     }
 
     static func count(_ request: BoneInferenceRequest, engine: any BoneInferenceEngine) async throws -> Int {
+        if !request.imageInputs.isEmpty {
+            guard let counter = engine as? any BoneInferenceImageTokenProviding else {
+                throw BoneInferenceImageInputError.missingTokenEstimator
+            }
+            // 视觉请求采用同一模型规则逐图计数；不能让文本 tokenizer 漏算图片或再次按 Base64 计数。
+            return try BoneTokenEstimator.estimateRequestTokens(request,
+                imageTokenEstimator: { try counter.imageTokens(for: $0, modelID: request.modelID) })
+        }
         if let counter = engine as? any BoneInferenceContextTokenCounting {
             do {
                 let count = try await counter.countContextTokens(request: request)
@@ -235,14 +301,11 @@ struct BoneContextSession {
                 throw BoneContextCompactionError.tokenCountingFailed
             }
         }
-        return BoneTokenEstimator.estimateMessages(request.messages) + (try BoneTokenEstimator.estimateRequestOverhead(request))
+        return try BoneTokenEstimator.estimateRequestTokens(request, imageTokenEstimator: nil)
     }
 
     private static func fraction(_ value: Int, _ fraction: Double) -> Int {
-        guard fraction < 1 else { return value }
-        let scaled = (Double(value) * fraction).rounded(.down)
-        guard scaled < Double(Int.max) else { return value }
-        return min(value, Int(scaled))
+        BoneContextTokenObservation.fraction(value, fraction)
     }
 
     static func replacing(_ request: BoneInferenceRequest, messages: [BoneInferenceMessage], output: Int? = nil,

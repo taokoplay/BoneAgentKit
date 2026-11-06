@@ -26,6 +26,10 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
     private let urlSessionConfiguration: URLSessionConfiguration?
     private let streamLoaderIsURLSession: Bool
 
+    /// The default URLSession bridge delivers arrival events. Injected `StreamLoader`s
+    /// return a completed response and are replayed, so they cannot provide live timing.
+    public var providesLiveEventTiming: Bool { streamLoaderIsURLSession }
+
     public init(
         configuration: URLSessionConfiguration = .ephemeral,
         maximumResponseByteCount: Int = Self.defaultMaximumResponseByteCount,

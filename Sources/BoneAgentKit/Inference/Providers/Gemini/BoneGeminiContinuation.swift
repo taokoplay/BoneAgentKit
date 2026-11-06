@@ -99,7 +99,7 @@ enum BoneGeminiContinuation {
             }
 
             let retainedUser = new.indices.contains {
-                new[$0].role == .user && new[$0].content == oldUser && !isHistoricalSummary(new[$0].content)
+                new[$0] == oldUser && !isHistoricalSummary(new[$0].content)
             }
             let sameCallIDs = Set(turn.toolCalls.map(\.id)).intersection(
                 new.flatMap { $0.assistantTurn?.toolCalls.map(\.id) ?? [] }
@@ -123,12 +123,12 @@ enum BoneGeminiContinuation {
         return entries.isEmpty ? nil : try envelope(["version": 1, "turns": entries])
     }
 
-    private static func nearestUserContent(before index: Int, in messages: [BoneInferenceMessage]) -> String? {
+    private static func nearestUserContent(before index: Int, in messages: [BoneInferenceMessage]) -> BoneInferenceMessage? {
         guard index > 0 else { return nil }
         for candidate in stride(from: index - 1, through: 0, by: -1) {
             if messages[candidate].role == .user,
                !isHistoricalSummary(messages[candidate].content) {
-                return messages[candidate].content
+                return messages[candidate]
             }
         }
         return nil

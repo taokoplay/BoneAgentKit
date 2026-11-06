@@ -130,7 +130,7 @@ enum BoneThinkingContinuation {
                 rebound.append(.init(messageIndex: index, turn: entry.turn, userAnchorDigest: entry.userAnchorDigest, payload: entry.payload))
             } else {
                 // Only whole user turns may be removed. Keeping their user but changing/dropping signed turns is unsafe.
-                guard !new.contains(where: { $0.role == .user && $0.content == anchor }),
+                guard !new.contains(anchor),
                       Set(entry.turn.toolCalls.map(\.id)).isDisjoint(with: new.flatMap { $0.assistantTurn?.toolCalls.map(\.id) ?? [] }) else {
                     throw BoneInferenceError.invalidProviderContinuation
                 }
@@ -143,12 +143,19 @@ enum BoneThinkingContinuation {
     }
 
     private static func anchorDigest(before index: Int, in messages: [BoneInferenceMessage]) -> String? {
-        precedingUser(index, in: messages).map { BoneSHA256.hexDigest(Data($0.utf8)) }
+        guard let user = precedingUser(index, in: messages) else { return nil }
+        // Preserve legacy text digests. A distinct digest prefix prevents text
+        // from impersonating the canonical multimodal message encoding.
+        if let text = user.content { return BoneSHA256.hexDigest(Data(text.utf8)) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(user) else { return nil }
+        return "image-v1:" + BoneSHA256.hexDigest(data)
     }
 
-    private static func precedingUser(_ index: Int, in messages: [BoneInferenceMessage]) -> String? {
+    private static func precedingUser(_ index: Int, in messages: [BoneInferenceMessage]) -> BoneInferenceMessage? {
         guard index > 0 else { return nil }
-        return messages[..<index].last { $0.role == .user }?.content
+        return messages[..<index].last { $0.role == .user }
     }
     private static func encode(_ envelope: Envelope, provider: BoneInferenceProviderKind) throws -> BoneInferenceProviderContinuation {
         try .init(provider: provider, data: JSONEncoder().encode(envelope))

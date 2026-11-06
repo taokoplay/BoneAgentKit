@@ -150,6 +150,10 @@ extension BoneLlamaJSONToolEnvelopeCodec {
             case let .json(data):
                 content = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
                 contentType = "json"
+            case .multimodal(let parts):
+                guard result.content.imageInputs.isEmpty else { throw BoneInferenceError.unsupportedCapability(.imageInput) }
+                content = parts.compactMap { if case .text(let text) = $0 { return text }; return nil }.joined()
+                contentType = "text"
             }
             return [
                 "id": result.callID,

@@ -26,6 +26,10 @@ public struct BoneAgentConfiguration: Sendable {
     public let toolExecutionPipeline: BoneWorkflowToolExecutionPipeline
     public let toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider?
     public let logging: BoneAgentLoggerConfiguration
+    /// Content-free runtime observation shared by every Agent invocation mode.
+    public let statusSink: BoneAgentStatusSink
+    public let tokenSink: BoneAgentTokenSink
+    public let observationPolicy: BoneAgentObservationPolicy
     /// 初始化时完成校验的 Tool 调度器，供 Agent 直接复用既有不变量。
     let toolScheduler: BoneToolCallScheduler
 
@@ -40,7 +44,10 @@ public struct BoneAgentConfiguration: Sendable {
         toolExecutionContextProvider: BoneWorkflowToolExecutionContextProvider? = nil,
         logging: BoneAgentLoggerConfiguration = .init(),
         inferenceMode: BoneAgentInferenceMode = .nonStreaming,
-        contextManagement: BoneContextManagementConfiguration? = nil
+        contextManagement: BoneContextManagementConfiguration? = nil,
+        statusSink: BoneAgentStatusSink = .init(),
+        tokenSink: BoneAgentTokenSink = .init(),
+        observationPolicy: BoneAgentObservationPolicy = .init()
     ) throws {
         guard maximumSteps > 0 else {
             throw BoneAgentError.invalidMaximumSteps
@@ -52,6 +59,9 @@ public struct BoneAgentConfiguration: Sendable {
         self.inferenceMode = inferenceMode
         self.maximumSteps = maximumSteps
         self.contextManagement = contextManagement
+        self.statusSink = statusSink
+        self.tokenSink = tokenSink
+        self.observationPolicy = observationPolicy
         self.toolSchedulingMode = toolSchedulingMode
         self.toolFailureStrategy = toolFailureStrategy
         self.runBudget = runBudget

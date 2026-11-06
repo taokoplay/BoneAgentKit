@@ -2,6 +2,8 @@
 
 `BoneAgent.runEvents` 是显式 opt-in 的实时入口。它只在当前 Engine 实现真实的 `BoneInferenceEventStreaming` 时工作；只有 buffered streaming 或整段返回的 Engine 会在调用前 fail closed，不会把完整响应伪装成文本 delta。
 
+需要显示“检查预算、压缩中、摘要中、思考中、执行工具”等阶段时，配置 `BoneAgentConfiguration.statusSink`。它覆盖普通、buffered、实时流及会话调用，不依赖是否展示思考正文；`runEvents` 保持原有正文/工具事件。详见 [Agent 统一运行状态](AgentStatus.md)。
+
 ## 使用方式
 
 ```swift

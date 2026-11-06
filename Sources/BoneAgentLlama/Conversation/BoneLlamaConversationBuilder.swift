@@ -11,6 +11,7 @@ public enum BoneLlamaConversationBuilder {
         toolEnvelope: (any BoneLlamaToolEnvelopeCoding)?
     ) throws -> BoneLlamaConversation {
         guard !request.messages.isEmpty,
+              request.imageInputs.isEmpty,
               request.responseFormat == .text,
               request.providerContinuation == nil,
               request.reasoningDisclosure == .hidden,
@@ -30,7 +31,11 @@ public enum BoneLlamaConversationBuilder {
         for message in request.messages {
             switch message.role {
             case .system, .user:
-                guard let content = message.content, !content.isEmpty else {
+                let content = message.content ?? message.inputContent?.compactMap {
+                    if case .text(let text) = $0 { return text }
+                    return nil
+                }.joined(separator: "\n")
+                guard let content, !content.isEmpty else {
                     throw BoneLlamaAdapterError.unsupportedRequest
                 }
                 messages.append(try .init(

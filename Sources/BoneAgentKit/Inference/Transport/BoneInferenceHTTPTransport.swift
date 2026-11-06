@@ -58,6 +58,9 @@ public struct BoneInferenceEventStreamResponse: Sendable {
 public typealias BoneInferenceRawEventStream = AsyncThrowingStream<BoneInferenceEventStreamEvent, Error>
 
 public protocol BoneInferenceHTTPTransport: Sendable {
+    /// True only when `eventStream` delivers events as they arrive from the provider.
+    /// Buffered compatibility implementations must keep the default `false`.
+    var providesLiveEventTiming: Bool { get }
     func send(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse
     func sendRetryableForModels(_ request: URLRequest) async throws -> BoneInferenceHTTPResponse
     func sendEventStream(
@@ -72,6 +75,8 @@ public protocol BoneInferenceHTTPTransport: Sendable {
 }
 
 public extension BoneInferenceHTTPTransport {
+    var providesLiveEventTiming: Bool { false }
+
     /// 测试替身与旧 Transport 的兼容实现；真实 URLSession Transport 覆盖为逐事件交付。
     func eventStream(
         _ request: URLRequest,

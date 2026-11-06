@@ -18,10 +18,25 @@ public actor BoneAgentConversation {
     public private(set) var phase: BoneAgentConversationPhase = .ready
     public var revision: UInt64 { state.revision }
     public var id: UUID { state.id }
+    private var observedStatistics = BoneConversationStatisticsAccumulator()
+    private let statisticsHistoryComplete: Bool
+    /// Counts only Runs observed by this instance; restored prior usage/timing remains unknown.
+    public var statistics: BoneAgentStatistics {
+        get async {
+            if phase == .running, let latest = await agent.currentTokens, observedStatistics.activeRunID == latest.runID {
+                recordTokens(latest)
+            }
+            return observedStatistics.statistics(isHistoryComplete: statisticsHistoryComplete)
+        }
+    }
+    private func recordTokens(_ snapshot: BoneAgentTokenSnapshot) {
+        observedStatistics.observe(snapshot)
+    }
 
     init(agent: BoneAgent, state: BoneAgentConversationState) {
         self.agent = agent
         self.state = state
+        statisticsHistoryComplete = state.revision == 0
     }
 
     /// Starts a NEW Run with the current Agent configuration and Run budget.
@@ -31,11 +46,29 @@ public actor BoneAgentConversation {
         guard phase == .ready else { throw BoneAgentConversationError.recoveryRequired }
         guard !userMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               userMessage.utf8.count <= Self.maximumUserMessageBytes else { throw BoneAgentConversationError.invalidUserMessage }
+        return try await sendMessage(.init(role: .user, content: userMessage), snapshotContext: snapshotContext)
+    }
+
+    /// Sends ordered text and immutable image references. Host retains and authorizes image bytes.
+    public func send(content: [BoneInferenceInputContent],
+                     snapshotContext: BoneAgentModelSnapshotContext? = nil) async throws -> BoneAgentRunResult {
+        guard phase != .running else { throw BoneAgentConversationError.busy }
+        guard phase == .ready else { throw BoneAgentConversationError.recoveryRequired }
+        let message = try BoneInferenceMessage.user(content: content)
+        guard try JSONEncoder().encode(message).count <= Self.maximumUserMessageBytes else {
+            throw BoneAgentConversationError.invalidUserMessage
+        }
+        return try await sendMessage(message, snapshotContext: snapshotContext)
+    }
+
+    private func sendMessage(_ userMessage: BoneInferenceMessage,
+                             snapshotContext: BoneAgentModelSnapshotContext?) async throws -> BoneAgentRunResult {
         guard state.revision < UInt64.max else { throw BoneAgentConversationError.revisionOverflow }
         try Task.checkCancellation()
         phase = .running
         do {
-            let completed = try await agent.runConversation(state: state, userMessage: userMessage, snapshotContext: snapshotContext)
+            let completed = try await agent.runConversation(state: state, userMessage: userMessage,
+                snapshotContext: snapshotContext, tokenObserver: .init { [weak self] in await self?.recordTokens($0) })
             // Agent already crossed its success linearization point; a late cancellation
             // must not discard the committed result and invite a duplicate request.
             state = completed.state

@@ -8,6 +8,7 @@ public struct BoneInferenceRequirements: Equatable, Sendable {
     public init(request: BoneInferenceRequest) throws {
         let format = try request.responseFormat.validated()
         var required: Set<BoneInferenceCapability> = [.text]
+        if !request.imageInputs.isEmpty { required.insert(.imageInput) }
         if !request.availableTools.isEmpty {
             required.insert(.toolCalling)
         }

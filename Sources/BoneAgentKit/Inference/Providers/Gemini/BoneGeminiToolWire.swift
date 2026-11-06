@@ -16,7 +16,8 @@ enum BoneGeminiToolWire {
     static func contents(
         _ messages: [BoneInferenceMessage],
         definitions: [BoneAgentToolDefinition],
-        continuation: BoneInferenceProviderContinuation?
+        continuation: BoneInferenceProviderContinuation?,
+        images: [BoneInferenceImageReference: BoneInferencePreparedImage] = [:]
     ) throws -> [[String: Any]] {
         let definitions = try validated(definitions)
         let names = Dictionary(uniqueKeysWithValues: definitions.map { ($0.id, $0.wireName!) })
@@ -27,6 +28,14 @@ enum BoneGeminiToolWire {
         )
 
         for (messageIndex, message) in messages.enumerated() {
+            if let parts = message.inputContent {
+                guard message.role == .user, message.content == nil,
+                      message.assistantTurn == nil, message.toolResult == nil, message.toolResults == nil else {
+                    throw BoneInferenceError.invalidMessage
+                }
+                output.append(["role": "user", "parts": try BoneProviderImageWire.gemini(parts, images: images)])
+                continue
+            }
             if let text = message.content {
                 guard message.role == .user || message.role == .assistant else {
                     throw BoneInferenceError.invalidMessage
@@ -77,8 +86,9 @@ enum BoneGeminiToolWire {
                 continue
             }
             if message.toolResult != nil || message.toolResults != nil {
+                guard message.role == .tool else { throw BoneInferenceError.invalidMessage }
                 let batch = try message.requiredToolResults()
-                let parts = try batch.results.map { value -> [String: Any] in
+                var parts = try batch.results.map { value -> [String: Any] in
                     guard calls[value.callID] == value.toolID,
                           let name = names[value.toolID] else {
                         throw BoneInferenceError.invalidToolResult
@@ -89,9 +99,14 @@ enum BoneGeminiToolWire {
                         response = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
                     case let .text(text):
                         response = ["error": text, "isError": value.isError]
+                    case .multimodal:
+                        response = ["text": BoneProviderImageWire.toolText(value), "isError": value.isError]
                     }
                     return ["functionResponse": ["id": value.callID, "name": name, "response": response]]
                 }
+                // Keep all function responses together; generic Gemini does not promise functionResponse.parts.
+                let attachments = batch.results.flatMap { BoneProviderImageWire.toolAttachments($0, toolName: names[$0.toolID]) }
+                parts += try BoneProviderImageWire.gemini(attachments, images: images)
                 output.append(["role": "user", "parts": parts])
                 continue
             }

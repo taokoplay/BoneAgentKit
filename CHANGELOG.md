@@ -7,6 +7,17 @@
 ### Added
 
 - 新增 `BoneAgentProviderFactory` 和 `BoneAgentBuilder`，为常见 Provider、Tool、Context 与 Agent Run 提供更短的组合入口；低层 Engine 和自定义 Transport 仍可直接注入。
+- 新增可选 `BoneInferenceValidatedOutputProcessor`、强类型校验/拒绝、修正策略和固定统计回执；支持不同输入、输出与私有反馈类型。修正默认关闭，只在明确允许的校验拒绝后按上限调用注入执行器，操作性错误与取消直接传播；不改变已有 Provider/Agent 行为，不新增网络重试、持久化或领域规则。见 [输出校验与有界修正](Documentation/OutputValidationAndCorrection.md)。
+- 新增可选工具文本资源预览与回读：最多 4 KiB 原文前缀、不可变版本引用、4…64 KiB UTF-8 页、注入式 Reader 和显式本地私有只读 Tool。取消、版本、偏移和页限额在边界复验；完整内容存储及资源级授权仍由 Host 负责。新增压缩后回读并独立验收结果的离线任务测试。见 [工具文本资源](Documentation/ToolTextResources.md)。
+- 新增显式图片理解输入：用户/工具的有序文本与不可变图片引用、注入式预处理/授权解析、Apple ImageIO 转换，以及 OpenAI/Anthropic/Gemini 普通和流式协议映射。视觉 Token 与文本、工具 Schema、协议和续接共同参与压缩；独立限制 Base64/body，未知估算或必须保留内容超限在读取/发送前拒绝。默认无损编码策略可按 OCR 需要调整，不自动反复缩小图片。见 [图片理解输入与预算](Documentation/ImageUnderstanding.md)。
+- 新增统一 `BoneAgentStatus` / `statusSink` 与 `currentStatus`：普通、buffered、实时流和会话共享输入、预算、压缩/摘要、图片解析、模型阶段、并行工具及唯一终态通知。思考状态与正文披露分离；三家实时 Provider 在 hidden 下仍可按实际信号上报阶段。既有内容事件和 checkpoint 不变。见 [运行状态](Documentation/AgentStatus.md)。
+- 新增 `tokenSink` / `currentTokens` / `status.tokens` 与会话 `statistics`，分开报告上下文测量、压缩前后容量、主模型/摘要实际用量及覆盖度；同请求累计快照替换，最终用量只计一次。补齐 Anthropic 实时 usage，新增轮次/步骤、模型/工具耗时、并行时间并集、可靠流式 TTFT 与加权 TPS；未知值不伪造。见 [Token 与会话统计](Documentation/TokenStatistics.md)。
+- 新增 `BoneAgentObservationPolicy`，将长会话统计改为增量累计，默认仅保留最近 64 条请求、128 条工具和 16 个模型分项；省略计数明确可见，总用量与耗时不丢失。默认合并 100 ms 内的高频统计更新，生命周期立即通知；会话不再保存全部完成轮次的快照。新增长期多会话、并行工具、对象释放和性能回归。
+
+### Migration
+
+- `BoneInferenceCapability.imageInput` 与 `BoneToolResultContent.multimodal` 要求调用方更新穷尽 switch；普通字符串和 JSON 工具行为保持。新 Provider 可选参数不自动开启识图，需绑定精确模型预算与视觉估算器。
+- `requests` / `toolTimings` 现为有界诊断明细；使用 snapshot 聚合字段获取完整统计，通过 omitted 字段识别淘汰。需要逐次 usage 通知时显式设置 `minimumTokenUpdateInterval: 0`。
 
 ### Fixed
 

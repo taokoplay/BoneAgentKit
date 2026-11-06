@@ -97,7 +97,8 @@ public enum BoneContextCompactor {
         sourceRevision: UInt64 = 0,
         protocolReserveTokens: Int = BoneContextWindowPlanner.defaultProtocolReserveTokens,
         safetyMarginTokens: Int? = nil,
-        toolResultPolicy: @Sendable (String) -> BoneContextToolResultPolicy = { _ in .retain }
+        toolResultPolicy: @Sendable (String) -> BoneContextToolResultPolicy = { _ in .retain },
+        imageTokenEstimator: BoneInferenceImageTokenEstimator? = nil
     ) throws -> BoneContextCompactionCandidate {
         guard !messages.isEmpty,
               minimumRecentTurnCount > 0 else {
@@ -124,11 +125,12 @@ public enum BoneContextCompactor {
             throw BoneContextCompactionError.invalidConfiguration
         }
 
-        let systemTokens = BoneTokenEstimator.estimateMessages(systemMessages)
+        let systemTokens = try BoneTokenEstimator.estimateMessages(systemMessages, imageTokenEstimator: imageTokenEstimator)
         let protectedCount = min(minimumRecentTurnCount, turns.count)
         let protectedTurns = Array(turns.suffix(protectedCount))
         let protectedMessages = protectedTurns.flatMap(\.messages)
-        let mandatoryTokens = systemTokens + BoneTokenEstimator.estimateMessages(protectedMessages)
+        let mandatoryTokens = try BoneTokenEstimator.checkedAdd(systemTokens,
+            BoneTokenEstimator.estimateMessages(protectedMessages, imageTokenEstimator: imageTokenEstimator))
         guard mandatoryTokens <= capacity.availableInputTokens else {
             throw BoneContextCompactionError.mandatoryMessagesExceedBudget(
                 estimated: mandatoryTokens,
@@ -140,9 +142,10 @@ public enum BoneContextCompactor {
         var remainingTokens = capacity.availableInputTokens - mandatoryTokens
         if turns.count > protectedCount {
             for turn in turns.dropLast(protectedCount).reversed() {
-                guard turn.estimatedTokenCount <= remainingTokens else { break }
+                let turnTokens = try BoneTokenEstimator.estimateMessages(turn.messages, imageTokenEstimator: imageTokenEstimator)
+                guard turnTokens <= remainingTokens else { break }
                 keptOlder.append(turn)
-                remainingTokens -= turn.estimatedTokenCount
+                remainingTokens -= turnTokens
             }
         }
         keptOlder.reverse()
@@ -150,7 +153,8 @@ public enum BoneContextCompactor {
         let resultMessages = systemMessages + keptTurns.flatMap(\.messages)
         let removedTurns = turns.count - keptTurns.count
         let removedMessages = turns.dropLast(keptTurns.count).flatMap(\.messages)
-        let removedTokens = max(0, BoneTokenEstimator.estimateMessages(messages) - BoneTokenEstimator.estimateMessages(resultMessages))
+        let removedTokens = max(0, try BoneTokenEstimator.estimateMessages(messages, imageTokenEstimator: imageTokenEstimator)
+            - BoneTokenEstimator.estimateMessages(resultMessages, imageTokenEstimator: imageTokenEstimator))
         let didClamp = clamped.clampedToolResultCount > 0
         let strategy: BoneContextCompactionStrategy = removedTurns > 0
             ? (didClamp ? .tiered : .slidingWindow)
@@ -187,6 +191,8 @@ public enum BoneContextCompactor {
             guard message.role == .tool else { return message }
             guard let batch = try? message.requiredToolResults() else { return message }
             let results = try batch.results.map { result -> BoneInferenceToolResult in
+                // 多模态信封必须保持图片引用与有序文本；不把图像引用 JSON 截成普通文本。
+                if case .multimodal = result.content { return result }
                 guard case let .clamp(maximumBytes) = policy(result.toolID) else { return result }
                 guard maximumBytes >= "[context-compacted]".utf8.count else { throw BoneContextCompactionError.invalidConfiguration }
                 guard result.content.byteCount > maximumBytes else { return result }
@@ -219,6 +225,7 @@ public enum BoneContextCompactor {
         switch content {
         case let .text(text): value = text
         case let .json(data): value = String(decoding: data, as: UTF8.self)
+        case .multimodal: return content
         }
         let space = maximumBytes - marker.utf8.count
         let head = utf8Prefix(value, limit: space / 2)
