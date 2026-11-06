@@ -47,6 +47,12 @@ Host 通过 `BoneAgentModelSnapshotContext` 按 Run 注入 Provider 身份、模
 
 是否启用 Agent 路由、如何回退旧链路、如何展示任务、何时允许停止或重试，均由 Host 的 Feature Flag 和产品策略决定。事件流不是业务事实源；页面应以 Host 持久化事实和 Kit 稳定状态为准。
 
+## 输出验收与修正
+
+Host 可在取得完整推理结果后显式调用 `BoneInferenceValidatedOutputProcessor`，注入校验器及可选修正执行器。SDK 只控制顺序、次数和协作式取消；验收规则、私有反馈、修正请求、预算与执行许可由 Host 决定，合法空结果没有 SDK 默认判定。
+
+处理器的 accepted 不代表业务已提交，单次调用的修正上限也不是持久额度。需要跨调用或恢复限制时，Host 必须在执行器内落实持久准入和结果保存，未知请求继续对账，不能通过重新调用处理器绕过。默认不修正、不自动刷新缓存或重新选择模型。完整示例见 [输出校验与有界修正](OutputValidationAndCorrection.md)。
+
 ## 验证
 
 生产接入应按实际启用的能力覆盖正常完成、空结果、失败和取消；若使用缓存或部分成功策略，应验证对应行为；若启用可恢复 Workflow，还应覆盖进程恢复和持久化冲突。命令行 Contract 与 Simulator 不能替代目标平台上的真实业务验证。

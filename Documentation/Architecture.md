@@ -122,3 +122,9 @@ Capability metadata 不替代 Provider 自身的模型目录、鉴权、额度�
 ## 可选上下文压缩
 
 公共 `BoneAgent` Loop 可配置 `BoneContextManagementConfiguration`：预算解析 → Tool Result 限长/完整 Turn 裁剪 → 可选摘要 → 候选校验与 Run-local 提交 → Provider 渲染/推理。本地 Runtime 与在线模型共用该路径，详见 [ContextCompaction](ContextCompaction.md)。需要跨多个成功用户 Turn 的 Host 可使用 `BoneAgentConversation`；它是显式私有会话容器，不是 Workflow checkpoint，私有 prompt、Tool payload、摘要和 Provider continuation 必须由 Host 单独保护，详见 [ConversationContinuity](ConversationContinuity.md)。需要实时 UI 草稿时使用显式 `BoneAgent.runEvents`；它只消费真实 provider event stream，不改变普通 Run 或 Llama 整段生成语义，详见 [AgentStreaming](AgentStreaming.md)。
+
+## 可选输出校验与修正
+
+`Inference/Validation` 提供独立的 `BoneInferenceValidatedOutputProcessor<Input, Value, Feedback>`，在调用方取得完整响应后组合校验与显式有界修正。它不改变 Engine、Agent 或 Tool 的默认执行链，也不改写 Run 的成功语义。合格条件和修正执行器由调用方注入，修正次数默认 0；闭包错误和取消直接传播。
+
+处理器无共享状态、不持有数据库或模型；其回执仅统计单次调用。预算、授权、持久请求身份与恢复继续使用已有执行边界，不能把本地计数当作跨重启额度。详见 [输出校验与有界修正](OutputValidationAndCorrection.md)。
