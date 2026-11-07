@@ -221,7 +221,7 @@ let endpoint = try service.endpoint(
 )
 ```
 
-`modelList(forProvider:configuration:)` 是获取模型的唯一公开入口。服务不保存凭据、不缓存结果；
+`modelList(forProvider:configuration:)` 是获取模型的唯一公开入口。服务不保存凭据、不缓存结果。公开构造器为 `init(catalog:transport:)`，随包目录入口为 `bundled(transport:)`；discoverer 和 loader 由服务内部创建，不提供公开注入参数。
 需要代理或自定义网络时，在创建服务时注入 `BoneInferenceHTTPTransport`：
 
 ```swift
@@ -259,7 +259,7 @@ let cached = try BoneInferenceProviderModelList(entry: entry, discovered: descri
 - 上游失败时会输出一行控制台日志，例如 `[BoneInference] model list upstream failed provider=OpenAI reason=httpStatus(500) fallback=2`；日志不含 URL、Header、凭据或响应正文。
 - `notRequested` 表示没有 `models` 路径（例如编码包渠道）或 `manual` 目录；`manual` 始终返回空列表，由 Host 维护用户模型。
 - 发现结果的能力字段恒为空集，接近“仅证明 ID 可见”。不要据此授予 Tool、视觉或 token 限制。
-- 只有基址、路径非法这类调用方配置错误会抛出；网络与解析失败不抛出。
+- 未知 Provider ident 会抛出 `BoneInferenceService.Error.unknownProvider`；基址、路径非法等调用方配置错误也会抛出。上游网络与解析失败通过 `discoveryOutcome` 报告并返回内置回退列表。
 - `BoneInferenceProviderCatalog.Error` 实现 `LocalizedError`，`localizedDescription` 直接指出供应商与字段，例如“供应商 KimiCodingPlan 的 modelDiscovery.endpoint 不是合法的 https 地址。”；Host 可直接展示，不必再按枚举序号自行映射。文案只含目录字段与标识，不含凭据或请求内容。
 - 需要展示非 `chat` 操作时使用 `entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)`；需要发请求时仍走 `BoneInferenceProviderRequestBuilder`，`resolvedEndpoint` 不校验传输安全策略。
 

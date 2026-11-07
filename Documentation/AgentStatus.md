@@ -2,7 +2,7 @@
 
 ## 接入方式
 
-`BoneAgentConfiguration.statusSink` 接收无正文的运行状态快照。普通 `run`、buffered streaming、`runEvents`、`runUntilBoundary` 和 `BoneAgentConversation.send` 共用同一入口，不需要客户端分别拼接压缩、工具和模型回调。`agent.currentStatus` 可异步读取最新快照；首次接受 Run 之前为 nil，结束后保留最后终态，下一次 Run 会换一个 `runID`。
+`BoneAgentConfiguration.statusSink` 接收无正文的运行状态快照。普通 `run`、buffered streaming、`runEvents`、`runUntilBoundary` 和 `BoneAgentConversation.send` 共用同一入口，不需要客户端分别拼接压缩、工具和模型回调。`await agent.currentStatus` 读取最近一次生成的状态快照；首次接受 Run 之前为 nil，结束后保留最后终态，下一次 Run 会换一个 `runID`。需要尚未触发状态通知的最新 Token 计数或活动时长时，读取 `await agent.currentTokens`。
 
 ```swift
 import BoneAgentKit
@@ -35,21 +35,25 @@ func makeObservedAgent(
 | `compactingContext` | 压缩上下文 | 实际达到触发阈值，开始裁剪/复验候选；不表示已经删掉历史 |
 | `summarizingContext` | 生成历史摘要 | 摘要预检通过，即将调用显式摘要 Engine |
 | `resolvingImages` | 读取并校验图片 | 图片数量、字节和 Token 预检通过，开始读取冻结引用 |
-| `waitingForModel` | 模型处理中 | 正在调用 Engine；内置 Provider 在发送前也上报此阶段 |
+| `waitingForModel` | 模型处理中 | 已登记主模型调用尝试，准备或正在调用 Engine；内置 Provider 在发送前也上报此阶段 |
 | `reasoning` | 思考中 | 收到 Provider 的明确推理信号；不按时间或模型名称推测 |
 | `generatingResponse` | 正在生成回复 | 收到公开文本的流式信号，包括暂未对外展示的约束输出 |
 | `generatingToolCall` | 正在生成工具调用 | 模型正在形成工具调用，不代表工具已经执行 |
 | `validatingResponse` | 校验模型结果 | 正在聚合/校验响应或处理完整响应，可能最终失败 |
 | `preparingTools` | 准备工具 | 工具参数、权限、执行上下文及管线准备 |
-| `executingTools` | 执行工具 | 已进入工具执行闭包；仍可能取消或失败 |
+| `executingTools` | 执行工具 | 管线已到达工具执行边界；通知回调返回后仍检查取消/预算，工具正文可能尚未开始 |
 | `processingToolResults` | 整理工具结果 | 当前活动工具已返回/退出，正在整理结果或调度后续工具 |
 | `finished(.succeeded)` | 已完成 | 已达到本次请求的 Agent 停止边界 |
 | `finished(.failed(error))` | 执行失败 | 固定 `BoneAgentError` 分类，没有底层错误正文 |
-| `finished(.cancelled)` | 已取消 | 执行/清理已退出，取消终态已交付 |
+| `finished(.cancelled)` | 已取消 | Agent 已完成本次取消处理；不证明独立 Provider/Transport 生产任务或远端工作已完成清理 |
 
 每条快照包含 `runID`、Run 内从 1 递增的 `sequence`、可选的 1 起始 `step`、`phase` 与 `activeTools`。并行工具列表按 ordinal 排序，每项只有 callID、toolID、ordinal 和 preparing/executing；一个工具结束时其他工具仍保留。失败或取消终态清空活动列表，不表示未知副作用已经恢复或可以重试。工具结果的成功/失败细节仍通过既有 Tool Result 与实时 `toolResultReady` 契约处理，状态快照不携带结果正文。
 
-UI 应用 `runID` 和 `sequence` 防止自身异步渲染队列把旧状态覆盖到新 Run。阶段/步骤/活动工具未变但 `tokens` 统计变化时也会投递，默认合并 100 ms 内的高频统计变化；阶段、请求完成及终态立即刷新，计数不丢失。无后台刷新任务，主动查询可读取未合并的当前值。状态顺序允许“压缩 → 摘要 → 继续压缩 → 检查预算”和各轮推理/工具循环。明细有界而累计完整，配置及边界见 [Token 与会话统计](TokenStatistics.md)。
+UI 应用 `runID` 和 `sequence` 防止自身异步渲染队列把旧状态覆盖到新 Run。阶段/步骤/活动工具未变但 `tokens` 统计变化时也会投递，默认合并 100 ms 内的高频统计变化；阶段、请求完成及终态立即刷新，计数不丢失。
+
+SDK 没有后台刷新任务。`await agent.currentTokens` 会按当前累计量与单调时钟生成查询结果，包含尚未通知的计数和活动时长；`currentStatus.tokens` 保留最近一次生成状态快照时的值。查询不会递增通知序号，也不触发回调。
+
+状态顺序允许“压缩 → 摘要 → 继续压缩 → 检查预算”和各轮推理/工具循环。明细有界而累计完整，配置及边界见 [Token 与会话统计](TokenStatistics.md)。
 
 ## 思考状态与正文披露分离
 

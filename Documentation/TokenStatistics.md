@@ -2,7 +2,7 @@
 
 ## 统一入口
 
-`BoneAgentConfiguration.tokenSink` 返回 `BoneAgentTokenSnapshot`，覆盖普通、buffered streaming、实时 `runEvents` 和 Conversation 调用。`statusSink` 的 `status.tokens` 同步携带同一快照。默认合并 100 ms 内的高频统计变化，阶段切换、预算就绪/拒绝、请求完成和 Run 终态立即刷新。可用 `await agent.currentTokens` 主动读取未合并的当前值。
+`BoneAgentConfiguration.tokenSink` 返回 `BoneAgentTokenSnapshot`，覆盖普通、buffered streaming、实时 `runEvents` 和 Conversation 调用。每次通知中，`statusSink` 的 `status.tokens` 与 `tokenSink` 收到同一份快照。默认合并 100 ms 内的高频统计变化，阶段切换、预算就绪/拒绝、请求完成和 Run 终态立即刷新。`await agent.currentTokens` 可主动读取尚未通知的最新计数和活动时长；`currentStatus.tokens` 保留最近一次生成状态快照时的值。
 
 ```swift
 import BoneAgentKit
@@ -76,13 +76,15 @@ Conversation 使用增量累计，结束的轮次折叠为固定大小的数值�
 | --- | --- | --- |
 | 轮数 | `roundCount` | 本观察范围内受理的用户 Run，包括失败/取消；`successfulRoundCount` 单列成功轮数 |
 | 步数 | `stepCount` | 主模型调用尝试数，摘要调用另列 `summaryCallCount`；不是工具数或文本片段数 |
-| 模型用时 | `modelDurationSeconds` | 主模型 Engine 调用区间之和，包括请求准备、网络等待和验证；失败/取消及活动区间也计入 |
-| 摘要用时 | `summaryDurationSeconds` | 摘要 Engine 调用区间，独立于主模型 |
+| 模型用时 | `modelDurationSeconds` | 从 SDK 登记主模型尝试到记录响应、失败或取消的区间之和；活动区间计至快照采样时刻 |
+| 摘要用时 | `summaryDurationSeconds` | 从 SDK 登记摘要尝试到记录响应、失败或取消的区间之和，独立于主模型 |
 | 工具调用用时 | `toolDurationSeconds` | 各工具执行闭包区间之和，并行重叠重复计入 |
 | 工具实际等待 | `toolWallDurationSeconds` | 每轮工具区间取并集，再跨轮累加；不重复计算同轮并行重叠 |
 | 工具调用数 | `toolCallCount` | 已进入工具执行边界的尝试，权限/准备阶段不计入 |
 | 首 Token 平均（TTFT） | `averageTimeToFirstTokenSeconds` | 有效主模型样本的算术平均，样本数为 `timeToFirstTokenSampleCount` |
 | 输出速度（TPS） | `outputTokensPerSecond` | 有效主模型样本的输出 Token 总数 / 输出区间总秒数，样本数为 `throughputSampleCount` |
+
+模型与摘要计时均包含调用前观察回调的等待，以及 Engine 内部的请求准备、网络等待和校验。若在调用前回调中取消，Engine 正文尚未开始也可能已有非零尝试用时。收到完整响应后先记录请求结束，再交付完成通知；后续 Agent 预算检查或 Tool 执行不计入该请求用时。这些值不能解释为纯 Engine 执行或服务端计算时长。
 
 TTFT 从 Provider 即将发送请求，到首个非空生成片段。片段可为正文、可观察的思考文本或工具参数；空事件、心跳、header、签名及纯 block-start 不计入。隐藏思考正文不影响收到实际片段时的计时，但不可观察的远端思考没有人为估算。
 
@@ -90,7 +92,7 @@ TPS 的输出区间从首个有效片段到流结束，使用 Provider 最终 `o
 
 `BoneInferenceHTTPTransport.providesLiveEventTiming` 默认 false。默认 URLSession 实时桥接为 true；注入的 buffered loader 或兼容 `eventStream` 回放为 false。自定义真实逐事件 Transport 须显式声明 true；不能把一次性回放当作 TTFT。自定义 Engine 可用 `BoneInferenceTelemetryReporting` 上报累计 usage 及实际时点，必须遵守同一口径。
 
-同一 Conversation 实例内自动累计各轮并即时更新。恢复私有会话不会恢复历史计时/用量，`isHistoryComplete = false`，只统计此实例观察到的 Run；不能从对话文本长度倒推以前的消耗。需跨启动保留统计时，Host 应显式保存安全业务统计，不把观察快照当成恢复执行许可。
+同一 Conversation 实例内自动累计各轮并即时更新。恢复私有会话不会恢复历史计时/用量，只统计此实例观察到的 Run。完整性标记按创建实例时的会话 revision 决定：恢复 revision 大于 0 的会话时，`isHistoryComplete = false`；恢复 revision 为 0、尚无已完成轮次的会话时仍为 `true`。不能从对话文本长度倒推以前的消耗。需跨启动保留统计时，Host 应显式保存安全业务统计，不把观察快照当成恢复执行许可。
 
 ## 长会话与多会话的性能策略
 
@@ -100,7 +102,7 @@ TPS 的输出区间从首个有效片段到流结束，使用 Provider 最终 `o
 - 模型分项达到上限后，不再保存新模型键，`omittedModelRequestCount` 标记其请求数。先用 `hasModelBreakdown(for:)` 检查；缺失模型分项的空 totals 不代表该模型实际消耗为零。
 - 请求结束后移除其可变时钟、临时索引；完整统计通过固定大小的累计量维护。工具重叠时长随开始/结束增量累计，不对全部旧区间重复排序。
 - 每帧快照成本取决于配置的明细上限和活动调用数，不再随已完成的历史调用数增长；单个已结束会话的统计查询为固定工作量。
-- 100 ms 合并只减少观察通知，不减少计数。无后台刷新 Task 或 timer，闲置会话不会为统计持续唤醒；下一次事件、阶段切换或终态会交付最新累计值。主动查询可随时取得最新值。
+- 100 ms 合并只减少观察通知，不减少计数。无后台刷新 Task 或 timer，闲置会话不会为统计持续唤醒；后续满足间隔的统计事件、阶段切换或终态会交付最新累计值。主动读取 `currentTokens` 或 `conversation.statistics` 可取得最新计数及活动时长。
 
 ```swift
 let observationPolicy = try BoneAgentObservationPolicy(

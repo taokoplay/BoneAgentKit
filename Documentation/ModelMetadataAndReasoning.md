@@ -6,7 +6,7 @@
 
 1. **外部目录声明**：`BoneModelMetadata` 保存模型名称、推理声明、工具/结构化输出声明、温度、模态、上下文/输入/输出限制、价格、状态和来源。它来自 `models.dev/api.json` 的已展开发布结果，并记录 GitHub 源提交 `c849cd11adf999db2203b20d3ab1fa8e58852e63`。
 2. **Host 执行 profile**：`BoneModelCapabilityProfile` 和 `BoneInferenceReasoningProfile` 由 Host 针对确切渠道、模型、协议、端点和已验证 mapper 注入。外部目录的 `reasoning=true`、`tool_call=true` 或 `structured_output=true` 不会自动授予 SDK 的运行能力。
-3. **本次请求**：`BoneInferenceGenerationOptions.reasoning` 只描述本次请求想采用的模式、档位和预算。`nil` 保持 Provider 默认行为；显式非法组合在 Transport 之前失败。
+3. **本次请求**：`BoneInferenceGenerationOptions.reasoning` 通过 `selection` 表达沿用 Provider 默认、关闭思考或选择统一等级；具体 effort/budget 由 profile 映射。`nil` 保持 Provider 默认行为；显式非法组合在 Transport 之前失败。
 
 因此，目录可以帮助 UI 展示和 Host 选择候选，但不能替代供应商文档、网关契约、Provider Smoke 或真实端点验证。
 
@@ -82,20 +82,22 @@ let request = BoneInferenceRequest(
 )
 ```
 
-统一等级为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。实际可用等级、等级到 effort 的映射以及等级到 thinking budget 的映射必须由 `BoneInferenceReasoningProfile` 显式注入：
+统一等级为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。Host 通过 `BoneInferenceReasoningProfile` 提供支持集合及 effort/thinking budget 映射：
 
 ```swift
 let profile = BoneInferenceReasoningProfile(
     wireFormat: .anthropicBudget,
     modes: [.enabled, .disabled],
     budgetRange: 1_024 ... 32_000,
+    continuation: .anthropicThinking,
     supportedLevels: [.low, .medium, .high],
-    budgetByLevel: [.low: 2_048, .medium: 8_192, .high: 16_384],
-    continuation: .anthropicThinking
+    budgetByLevel: [.low: 2_048, .medium: 8_192, .high: 16_384]
 )
 ```
 
-`providerDefault` 不发送任何思考覆盖字段，`disabled` 明确关闭，`level` 按 profile 映射。请求等级不在 profile 支持集合时，SDK 按统一等级顺序选择最近的已支持等级；没有可用映射时 fail closed。统一 selection 是当前唯一公开的请求入口；Provider 的具体 effort/budget 只保留在 profile 内部映射中。
+`providerDefault` 不发送思考覆盖字段；`disabled` 请求明确关闭，是否可发送由协议和 profile 校验决定；`level` 按 profile 映射。统一 selection 是当前唯一公开的请求入口，具体 effort/budget 不作为请求字段直接传入。
+
+当 `supportedLevels` 非空且未包含请求等级时，SDK 按上述等级顺序优先选择第一个更高的支持等级；只有没有更高等级时，才选择最近的较低等级。例如支持 `[.low, .max]` 时，请求 `.medium` 会选 `.max`。集合为空时不调整请求等级，直接尝试映射。effort/level 协议优先读取 `levelMap`，缺项时仅接受已列入 `effortValues` 的等级原值；budget 协议读取 `budgetByLevel`。映射缺失或不符合 profile 的模式、预算范围及协议限制时 fail closed。
 
 统一等级只描述用户意图，不授予 Provider 能力。profile 仍必须绑定确切模型、协议和端点；模型目录的 `reasoning=true` 不会自动生成 profile，也不会自动发送字段。
 
@@ -116,7 +118,7 @@ OpenAI Responses API、`reasoning_details`、Anthropic beta header 和 Gemini �
 
 ## 校验与错误边界
 
-- reasoning 只有在 `BoneInferenceReasoningProfile` 存在时才可显式发送；未知模型不会因名称相似而推断协议。
+- `providerDefault` 无需 reasoning profile，不发送覆盖字段。任何 `.level(...)`（包括 `.level(.off)`）都需要 profile。Anthropic Messages/兼容协议允许在没有 profile 时将 `.disabled` 映射为 `thinking.type = disabled`；OpenAI/Gemini 的显式关闭仍需要 profile。提供了 profile 时，关闭请求也必须通过其模式与协议校验；既有 metadata 和能力门禁继续适用，不按模型名称推断协议。
 - `selection`、`temperature` 和协议格式在构造 URLRequest 前检查；非法组合抛出 `BoneInferenceReasoningConfigurationError`，不静默删除参数。
 - metadata 的 `false` 只能收紧能力；metadata 的 `true` 或缺省值不能授予 Tool Calling、结构化输出、约束输出或固定 token 限制。
 - `serverReasoning` 与显式 `selection` 不能同时配置；冲突会在发送前失败。

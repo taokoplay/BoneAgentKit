@@ -30,7 +30,7 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 将 SwiftPM 精确版本更新为 `0.2.0-alpha.30` 并重新解析依赖。本版包含可选输出验收与有界修正、文本资源预览/分页回读、原生图片理解输入，以及统一运行状态、Token 和长期会话统计。保持 Swift 5.9 / iOS 13 / macOS 13 的声明下限，没有新增外部 Package 或二进制依赖。
 
 - `BoneInferenceCapability.imageInput` 与 `BoneToolResultContent.multimodal` 是新增 enum case，调用方穷尽 switch 需适配。图片需显式配置精确模型视觉估算器、容量和授权解析器；现有字符串/JSON 工具不自动变成图片输入。详见 [图片理解输入](ImageUnderstanding.md)。
-- `statusSink` / `tokenSink` 是 nonthrowing、有序 await 的观察入口。默认高频统计更新按 100 ms 合并，阶段与终态立即投递；调用方可主动查询最新值。`requests` / `toolTimings` 为有界诊断明细，完整累计请读取 totals/statistics，并检查 omitted/coverage 字段。详见 [运行状态](AgentStatus.md) 与 [Token/会话统计](TokenStatistics.md)。
+- `statusSink` / `tokenSink` 是 nonthrowing、有序 await 的观察入口。默认高频统计更新按 100 ms 合并，阶段与终态立即投递；通过 `await agent.currentTokens` 可读取尚未通知的最新统计，`currentStatus.tokens` 则保留最近一次生成状态快照时的值。`requests` / `toolTimings` 为有界诊断明细，完整累计请读取 totals/statistics，并检查 omitted/coverage 字段。详见 [运行状态](AgentStatus.md) 与 [Token/会话统计](TokenStatistics.md)。
 - 普通 Tool JSON、Workflow checkpoint 和私有会话版本保持原有契约；新观测统计不会自动持久化。跨重启恢复后的历史耗时/用量明确未知。输出校验、修正、资源读取及图片存储的业务规则仍由 Host 注入。
 - 既有 `alpha.29` 标签指向 `37b39a40d`，其中运行时版本镜像仍为 `alpha.28`；本版统一镜像、README 与 tag，不改写旧标签。不得只凭旧运行时镜像判断是否已经接入 `alpha.29` 的功能。
 
@@ -40,7 +40,7 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 
 将 SwiftPM 精确版本更新为 `0.2.0-alpha.28` 并重新解析依赖。本版移除 `BoneInferenceReasoningOptions` 的旧 `mode`、`effort` 和 `budgetTokens` 请求字段，统一使用 `BoneInferenceReasoningSelection` 和 Host profile 映射。`providerDefault` 保留 Provider 默认行为，`disabled` 明确关闭，`level` 由 profile 映射到 Provider effort 或 thinking budget；旧 reasoning JSON 不会静默迁移。现有接入方应在升级前改用 selection API。本版未完成真实 Provider 或生产 Host 验收，不代表生产准入。
 
-Profile 必须声明 `supportedLevels`，并为对应 wire 提供 `levelMap` 或 `budgetByLevel`；缺少映射时请求 fail closed。旧 reasoning JSON 不会静默迁移，需由调用方在升级前转换为 selection。本节描述 `0.2.0-alpha.28` 的 clean break。
+Profile 可通过非空 `supportedLevels` 限定并调整请求等级；未命中时优先选择更高支持等级，没有更高等级才向下回退，集合为空则直接尝试映射。effort/level 协议使用 `levelMap` 或 `effortValues` 中匹配的等级原值，budget 协议使用 `budgetByLevel`；映射及协议校验失败时拒绝请求。旧 reasoning JSON 不会静默迁移，需由调用方在升级前转换为 selection。本节描述 `0.2.0-alpha.28` 的 clean break；`alpha.29` 另增加 Anthropic 无 profile 时显式 `.disabled` 的支持，详见 [思考配置](ModelMetadataAndReasoning.md#校验与错误边界)。
 
 ## 从 alpha.26 迁移到 alpha.27
 

@@ -1,5 +1,7 @@
 # BoneAgentKit 公开 API 基线
 
+本基线对应已发布的 `0.2.0-alpha.30`，涵盖本版及此前已实现的公开契约。带版本号的条目标明迁移背景；后续改动见 [变更记录](CHANGELOG.md) 的未发布部分。
+
 ## 稳定范围
 
 公开 Product：
@@ -41,28 +43,28 @@
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
 
-## Unreleased 观测性能与有界保留
+## Alpha.30 观测性能与有界保留
 
 - 新增 `BoneAgentObservationPolicy` / `BoneAgentObservationPolicyError`，通过 Agent configuration 注入。默认保留 64 条已完成请求、128 条已结束工具明细、16 个模型分项；活动调用额外保留，累计总数不受淘汰影响。
 - Token snapshot 新增 `omittedRequestCount` / `omittedToolTimingCount` / `omittedModelRequestCount` / `hasModelBreakdown(for:)`。明细数组不再承诺完整 Run 历史，调用方须使用聚合 totals/statistics，不得自行把明细求和作为总量。
-- 高频统计默认合并 100 ms 内的更新，生命周期/终态立即投递；间隔 0 显式恢复逐次变化通知。无后台定时器。会话统计只保留当前轮快照和固定大小累计量，不再归档全部结束轮次。
+- 高频统计默认合并 100 ms 内的更新，生命周期/终态立即投递；间隔 0 显式恢复逐次变化通知。无后台定时器。`currentTokens` 主动查询可取得尚未通知的累计值及活动时长；`currentStatus.tokens` 保留最近一次生成状态快照时的值。会话统计只保留当前轮快照和固定大小累计量，不再归档全部结束轮次。
 - 只收紧观察数据保留，不改变上下文、执行或旧模型快照契约。详见 [Token 与会话统计](Documentation/TokenStatistics.md)。
 
-## Unreleased Token 与会话统计
+## Alpha.30 Token 与会话统计
 
 - 新增 `BoneAgentContextTokens`、`BoneAgentTokenRequest`、`BoneAgentTokenTotals`、`BoneAgentTokenSnapshot`、`BoneAgentTokenSink`；`BoneAgentConfiguration.tokenSink`、`BoneAgent.currentTokens`、`BoneAgentStatus.tokens` 贯通普通、buffered、实时流与会话，预算估算与实际用量分开。
-- 新增 `BoneAgentToolTiming`、`BoneAgentStatistics` 和 Conversation `statistics`：轮次/步骤、模型与摘要耗时、工具累计及去重并行时间、TTFT 均值和加权 TPS；统计采用安全元数据，不改变会话存储。恢复后 `isHistoryComplete` 明示缺少早期运行统计。
+- 新增 `BoneAgentToolTiming`、`BoneAgentStatistics` 和 Conversation `statistics`：轮次/步骤、模型与摘要尝试耗时、工具累计及去重并行时间、TTFT 均值和加权 TPS；统计采用安全元数据，不改变会话存储。恢复 revision 大于 0 的会话时 `isHistoryComplete = false`，revision 为 0 时仍为 `true`；历史计时/用量不会恢复。
 - 新增 `BoneInferenceTelemetryEvent/Sink/Reporting`，按调用作用域观察累计 usage 和实际传输时点。Anthropic 流合并累计用量，三家 Provider 支持；同 ID 临时报告替换、最终响应累计一次，缺失/中断/溢出明确标识。
 - `BoneInferenceHTTPTransport.providesLiveEventTiming` 新增默认 false 的可选实现，默认 URLSession 逐事件桥接为 true，缓冲回放不伪造 TTFT/TPS。状态阶段相同但统计变化时也会通知；既有事件 enum 不变。详见 [Token 与会话统计](Documentation/TokenStatistics.md)。
 
-## Unreleased 统一运行状态
+## Alpha.30 统一运行状态
 
-- 新增 `BoneAgentStatus` / `BoneAgentStatusSink`，`BoneAgentConfiguration.statusSink` 默认空观察，`BoneAgent.currentStatus` 提供当前或最后终态快照。涵盖普通 Run、实时流、buffered 和会话，带 Run ID、递增序号、步骤与并行工具列表。
+- 新增 `BoneAgentStatus` / `BoneAgentStatusSink`，`BoneAgentConfiguration.statusSink` 默认空观察，`BoneAgent.currentStatus` 提供最近一次生成的状态快照并保留最后终态。涵盖普通 Run、实时流、buffered 和会话，带 Run ID、递增序号、步骤与并行工具列表。
 - 新增 `BoneInferenceActivity` / `BoneInferenceActivitySink` / `BoneInferenceActivityReporting`，按 Task-local 作用域观察 Provider 和自定义 Engine 阶段，不改变请求 Codable 或既有必需协议方法。
 - 思考阶段与正文披露独立；内置 Provider 隐藏正文仍可报告明确的流式推理信号，非流式不伪造阶段。旧事件 enum 保持不变，失败/取消与成功停止边界收口为唯一状态终态。
 - 回调为串行 await 的非 throwing 观察，不是持久化、重试许可或外部 Workflow 提交证明。构造器追加默认参数，不承诺旧函数引用/预编译 ABI 兼容。详见 [运行状态](Documentation/AgentStatus.md)。
 
-## Unreleased 图片理解输入与预算
+## Alpha.30 图片理解输入与预算
 
 - 新增 `.imageInput`、`BoneInferenceInputContent`、不可变图片引用/元数据/PreparedImage、Host Resolver、可注入 Preprocessor 与 Apple ImageIO 实现。图片字节不进入消息 Codable。
 - 新增精确模型 `BoneInferenceImageInputProfile/Configuration` 与 `BoneInferenceImageTokenProviding`；视觉 Token、文字、工具 Schema、来源标签与 continuation 一并计入输入预算，输出和安全余量先预留；Base64/body 单独限额。
@@ -70,14 +72,14 @@
 - 新增 `BoneAgentContentTool`、`.multimodal` Tool Result、`executeContent`、Builder 内容工具重载与 Conversation `send(content:)`；普通 JSON 工具不自动解包。压缩保留完整配对并按视觉成本重新测量。
 - enum 穷尽 switch 需接入新 case；追加参数保持普通带标签调用兼容，不承诺既有函数引用或 ABI 兼容。详见 [图片理解输入](Documentation/ImageUnderstanding.md)。
 
-## Unreleased 工具文本资源回读
+## Alpha.30 工具文本资源回读
 
-- 新增 `BoneToolTextResourceReference`、`BoneToolTextResourcePreview`、`BoneToolTextResourceReadRequest` 与 `BoneToolTextResourcePage`：引用绑定不透明 ID/版本/UTF-8 总长；预览最多 4 KiB、分页请求 4…64 KiB，进展与结束字段解码复验。
+- 新增 `BoneToolTextResourceReference`、`BoneToolTextResourcePreview`、`BoneToolTextResourceReadRequest` 与 `BoneToolTextResourcePage`：引用绑定不透明 ID/版本/UTF-8 总长；预览最多 4 KiB，分页请求上限参数为 4…65,536 字节、默认 4,096 字节，进展与结束字段解码复验。
 - 新增 `BoneToolTextResourceSnapshot`、`BoneToolTextResourceReader<Context>`、`BoneToolTextResourceReadTool<Context>` 及固定错误 `BoneToolTextResourceError`。Snapshot 只提供内存前缀与分页辅助，Reader 注入可信 Context 且复验返回页，Tool 显式注册并要求本地私有只读 impact policy。
 - 不提供存储、网络、缓存、授权实现或自动引用保留，不改动现有 Tool Result wire 与 Agent/压缩默认行为。Host 每次检查权限、scope、有效期和原版本；读取仍经过既有次数、时间及容量门禁。
 - 详见 [工具文本资源预览与回读](Documentation/ToolTextResources.md)。
 
-## Unreleased 输出校验与有界修正
+## Alpha.30 输出校验与有界修正
 
 - 新增 `BoneInferenceOutputIssue`、`BoneInferenceOutputRejection<Feedback>` 与 `BoneInferenceOutputValidation<Value, Feedback>`，区分明确拒绝与操作性错误；私有输入和反馈不自动编码或记录。
 - 新增 `BoneInferenceOutputCorrectionPolicy`，默认 0 次，显式上限为 `0...Int.max-1`；每个拒绝还须明确允许修正。
@@ -85,36 +87,36 @@
 - 独立 opt-in 入口，不改变 Provider、Agent、Tool 或持久化语义。取消与闭包错误直接传播，未完成协议响应和未知副作用不能降级为普通修正。跨调用／跨重启限额、授权及费用由已有执行边界承担。
 - 详见 [输出校验与有界修正](Documentation/OutputValidationAndCorrection.md)。
 
-## Unreleased Agent 组装入口
+## Alpha.29 Agent 组装入口
 
 - 新增 `BoneAgentProviderFactory`：按 Provider kind 选择内置 OpenAI 兼容、Anthropic Messages 或 Gemini Engine，不根据模型名称授予能力。
 - 新增 `BoneAgentBuilder`：用 Engine 或 Provider configuration、Tool、Context 和默认配置组装 `BoneAgent`；低层 Engine、Transport、Host profile 与 Workflow 接入仍可显式使用。
 
-## Unreleased 模型列表与上游地址
+## 模型列表与上游地址
 
 - 新增 `BoneInferenceProviderModelList`：单 Provider 的只读模型列表，合并内置声明与上游发现结果并标记来源（`catalog` / `discovery`）、能力与 `chatEndpoint`；`discoveryOutcome` 披露 `notRequested` / `succeeded` / `transportFailure` / `failed`。
-- 模型获取只有一个公开入口 `BoneInferenceService.modelList(forProvider:configuration:)`，先请求上游、失败回退内置；`BoneInferenceProviderModelListLoader`、`BoneInferenceModelDiscoveryClient`、`BoneInferenceModelDiscovering`、`BoneInferenceRawModelListRequest` 为 internal，`discoverAgnesModels()`、`discover(using:)`、`fetchRaw(_:)` 不再公开。代理与自定义网络通过 `BoneInferenceService` 初始化器的 `transport` 注入。
+- 模型获取只有一个公开入口 `BoneInferenceService.modelList(forProvider:configuration:)`，先请求上游、失败回退内置；`BoneInferenceProviderModelListLoader`、`BoneInferenceModelDiscoveryClient`、`BoneInferenceModelDiscovering` 为 internal。旧 `BoneInferenceRawModelListRequest` 已移除，`discoverAgnesModels()`、`discover(using:)`、`fetchRaw(_:)` 不再公开。代理与自定义网络通过 `BoneInferenceService` 初始化器的 `transport` 注入。
 - 新增 `BoneInferenceProviderCatalog.Entry.resolvedEndpoint(operation:modelID:overrideBaseURL:)` 与 `BoneInferenceEndpointSecurity.resolvedURL(baseURL:endpoint:)`：复用请求层同一套路径拼接、去重与 `{model}` 替换规则，只做只读投影，不校验传输安全策略、不发请求。
-- 上游网络、HTTP 状态与解析失败不再从列表入口抛出，避免设置界面因离线无法展示；只有基址或操作路径非法这类调用方配置错误仍抛出。`manual` 目录始终返回空列表，不请求上游。
+- 上游网络、HTTP 状态与解析失败不再从列表入口抛出，避免设置界面因离线无法展示；未知 Provider ident、基址或操作路径非法等调用方配置错误仍抛出。`manual` 目录始终返回空列表，不请求上游。
 - 模型发现端点优先按当前 `baseURL` 解析 `apiPaths.models`，目录 `modelDiscovery.endpoint` 仅作绝对回退。`resolvedEndpoint` 新增 `{origin}` 占位符（仅取基址 scheme/host/port）；内置目录已为主要渠道声明 `models` 路径，并提升到 `catalogVersion = 10`。
 - 兼容网关在 HTTP 200 内返回 `success: false` 时按业务错误码映射为 `invalidCredential` / `httpStatus`，避免把过期令牌误报为响应解析失败。
 - 发现结果的能力字段仍为空集：列表只证明模型 ID 可见，能力与 token 限制必须来自目录声明或 Host 证据。
-- 新增 `BoneInferenceService`：聚合目录查询、模型列表与端点解析的统一入口；默认创建发现客户端，支持注入目录、discoverer 或直接用底层加载器。服务不保存凭据、不缓存发现结果。
+- `BoneInferenceService` 聚合目录查询、模型列表与端点解析。公开构造器为 `init(catalog:transport:)`，随包目录入口为 `bundled(transport:)`；发现客户端与加载器由服务内部创建，不作为公开注入入口。服务不保存凭据、不缓存发现结果。
 
-## Unreleased 模型元数据与思考配置
+## 模型元数据与思考配置
 
 - `BoneInferenceGenerationOptions` 增加可选 `reasoning`；未提供时保持现有 Provider 默认行为。
-- `BoneInferenceReasoningProfile` 是 Host 注入的确切模型/协议契约；没有 profile 的显式思考请求在发送前失败。
+- `BoneInferenceReasoningProfile` 是 Host 注入的确切模型/协议契约。`providerDefault` 无需 profile，不发送覆盖字段；任何 `.level(...)` 均需 profile。Anthropic Messages/兼容协议允许无 profile 的 `.disabled`，映射为 `thinking.type = disabled`；OpenAI/Gemini 显式关闭仍需 profile。已有 profile、metadata 与能力校验继续适用。
 - `BoneModelMetadata` 只保存外部目录声明和 provenance，不自动授予 Tool Calling、结构化输出、约束输出、温度或 token 限制；未知值保持 `nil`。
 - OpenAI/Anthropic 的私有思考 continuation 是有界、不透明的 Provider payload，不属于稳定业务 Codable schema。它绑定模型、端点摘要、配置和 user/assistant turn；结构化输出冲突、历史修改或不完整流会 fail closed。
 - Gemini 继续使用既有 `thoughtSignature` 机制；不与 OpenAI/Anthropic continuation 互换。
 - 详见 [模型元数据与思考参数](Documentation/ModelMetadataAndReasoning.md)。
 
-## Unreleased 统一思考等级
+## Alpha.28 统一思考等级
 
 - 新增 `BoneInferenceThinkingLevel`：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 - 新增 `BoneInferenceReasoningSelection`：`providerDefault`、`disabled` 和 profile 驱动的 `level`；本次 clean break 移除旧的 `mode`、`effort`、`budgetTokens` 请求入口。
-- `BoneInferenceReasoningProfile` 新增 `supportedLevels`、`levelMap` 与 `budgetByLevel`；请求等级按 profile 的支持集合做最近等级选择，没有可用映射时拒绝，不根据 Provider 名称或目录 `reasoning=true` 猜测。
+- `BoneInferenceReasoningProfile` 新增 `supportedLevels`、`levelMap` 与 `budgetByLevel`。非空支持集合中未命中的等级优先向上选择，没有更高等级才向下回退；集合为空时不调整请求等级，直接尝试映射。effort/level 协议使用 `levelMap` 或 `effortValues` 中匹配的等级原值，budget 协议使用 `budgetByLevel`；映射或协议校验失败时拒绝，不根据 Provider 名称或目录 `reasoning=true` 猜测。
 
 ## Alpha.22 失败诊断
 
@@ -161,20 +163,20 @@
 - 模型具体能力由实例和请求解析，不按 Provider 名称永久承诺。
 - llama.cpp 与 Foundation Models adapter 在独立 preview 版本稳定前不属于 1.0 必选依赖。
 
-## Unreleased 阶段一兼容差异
+## 阶段一兼容差异
 
 - 新增 `BoneWorkflowToolExecutionError.outcomeUnknown/recoveryRequired` 与 `BoneAgentError.toolOutcomeUnknown/toolRecoveryRequired`；Host 穷尽 switch 必须迁移，禁止按普通工具失败自动重试。
 - `BoneLocalModelStore` 公开构造参数保持不变；测试用提交故障 seam 为 internal。安全例外：拒绝 `.` / `..` 模型 ID 、保留 staging 目录名、`.partial` 资产名和符号链接资产，不保留这些危险输入的旧行为。
 - `BoneWorkflowAgentStepController.finish(.succeeded)` 在 waiting 状态拒绝；失败和取消清除授权 ticket，恢复成功路径不变。
 
-## 阶段二安全兼容调整（Unreleased）
+## 阶段二安全兼容调整
 
 - `BoneLlamaAdapterError.busy` 新增；同 Session 不排队，完整请求与卸载排空期间拒绝新 infer。
 - 下载 Transport 方法签名不变，但完成 URL 必须等于 request.destinationURL，cancel 返回须停止写入；start 抛错不能留下后台 writer。
 - Store/Catalog 保留 `.bone-download-staging` 及资产 `.partial.download` 大小写变体；下载磁盘预算为两份模型加 margin，溢出拒绝。
 - Llama cancel 为协作控制，unload 等待在途调用退出；不承诺强制终止原生代码。
 
-## 阶段三兼容调整（Unreleased）
+## 阶段三兼容调整
 
 - BoneAgent initializer 追加默认 `monotonicClock: @Sendable () -> TimeInterval`；普通初始化源码兼容，不承诺函数引用/预编译二进制兼容。
 - 原子 turn/tool execution reserve 为 internal；公开 Meter 方法与预算错误枚举不变。
@@ -191,60 +193,60 @@
 
 `run(factory:) async throws` 返回固定白名单 observations；fixture 提供 Store、cleanup 和可选的 reopen/独立连接回调。八个场景的 passed 仅代表相应行为探测通过，skipped 必须单独处理；取消抛出 CancellationError，原始 Host 错误不进入报告。Core Persistence API 与租约语义保持不变。
 
-## Unreleased 正确性修复兼容说明
+## 正确性修复兼容说明
 
 - 新增 `BoneWorkflowAgentStepController.requireRecovery()` 与 `BoneWorkflowAgentStepEventKind.recoveryRequired`；事件穷尽 switch 需更新。
 - Controller 提交异常/无效回执后禁止继续写入；直接调用保留 Store 错误，标准 progress sink 报 `toolRecoveryRequired`。Host 重读后重建，不把未确认提交当作普通业务失败。
 - Gemini call ID 仍为 String，但 fallback 不再跨轮重复；opaque continuation 的累计格式为 Provider 私有实现，不构成稳定解码接口。
 
-## Unreleased P0 持久化契约澄清
+## P0 持久化契约澄清
 
 - Core 协议签名及参考实现行为不变：payload 是合法 JSON 的业务 schema 不透明字节；create 接受并保存任意 UInt64 generation，acquireLease 是非幂等 CAS 换代。详细边界见 [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)。
 - `BoneWorkflowPersistenceContractCase` 新增 `opaqueCheckpointPayload` / `creationLeaseGeneration`，allCases 从 6 增至 8；工厂穷尽 switch 与固定数量断言需要更新。可选 capability 枚举不变，不提供 opaque payload 跳过能力。
 - `BoneWorkflowPersistenceContractFailure` 新增 `seedCreateRejected` / `seedLoadFailed` / `opaquePayloadRejected` / `creationGenerationRejected`，穷尽 switch、报告消费者与差距守卫需要同步。它们按失败阶段分类，不宣称识别 Host 私有 schema 或底层故障根因。
 
-## Unreleased P1 Run 控制面
+## P1 Run 控制面
 
 - 新增 `BoneWorkflowRunController`，以组合方式提供 create/bind/begin/pause/resume/recover/requestCancellation/stopRequestedExecution/reconcileTerminal；不改变既有 Persistence 协议、Run 状态表或 Effect Store 接口。
 - 新增 `BoneWorkflowRunControllerContractSuite`、`BoneWorkflowRunControllerContractCase`、`BoneWorkflowRunControllerContractFailure`、`BoneWorkflowRunControllerContractObservation`，五项必需场景，无 skipped。factory 复用 `BoneWorkflowPersistenceContractFixture`，但场景枚举不同。
 - 服务方法要求显式 expectedRevision，Worker 停止与终态协调还要求 leaseGeneration；begin/resume 必须换代，pause 也换代。Host 接入后必须使用返回 snapshot 的新 revision/generation 绑定 Worker 与 Effect，不能继续使用旧令牌。
 - 请求取消返回 cancelling snapshot，而不是“执行已停止”的 Bool；Host 需要停止/对账后显式 reconcileTerminal。业务绑定、索引、扫描、授权、外部预算与 Worker 生命周期仍归 Host。
 
-## Unreleased P2 恢复扫描与索引边界
+## P2 恢复扫描与索引边界
 
 - 新增可选 `BoneWorkflowRecoveryScan` / `BoneWorkflowRecoveryScanResult`，内存参考实现新增 conformance；原 Persistence 四方法、Run Controller API 均不变。
 - 新增 `BoneWorkflowRecoveryScanContractSuite`、`BoneWorkflowRecoveryScanContractFixture`、`BoneWorkflowRecoveryScanContractCase`、`BoneWorkflowRecoveryScanContractFailure`、`BoneWorkflowRecoveryScanContractCapability`、`BoneWorkflowRecoveryScanContractOutcome`、`BoneWorkflowRecoveryScanContractObservation`。
 - 扫描为固定授权 scope 的完整一致快照，无分页和静默截断。包括 recoveryRequired 以支持人工调和，但不授权重新执行；隔离数为当前不可用记录计数，不是累计错误数。
 - 业务实体反查、唯一非终态约束、生命周期与 Run＋实体原子创建留在 Host，推荐 seam 与事务要求见 [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)。
 
-## Unreleased P3 取消安全判定
+## P3 取消安全判定
 
 - 新增 `BoneWorkflowCancellationReadinessQuery`、`BoneWorkflowCancellationSnapshot`（嵌套 Session/Effect/Checks）、`BoneWorkflowCancellationReadiness`、`BoneWorkflowCancellationEvaluation`、`BoneWorkflowCancellationDecision`、`BoneWorkflowCancellationRejection`。
 - 新增 `BoneWorkflowCancellationReadinessContractSuite`、`BoneWorkflowCancellationReadinessContractFixture`、`BoneWorkflowCancellationReadinessContractCase`、`BoneWorkflowCancellationReadinessContractFailure`、`BoneWorkflowCancellationReadinessContractObservation`；十一个必需场景无 skipped。
 - 只读能力，无生产写入 API、无自动终态、无完整 session 存储。evaluation 绑定 Run revision/generation 与全事实 evidenceRevision，Host 必须在收口事务复核；不改变 RunController/Persistence/EffectStore 既有接口。
 
-## Unreleased P4 持久预算
+## P4 持久预算
 
 - 新增 `BoneWorkflowRunBudget`（嵌套 Policy/Clock/Phase/Rejection/Decision/Reservation）、`BoneWorkflowRunBudgetError`、`BoneWorkflowRunBudgetStore`、`BoneInMemoryWorkflowRunBudgetStore`。
 - 新增 `BoneWorkflowRunBudgetContractSuite` / Fixture / Case / Failure / Outcome / Observation 六个完整前缀类型，七场景，重开能力缺失明确 skippedReopen。
 - 既有 `BoneRunBudget` 与 `BoneRunBudgetMeter` 不变。新持久预算以 Run 为键，open 不重置，reserve 是 revision CAS；used 库存与 attempted 失败尝试分别计数，final 保留不可被普通拒绝耗尽。
 - durable 截止在达到任一 deadline 时拒绝（>=），时钟异常/截止永久阻塞。同Run policy/version必须完全一致；更换version不授权修改已有预算。预算编码 schemaVersion=1，解码执行验证，不承诺防恶意篡改。
 
-## Unreleased P5 工作单元账本
+## P5 工作单元账本
 
 - 新增 `BoneWorkflowWorkLedger`（嵌套 Seed/Unit/Page/State/Preflight/Command）、`BoneWorkflowWorkLedgerError`、`BoneWorkflowWorkLedgerStore`、`BoneInMemoryWorkflowWorkLedgerStore`。
 - 新增 `BoneWorkflowWorkLedgerContractSuite` / Fixture / Case / Failure / Observation 五个完整前缀类型，七场景无 skipped。
 - Run 级 aggregate revision/generation CAS；page 是预留请求尝试序号而非成功结果页数，knownFailure 不回退页号；split 父与子原子保存。opaque Data 单项4MiB。
 - 账本无任意状态 Codable 恢复入口；Seed/Command 编码后仍须验证重放，Host 负责版本化日志/存储。旧代在途页不自动转交/重放；显式恢复采用下述独立对账能力。既有 Run/Budget/Effect API 不变。
 
-## Unreleased P6 执行会话与continuation
+## P6 执行会话与 continuation
 
 - 新增 `BoneWorkflowExecutionSession`、`BoneWorkflowExecutionSessionError`、`BoneWorkflowSessionLedger`、`BoneWorkflowExecutionSessionStore`、`BoneInMemoryWorkflowExecutionSessionStore`。
 - 新增 `BoneWorkflowExecutionSessionContractSuite` / Fixture / Case / Failure / Observation 五个完整前缀类型，五场景无 skipped。
 - admission 为有界不透明 Data，admissionHash 对原始字节SHA256；零基序列、一次性nonce、permit消费与session创建采用ledger CAS。prepare/consume/revoke 的nonce墓碑保留，Command不Codable，Ledger编码不含nonce原文。
 - Hash/nonce不是业务授权或Run lease；Host需在消费事务复核可变化事实。不重置P4预算、不复活Run终态；P5跨代对账独立于session API。Session/Ledger schemaVersion=1，解码重验，不承诺抗存储回滚。
 
-## Unreleased P5 补齐：跨代工作页对账
+## P5 补齐：跨代工作页对账
 
 - 新增可选 `BoneWorkflowWorkReconciliationStore`，不修改原 Store 的必需方法；内存参考增加 conformance。
 - 新增嵌套 `BoneWorkflowWorkLedger.Reconciliation` / Outcome、纯 `reconciling` 和 Page.reconciliation 审计记录。精确目标+旧代/当前代+aggregate revision绑定；保留原页代、nextPage与计数。

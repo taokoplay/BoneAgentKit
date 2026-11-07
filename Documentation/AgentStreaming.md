@@ -54,7 +54,9 @@ Provider 的 `.completed` 不直接暴露给调用方。Agent 必须先收到且
 
 ## 失败、取消与取消边界
 
-流抛出错误时，之前收到的 delta 只能作为未完成草稿。不要把已显示的正文拼接后当作正式 Assistant 消息。取消会向下传递到 Provider event stream；Tool 或 native runtime 的协作式清理完成之前，Agent 不会释放运行所有权。
+流抛出错误时，之前收到的 delta 只能作为未完成草稿。不要把已显示的正文拼接后当作正式 Assistant 消息。取消会向下传递到 Provider event stream。对于 Agent 直接 await 的工具或推理调用，仍需等待该调用返回或抛错后才能退出执行路径；若调用内部另建生产任务，清理责任仍由该实现承担。
+
+事件流的独立生产任务有不同的退出边界：内置 Provider 在流终止时请求取消生产 Task，Agent 不等待该 Task 的清理完成。因此，Agent 的取消终态或运行所有权释放不能证明所有 Provider/Transport 生产任务已退出，也不能证明远端请求已停止。Host 应按对应执行接口的完成、取消或对账契约判断资源与副作用状态。
 
 裸 `AsyncThrowingStream` 的消费方应取消持有消费任务来停止生产。`break` 不应被理解为强制终止所有底层工作；对于需要显式停止按钮的产品，应由 Host 持有并管理自己的 Task/Run handle。
 

@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 对齐运行状态与统计文档：区分 `currentStatus.tokens` 与 `currentTokens`，说明工具执行通知、流取消清理、模型/摘要尝试耗时及 revision 0 会话恢复的实际边界。
+- 修正文档中的文本分页字节范围、reasoning profile 要求和优先向上选档规则，并调整 reasoning 示例参数顺序。
+- 将 API 基线中的已发布能力标注到当前版本，修正 `BoneInferenceService` 的公开注入入口并同步接入说明。以上为文档修正，SDK 行为不变。
+
 ## [0.2.0-alpha.30] - 2026-11-06
 
 本版发布多模态输入、上下文预算与运行观测，并包含输出校验、文本资源回读及多会话统计性能优化。属于预发布 SDK，未完成真实 Provider、生产 Host、最低 Swift 5.9 工具链和真机验收，不代表生产准入。
@@ -11,11 +17,11 @@
 ### Added
 
 - 新增可选 `BoneInferenceValidatedOutputProcessor`、强类型校验/拒绝、修正策略和固定统计回执；支持不同输入、输出与私有反馈类型。修正默认关闭，只在明确允许的校验拒绝后按上限调用注入执行器，操作性错误与取消直接传播；不改变已有 Provider/Agent 行为，不新增网络重试、持久化或领域规则。见 [输出校验与有界修正](Documentation/OutputValidationAndCorrection.md)。
-- 新增可选工具文本资源预览与回读：最多 4 KiB 原文前缀、不可变版本引用、4…64 KiB UTF-8 页、注入式 Reader 和显式本地私有只读 Tool。取消、版本、偏移和页限额在边界复验；完整内容存储及资源级授权仍由 Host 负责。新增压缩后回读并独立验收结果的离线任务测试。见 [工具文本资源](Documentation/ToolTextResources.md)。
+- 新增可选工具文本资源预览与回读：最多 4 KiB 原文前缀、不可变版本引用、4…65,536 字节的 UTF-8 分页请求上限（默认 4,096 字节）、注入式 Reader 和显式本地私有只读 Tool。取消、版本、偏移和页限额在边界复验；完整内容存储及资源级授权仍由 Host 负责。新增压缩后回读并独立验收结果的离线任务测试。见 [工具文本资源](Documentation/ToolTextResources.md)。
 - 新增显式图片理解输入：用户/工具的有序文本与不可变图片引用、注入式预处理/授权解析、Apple ImageIO 转换，以及 OpenAI/Anthropic/Gemini 普通和流式协议映射。视觉 Token 与文本、工具 Schema、协议和续接共同参与压缩；独立限制 Base64/body，未知估算或必须保留内容超限在读取/发送前拒绝。默认无损编码策略可按 OCR 需要调整，不自动反复缩小图片。见 [图片理解输入与预算](Documentation/ImageUnderstanding.md)。
 - 新增统一 `BoneAgentStatus` / `statusSink` 与 `currentStatus`：普通、buffered、实时流和会话共享输入、预算、压缩/摘要、图片解析、模型阶段、并行工具及唯一终态通知。思考状态与正文披露分离；三家实时 Provider 在 hidden 下仍可按实际信号上报阶段。既有内容事件和 checkpoint 不变。见 [运行状态](Documentation/AgentStatus.md)。
 - 新增 `tokenSink` / `currentTokens` / `status.tokens` 与会话 `statistics`，分开报告上下文测量、压缩前后容量、主模型/摘要实际用量及覆盖度；同请求累计快照替换，最终用量只计一次。补齐 Anthropic 实时 usage，新增轮次/步骤、模型/工具耗时、并行时间并集、可靠流式 TTFT 与加权 TPS；未知值不伪造。见 [Token 与会话统计](Documentation/TokenStatistics.md)。
-- 新增 `BoneAgentObservationPolicy`，将长会话统计改为增量累计，默认仅保留最近 64 条请求、128 条工具和 16 个模型分项；省略计数明确可见，总用量与耗时不丢失。默认合并 100 ms 内的高频统计更新，生命周期立即通知；会话不再保存全部完成轮次的快照。新增长期多会话、并行工具、对象释放和性能回归。
+- 新增 `BoneAgentObservationPolicy`，将长会话统计改为增量累计，默认保留最近 64 条已完成请求、128 条已结束工具明细及每个 Run 最先遇到的 16 个模型分项；活动调用额外保留，省略计数明确可见，总用量与耗时不丢失。默认合并 100 ms 内的高频统计更新，生命周期立即通知；会话不再保存全部完成轮次的快照。新增长期多会话、并行工具、对象释放和性能回归。
 
 ### Migration
 
@@ -49,7 +55,7 @@
 
 - `BoneInferenceReasoningOptions` 现在只接受 `providerDefault`、`disabled` 或 profile 驱动的 `level`。
 - Provider 内部使用经过校验的 private resolved value 生成 mode/effort/budget，不再暴露这些请求字段。
-- `BoneInferenceReasoningProfile` 支持 `supportedLevels`、`levelMap` 和 `budgetByLevel`；等级按 profile 做最近值 clamp，没有映射时 fail closed。
+- `BoneInferenceReasoningProfile` 支持 `supportedLevels`、`levelMap` 和 `budgetByLevel`；非空支持集合中未命中的等级优先向上选档，没有更高等级才向下回退；集合为空时直接尝试映射，映射或协议校验失败时 fail closed。
 - OpenAI server reasoning 冲突错误改为 `conflictingServerReasoningSetting`。
 
 ### Migration
