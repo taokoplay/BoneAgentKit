@@ -4,9 +4,12 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.30] - 2026-11-06
+
+本版发布多模态输入、上下文预算与运行观测，并包含输出校验、文本资源回读及多会话统计性能优化。属于预发布 SDK，未完成真实 Provider、生产 Host、最低 Swift 5.9 工具链和真机验收，不代表生产准入。
+
 ### Added
 
-- 新增 `BoneAgentProviderFactory` 和 `BoneAgentBuilder`，为常见 Provider、Tool、Context 与 Agent Run 提供更短的组合入口；低层 Engine 和自定义 Transport 仍可直接注入。
 - 新增可选 `BoneInferenceValidatedOutputProcessor`、强类型校验/拒绝、修正策略和固定统计回执；支持不同输入、输出与私有反馈类型。修正默认关闭，只在明确允许的校验拒绝后按上限调用注入执行器，操作性错误与取消直接传播；不改变已有 Provider/Agent 行为，不新增网络重试、持久化或领域规则。见 [输出校验与有界修正](Documentation/OutputValidationAndCorrection.md)。
 - 新增可选工具文本资源预览与回读：最多 4 KiB 原文前缀、不可变版本引用、4…64 KiB UTF-8 页、注入式 Reader 和显式本地私有只读 Tool。取消、版本、偏移和页限额在边界复验；完整内容存储及资源级授权仍由 Host 负责。新增压缩后回读并独立验收结果的离线任务测试。见 [工具文本资源](Documentation/ToolTextResources.md)。
 - 新增显式图片理解输入：用户/工具的有序文本与不可变图片引用、注入式预处理/授权解析、Apple ImageIO 转换，以及 OpenAI/Anthropic/Gemini 普通和流式协议映射。视觉 Token 与文本、工具 Schema、协议和续接共同参与压缩；独立限制 Base64/body，未知估算或必须保留内容超限在读取/发送前拒绝。默认无损编码策略可按 OCR 需要调整，不自动反复缩小图片。见 [图片理解输入与预算](Documentation/ImageUnderstanding.md)。
@@ -18,6 +21,20 @@
 
 - `BoneInferenceCapability.imageInput` 与 `BoneToolResultContent.multimodal` 要求调用方更新穷尽 switch；普通字符串和 JSON 工具行为保持。新 Provider 可选参数不自动开启识图，需绑定精确模型预算与视觉估算器。
 - `requests` / `toolTimings` 现为有界诊断明细；使用 snapshot 聚合字段获取完整统计，通过 omitted 字段识别淘汰。需要逐次 usage 通知时显式设置 `minimumTokenUpdateInterval: 0`。
+
+### Fixed
+
+- 修复图片用户轮次的思考续接绑定与压缩重绑定，保留完整工具配对。
+- 流消费取消按取消终态收口；已交付响应的用量不因随后取消或校验失败丢失。
+- 将运行时版本镜像和 README 同步到 `0.2.0-alpha.30`；既有 `alpha.29` 标签中的镜像为 `alpha.28`，不改写旧标签。
+
+## [0.2.0-alpha.29] - 2026-11-01
+
+既有标签指向 `37b39a40d`。本节补记该标签的功能范围；其运行时版本镜像仍为 `alpha.28`，历史标签保持不变。
+
+### Added
+
+- 新增 `BoneAgentProviderFactory` 和 `BoneAgentBuilder`，为常见 Provider、Tool、Context 与 Agent Run 提供更短的组合入口；低层 Engine 和自定义 Transport 仍可直接注入。
 
 ### Fixed
 

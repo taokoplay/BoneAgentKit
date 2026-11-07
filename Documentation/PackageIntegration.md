@@ -13,7 +13,7 @@ BoneAgentKit 通过独立 Git 仓库中的 Swift Package 分发。调用方应�
 
 基础调用方只需依赖 `BoneAgentKit`；本地模型基础设施和 Adapter 是独立 Product，不会因基础依赖自动启用。
 
-Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.28`。
+Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.30`。
 
 从 `0.2.0-alpha.5` 升级时，使用方的 `BoneLlamaRuntime` 实现必须适配新的真实 Token 容量契约：增加 `tokenize(prompt:)`，并将旧 `generate(prompt:options:)` 改为 `generate(prompt:executionPlan:options:)`。Runtime 必须按 `executionPlan.prefillRanges` 对完整 Prompt 的 Token IDs 分批 prefill；完整迁移要求见 [LocalModels.md](LocalModels.md#从-alpha5-迁移到-alpha6)。只使用云 Provider 或未链接 `BoneAgentLlama` 的调用方不受该协议变更影响。
 
@@ -24,6 +24,17 @@ Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.curren
 ## Alpha.12 测试能力
 
 需要验收 Host Persistence Adapter 时，在测试目标显式链接 `BoneAgentTesting`，调用 `BoneWorkflowPersistenceContractSuite`；无需修改生产目标依赖。此套件不随基础 Agent 自动运行，也不提供数据库。只使用 Agent 推理或本地只读查询的 App 不必为此新增任务持久化。示例及缺能力处理见 [Testing](Testing.md#host-持久化契约验收)。
+
+## 从 alpha.29 迁移到 alpha.30
+
+将 SwiftPM 精确版本更新为 `0.2.0-alpha.30` 并重新解析依赖。本版包含可选输出验收与有界修正、文本资源预览/分页回读、原生图片理解输入，以及统一运行状态、Token 和长期会话统计。保持 Swift 5.9 / iOS 13 / macOS 13 的声明下限，没有新增外部 Package 或二进制依赖。
+
+- `BoneInferenceCapability.imageInput` 与 `BoneToolResultContent.multimodal` 是新增 enum case，调用方穷尽 switch 需适配。图片需显式配置精确模型视觉估算器、容量和授权解析器；现有字符串/JSON 工具不自动变成图片输入。详见 [图片理解输入](ImageUnderstanding.md)。
+- `statusSink` / `tokenSink` 是 nonthrowing、有序 await 的观察入口。默认高频统计更新按 100 ms 合并，阶段与终态立即投递；调用方可主动查询最新值。`requests` / `toolTimings` 为有界诊断明细，完整累计请读取 totals/statistics，并检查 omitted/coverage 字段。详见 [运行状态](AgentStatus.md) 与 [Token/会话统计](TokenStatistics.md)。
+- 普通 Tool JSON、Workflow checkpoint 和私有会话版本保持原有契约；新观测统计不会自动持久化。跨重启恢复后的历史耗时/用量明确未知。输出校验、修正、资源读取及图片存储的业务规则仍由 Host 注入。
+- 既有 `alpha.29` 标签指向 `37b39a40d`，其中运行时版本镜像仍为 `alpha.28`；本版统一镜像、README 与 tag，不改写旧标签。不得只凭旧运行时镜像判断是否已经接入 `alpha.29` 的功能。
+
+本 tag 为预发布。真实 Provider/生产 Host/真机、最低 Swift 5.9 工具链及资源权利验收仍需各自完成；本地回归通过不等于生产准入。
 
 ## 从 alpha.27 迁移到 alpha.28
 

@@ -170,3 +170,15 @@ Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布�
 - 全量 `swift test`：799 项通过；Swift strict concurrency + warnings-as-errors 构建通过；`BoneAgentKitVersionTests`、公开文档检查和 `git diff --check` 通过。
 - 未调用真实付费 Provider；真实 Anthropic/OpenAI/Gemini Smoke、生产 Host Debug/Release、最低 Swift 5.9、真机和许可证/资源权利验收仍由调用方完成。
 - `.proma/`、验证日志和构建缓存不进入提交。
+
+## Alpha.30 多模态与有界观测版签发范围（2026-11-06）
+
+维护者明确要求发布新预发布标签，本轮版本为 `0.2.0-alpha.30`。签发负责人角色为仓库维护者；本地准备分支为 `main`，只推送该 annotated tag 到 `origin`，不更新远端 `main` 或创建 GitHub Release 页面。最终版本提交 SHA 由标签 `0.2.0-alpha.30^{commit}` 和推送后远端解引用共同核验，不预先把候选树当作已发布。
+
+- 功能基线为 `b9eac7e68`，相对既有 `alpha.29` 的 `37b39a40d` 包含 `38b663109` 输出校验/有界修正、`4be180233` 版本化文本资源回读、`b9eac7e68` 图片输入及统一状态/Token/会话统计和长期观测性能优化。
+- 原 `alpha.29` 已在远端，其运行时镜像仍为 `alpha.28`；本轮同步版本常量、README、CHANGELOG 和迁移说明，不改写既有标签。
+- 验证环境为 Xcode 27.1（27A9275）/ Apple Swift 6.4，macOS arm64。491 个公开顶层类型声明静态基线保持一致；数量检查不等同于完整 ABI 兼容证明。
+- 本地候选版本的默认、strict concurrency / warnings-as-errors 与 Swift 6 全库测试各 1023 项通过，Swift 6 构建和 SDK strict Release 构建通过；四个公开 Product 的 `arm64-apple-ios13.0-simulator` 直接模块编译通过。此处 iOS 证据为 SDK 编译，不是真机执行或生产 Host 链接证据。
+- 独立 `MinimalWorkflowHost` fixture 的 Debug/Release 恢复与授权检查均通过；OpenAI、Anthropic、Gemini 三个 Provider 的无网络 dry-run、公开文档检查与 `git diff --check` 均通过。原始日志保留在本地临时验证目录，不纳入 Git。
+- 最低 Swift 5.9 工具链、真实 Provider、生产 Host Debug/Release、生产持久层、iOS 真机长期驻留及资源权利验收仍未关闭。本 tag 是预发布，不声明生产准入；不因本地检查通过而授予 Provider 商标/图片的再分发权利，遵循 `NOTICE.md` 既有范围。
+- `.pi/`、`.proma/`、`bone-media/` 与验证日志/构建缓存不纳入发布提交。
