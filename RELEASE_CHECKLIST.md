@@ -182,3 +182,11 @@ Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布�
 - 独立 `MinimalWorkflowHost` fixture 的 Debug/Release 恢复与授权检查均通过；OpenAI、Anthropic、Gemini 三个 Provider 的无网络 dry-run、公开文档检查与 `git diff --check` 均通过。原始日志保留在本地临时验证目录，不纳入 Git。
 - 最低 Swift 5.9 工具链、真实 Provider、生产 Host Debug/Release、生产持久层、iOS 真机长期驻留及资源权利验收仍未关闭。本 tag 是预发布，不声明生产准入；不因本地检查通过而授予 Provider 商标/图片的再分发权利，遵循 `NOTICE.md` 既有范围。
 - `.pi/`、`.proma/`、`bone-media/` 与验证日志/构建缓存不纳入发布提交。
+
+## Alpha.31 文档 URL 兼容修复（2026-11-18）
+
+签发负责人角色为仓库维护者。按 `0.2.0-alpha.31` annotated tag 发布，不更新远端 `main`、改写既有 tag 或创建 GitHub Release 页面。最终验证提交以标签解引用及发布回执为准。
+
+- 纳入 `a60852577` 文档 URL 编码修复及回归测试；供应商目录资源、API 地址解析、公开 API 与平台下限保持不变。
+- 在隔离工作树验证最终候选；验证环境为 Xcode 27.1（27A9275）/ Apple Swift 6.4，macOS arm64。测试结果记录于标签注释及发布回执。
+- 不纳入原工作区的其他未提交改动、验证日志或构建缓存。预发布不代表生产准入，受影响的旧版 iOS 真机与生产 Host 仍需更新依赖后验收。

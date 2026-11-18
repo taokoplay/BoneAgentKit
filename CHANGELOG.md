@@ -4,8 +4,13 @@
 
 ## [Unreleased]
 
+## [0.2.0-alpha.31] - 2026-11-18
+
+本版修复旧版 Foundation 的供应商目录加载问题，公开 API 和平台下限不变。
+
 ### Fixed
 
+- 在输出供应商和模型的文档 URL 时做 UTF-8 百分号编码，保留已有转义及 HTTPS 校验。智谱 GLM-5.2 与 GLM-5.1 的中文文档路径不再阻塞旧版系统的内置目录加载；源目录及 API 地址不变。
 - 对齐运行状态与统计文档：区分 `currentStatus.tokens` 与 `currentTokens`，说明工具执行通知、流取消清理、模型/摘要尝试耗时及 revision 0 会话恢复的实际边界。
 - 修正文档中的文本分页字节范围、reasoning profile 要求和优先向上选档规则，并调整 reasoning 示例参数顺序。
 - 将 API 基线中的已发布能力标注到当前版本，修正 `BoneInferenceService` 的公开注入入口并同步接入说明。以上为文档修正，SDK 行为不变。
