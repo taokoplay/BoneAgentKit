@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import XCTest
 @testable import BoneAgentKit
@@ -46,6 +47,16 @@ final class ProviderCatalogTests: XCTestCase {
         )
     }
 
+    func testBundledZhipuDocumentationURLsSupportLegacyFoundation() throws {
+        let provider = try XCTUnwrap(BoneInferenceProviderCatalog.bundled().provider(ident: "Zhipu"))
+        for id in ["glm-5.2", "glm-5.1"] {
+            let url = try XCTUnwrap(provider.models.first { $0.id == id }?.tokenLimits?.documentationURL)
+            XCTAssertNotNil(CFURLCreateWithString(nil, url.absoluteString as CFString, nil), id)
+            XCTAssertEqual(url.host, "docs.bigmodel.cn", id)
+            XCTAssertEqual(url.path, "/api-reference/模型-api/对话补全", id)
+        }
+    }
+
     func testCatalogRejectsUnsupportedSchema() throws {
         let changed = Data("""
         {"schemaVersion":2,"catalogVersion":1,"verifiedAt":"2026-08-24","providers":[]}
@@ -76,6 +87,26 @@ final class ProviderCatalogTests: XCTestCase {
         XCTAssertEqual(limits.source, .official)
         XCTAssertEqual(limits.verifiedAt, "2026-08-28")
         XCTAssertEqual(limits.documentationURL.absoluteString, "https://docs.example.com/model")
+    }
+
+    func testCatalogEncodesDocumentationURLsWithoutDoubleEncoding() throws {
+        let raw = "https://docs.example.com/模型%2F文档?lang=中文&ref=a%26b#第一节"
+        let encoded = "https://docs.example.com/%E6%A8%A1%E5%9E%8B%2F%E6%96%87%E6%A1%A3"
+            + "?lang=%E4%B8%AD%E6%96%87&ref=a%26b#%E7%AC%AC%E4%B8%80%E8%8A%82"
+
+        for input in [raw, encoded] {
+            let data = catalogData(tokenLimits: """
+            {
+              "contextWindowTokens": 200000,
+              "source": "official",
+              "verifiedAt": "2026-08-28",
+              "documentationURL": "\(input)"
+            }
+            """, providerDocumentationURLJSON: "\"\(input)\"")
+            let provider = try XCTUnwrap(BoneInferenceProviderCatalog.decode(data: data).providers.first)
+            XCTAssertEqual(provider.documentationURL?.absoluteString, encoded, input)
+            XCTAssertEqual(provider.models.first?.tokenLimits?.documentationURL.absoluteString, encoded, input)
+        }
     }
 
     func testCatalogDecodesOptionalFineGrainedInferenceCapabilities() throws {
@@ -116,7 +147,7 @@ final class ProviderCatalogTests: XCTestCase {
             {"contextWindowTokens":100,"maximumInputTokens":100,"maximumOutputTokens":1,"source":"guessed","verifiedAt":"2026-08-28","documentationURL":"https://docs.example.com/model"}
             """,
             """
-            {"contextWindowTokens":100,"maximumInputTokens":100,"maximumOutputTokens":1,"source":"gateway","verifiedAt":"2026-08-28","documentationURL":"http://docs.example.com/model"}
+            {"contextWindowTokens":100,"maximumInputTokens":100,"maximumOutputTokens":1,"source":"gateway","verifiedAt":"2026-08-28","documentationURL":"http://docs.example.com/文档"}
             """,
         ]
 
@@ -168,7 +199,7 @@ final class ProviderCatalogTests: XCTestCase {
         }
     }
 
-    private func catalogData(tokenLimits: String) -> Data {
+    private func catalogData(tokenLimits: String, providerDocumentationURLJSON: String = "null") -> Data {
         Data("""
         {
           "schemaVersion": 1,
@@ -181,6 +212,7 @@ final class ProviderCatalogTests: XCTestCase {
             "adapter": "openAI",
             "authenticationMode": "bearer",
             "defaultBaseURL": "https://api.example.com/v1",
+            "documentationURL": \(providerDocumentationURLJSON),
             "modelCatalogMode": "local",
             "sortOrder": 1,
             "models": [{

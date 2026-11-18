@@ -100,7 +100,8 @@ public extension BoneInferenceProviderCatalog {
         let documentationURL = try validatedURL(
             raw.documentationURL,
             provider: ident,
-            field: "documentationURL"
+            field: "documentationURL",
+            percentEncode: true
         )
         if catalogMode == .local, defaultBaseURL == nil {
             throw Error.missingField(provider: ident, field: "defaultBaseURL")
@@ -312,7 +313,8 @@ public extension BoneInferenceProviderCatalog {
         guard let documentationURL = try validatedURL(
             raw.documentationURL,
             provider: provider,
-            field: "models.\(modelID).tokenLimits.documentationURL"
+            field: "models.\(modelID).tokenLimits.documentationURL",
+            percentEncode: true
         ) else {
             throw Error.invalidModelTokenLimit(
                 provider: provider,
@@ -370,10 +372,15 @@ public extension BoneInferenceProviderCatalog {
     private static func validatedURL(
         _ value: String?,
         provider: String,
-        field: String
+        field: String,
+        percentEncode: Bool = false
     ) throws -> URL? {
         guard let value, !value.isEmpty else { return nil }
-        guard let url = URL(string: value),
+        // 按 UTF-8 字节解析文档链接，兼容旧版 Foundation 并保留已有的百分号转义。
+        let parsedURL = percentEncode
+            ? URL(dataRepresentation: Data(value.utf8), relativeTo: nil)
+            : URL(string: value)
+        guard let url = parsedURL,
               url.scheme?.lowercased() == "https",
               url.host != nil else {
             throw Error.invalidURL(provider: provider, field: field)
