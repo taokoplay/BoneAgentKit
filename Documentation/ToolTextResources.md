@@ -17,6 +17,8 @@ Host 取得完整文本并保留不可变版本
 
 ## 公开类型
 
+若内容来自大型本地文件，见可选 `BoneAgentTools` 的[磁盘读取与有界搜索](BuiltInTools.md#读取长文件)。核心 Reader 的权限、版本和分页契约不变。
+
 | 类型 | 职责 |
 | --- | --- |
 | `BoneToolTextResourceReference` | 不透明 `id`、不可变 `version`、精确 `utf8ByteCount`；三者共同绑定读取目标 |

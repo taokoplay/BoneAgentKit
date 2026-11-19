@@ -21,6 +21,7 @@ BoneAgentKit 在基础模型之上提供确定、可审计、可恢复的执行�
 | --- | --- | --- |
 | `BoneAgentKit` | 推理、Tool Calling、Agent Runtime、Workflow、授权和恢复契约 | 无 |
 | `BoneAgentTesting` | Synthetic Provider、Scripted Engine、Recorder、Scenario、Crash Harness 与 Host 持久化契约验收套件 | 无，仅测试使用 |
+| `BoneAgentTools` | 可选计算、日期时间、资料检索读取、静态网页、联网搜索与用户询问；由宿主显式注册和授权 | 无 |
 | `BoneAgentLocalModels` | 本地模型 Catalog、下载、校验、存储、环境规划和 Runtime Probe | 无 |
 | `BoneAgentLlama` | llama Runtime seam、Conversation Renderer、受限 GBNF、UTF-8 Stop、Probe 与默认 text-only、可验证 Constraint/Tool Calling Engine | 无，不包含 llama.cpp |
 
@@ -203,6 +204,7 @@ Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、�
 
 - [架构与模块边界](Documentation/Architecture.md)
 - [Tool Calling](Documentation/ToolCalling.md)
+- [可选内置工具 · BoneAgentTools](Documentation/BuiltInTools.md)
 - [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
 - [跨 Run 会话连续性](Documentation/ConversationContinuity.md)
 - [上下文压缩](Documentation/ContextCompaction.md)

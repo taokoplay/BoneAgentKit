@@ -12,6 +12,7 @@ let package = Package(
             name: "BoneAgentKit",
             targets: ["BoneAgentKit"]
         ),
+        .library(name: "BoneAgentTools", targets: ["BoneAgentTools"]),
         .library(
             name: "BoneAgentTesting",
             targets: ["BoneAgentTesting"]
@@ -35,6 +36,7 @@ let package = Package(
             dependencies: ["BoneAgentProviderAssets"],
             resources: [.process("Resources")]
         ),
+        .target(name: "BoneAgentTools", dependencies: ["BoneAgentKit"]),
         .target(
             name: "BoneAgentTesting",
             dependencies: ["BoneAgentKit"]
@@ -59,6 +61,7 @@ let package = Package(
             name: "BoneAgentKitTests",
             dependencies: ["BoneAgentKit", "BoneAgentTesting"]
         ),
+        .testTarget(name: "BoneAgentToolsTests", dependencies: ["BoneAgentTools", "BoneAgentKit", "BoneAgentTesting"]),
         .testTarget(
             name: "BoneAgentTestingTests",
             dependencies: ["BoneAgentTesting", "BoneAgentKit"]
