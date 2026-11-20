@@ -1,0 +1,227 @@
+import Foundation
+import BoneAgentKit
+import BoneAgentTools
+
+struct DemoToolAuthorizationRequest: Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let detail: String
+}
+
+/// PDF 密码请求只携带展示文案和一次性请求身份，不携带资源正文或历史密码。
+struct DemoPDFPasswordRequest: Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let detail: String
+}
+
+struct DemoToolInteractionHandlers: Sendable {
+    let ask: @Sendable (BoneUserQuestion) async throws -> BoneUserAnswer
+    let authorize: @Sendable (DemoToolAuthorizationRequest) async throws -> Bool
+    /// 在 PDF 受保护时临时获取密码，返回值只允许留在当前工具调用内存中。
+    let requestPDFPassword: @Sendable (DemoPDFPasswordRequest) async throws -> String
+
+    /// 保留旧调用方只传 ask 和 authorize 时的初始化兼容性。
+    init(ask: @escaping @Sendable (BoneUserQuestion) async throws -> BoneUserAnswer,
+         authorize: @escaping @Sendable (DemoToolAuthorizationRequest) async throws -> Bool,
+         requestPDFPassword: @escaping @Sendable (DemoPDFPasswordRequest) async throws -> String = { _ in
+             throw BoneAskUserError.unavailable
+         }) {
+        self.ask = ask
+        self.authorize = authorize
+        self.requestPDFPassword = requestPDFPassword
+    }
+
+    static let unavailable = Self(ask: { _ in throw BoneAskUserError.unavailable },
+                                  authorize: { _ in throw BoneAuthorizationError.denied },
+                                  requestPDFPassword: { _ in throw BoneAskUserError.unavailable })
+}
+
+/// A private, bounded, process-local Host ledger for Conversation tools.
+/// It is not durable Workflow persistence. Interrupted chat archives prohibit replay across processes.
+actor DemoToolEffectStore: BoneWorkflowEffectStore {
+    private struct Record {
+        let grant: BoneAuthorizationGrant
+        var intent: BoneEffectIntent?
+        var receipt: BoneEffectReceipt?
+        var cancelled = false
+        var committed = false
+        var unknown = false
+    }
+    private var records: [BoneEffectID: Record] = [:]
+    private let networkConsent = DemoNetworkConsent()
+    private var activeRunID: UUID?
+    private var consentEpoch = UUID()
+    private let clock: @Sendable () -> TimeInterval
+    init(clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
+
+    func beginRun(scope: DemoNetworkConsent.Scope) async -> UUID {
+        let id = UUID()
+        activeRunID = id; consentEpoch = id
+        await networkConsent.begin(scope: scope, id: id)
+        return id
+    }
+
+    @discardableResult
+    func endRun(id: UUID) async -> Int {
+        guard activeRunID == id else { return 0 }
+        activeRunID = nil
+        return await networkConsent.end(id: id)
+    }
+
+    func context(for call: BoneInferenceToolCall, definition: BoneAgentToolDefinition,
+                 handlers: DemoToolInteractionHandlers, searchProvider: String = "Brave Search",
+                 webPolicy: BoneWebHostPolicy? = nil, searchConfiguration: DemoSearchConfiguration? = nil,
+                 failureObserver: @escaping DemoToolFailureObserver = { _ in }) async throws -> BoneWorkflowToolExecutionContext? {
+        do {
+            return try await authorizedContext(for: call, definition: definition, handlers: handlers,
+                searchProvider: searchProvider, webPolicy: webPolicy, searchConfiguration: searchConfiguration)
+        } catch {
+            if let failure = DemoToolFailure.classify(error, toolID: definition.id) { await failureObserver(failure) }
+            throw error
+        }
+    }
+
+    private func authorizedContext(for call: BoneInferenceToolCall, definition: BoneAgentToolDefinition,
+                 handlers: DemoToolInteractionHandlers, searchProvider: String,
+                 webPolicy: BoneWebHostPolicy?, searchConfiguration: DemoSearchConfiguration?) async throws -> BoneWorkflowToolExecutionContext? {
+        try Task.checkCancellation()
+        let runID = activeRunID
+        let epoch = consentEpoch
+        let impact = try definition.requiredImpact()
+        try DemoBuiltInToolAssembly.validateLocalInput(call, definition: definition)
+        guard !impact.isLocalReadOnly else { return nil }
+        guard ["user.ask", "web.fetch", "web.search"].contains(definition.id),
+              records.count < 128, let schemaVersion = definition.schemaVersion else {
+            throw BoneAuthorizationError.denied
+        }
+        let canonical = try BoneCanonicalToolCall(toolID: definition.id, toolVersion: definition.version,
+                                                  schemaVersion: schemaVersion, arguments: call.arguments)
+        // Asking is itself the selected user interaction. It never approves another tool.
+        if definition.id != "user.ask" {
+            // Validate the exact typed input and Host policy before presenting consent.
+            let value: String
+            var webHost: String?
+            if definition.id == "web.fetch" {
+                let input = try JSONDecoder().decode(BoneWebFetchInput.self, from: call.arguments)
+                guard let webPolicy else { throw BoneWebError.invalidConfiguration }
+                webHost = try DemoWebFetchNavigationPolicy.validate(url: input.url, policy: webPolicy).host
+                value = input.url
+            } else {
+                let input = try JSONDecoder().decode(BoneWebSearchInput.self, from: call.arguments)
+                if let searchConfiguration {
+                    guard searchConfiguration.automaticEnabled else { throw DemoSearchError.disabled }
+                    if searchConfiguration.automaticChannel == .deepSeek {
+                        guard input.query.unicodeScalars.count <= 128 else { throw DemoSearchError.invalidQuery }
+                        guard input.page == 0 else { throw DemoSearchError.unsupportedPage }
+                    }
+                    if searchConfiguration.automaticChannel == .baiduWeb {
+                        _ = try DemoSearchQuery(input.query)
+                        guard input.page == 0 else { throw DemoBrowserSearchError.unsupportedPage }
+                    }
+                }
+                value = input.query
+            }
+            guard !value.isEmpty, value.utf8.count <= 4_096 else { throw BoneWebError.invalidInput }
+            try await networkConsent.authorize(tool: definition.id == "web.fetch" ? .webFetch : .webSearch,
+                target: value, webHost: webHost, fallbackTitle: definition.title,
+                searchProvider: searchProvider, handlers: handlers)
+        }
+        try Task.checkCancellation()
+        guard activeRunID == runID, consentEpoch == epoch else { throw CancellationError() }
+        guard records.count < 128 else { throw BoneAuthorizationError.denied }
+        let now = clock()
+        let context = try BoneWorkflowToolExecutionContext(ticketID: .init(UUID().uuidString),
+            runID: .init(UUID().uuidString), stepID: .init("conversation-tool"), attemptID: .init(UUID().uuidString),
+            toolCallID: .init(call.id), effectID: .init(UUID().uuidString), principal: "agent-lab-user",
+            resourceScope: canonical.argumentsDigest, resourceRevision: 1, authorizationNonce: UUID().uuidString,
+            nowUptime: now, leaseGeneration: 1, recoveryStrategy: .nonRecoverableRequiresUserDecision, idempotencyKey: nil)
+        let grant = try BoneAuthorizationGrant(ticketID: context.ticketID, runID: context.runID,
+            stepID: context.stepID, attemptID: context.attemptID, toolCallID: context.toolCallID,
+            canonicalCall: canonical, principal: context.principal, resourceScope: context.resourceScope,
+            resourceRevision: context.resourceRevision, impact: impact, grantedAtUptime: now,
+            expiresAtUptime: now + 15, nonce: context.authorizationNonce)
+        records[context.effectID] = .init(grant: grant)
+        return context
+    }
+
+    func consumeAuthorizationAndPersistIntent(_ value: BoneAuthorizationValidation, intent: BoneEffectIntent) throws {
+        guard var record = records[intent.id], record.intent == nil else { throw BoneAuthorizationError.alreadyConsumed }
+        let grant = record.grant
+        let now = clock()
+        guard now.isFinite, now >= grant.grantedAtUptime, now <= grant.expiresAtUptime,
+              value.nowUptime >= grant.grantedAtUptime, value.nowUptime <= grant.expiresAtUptime else {
+            throw BoneAuthorizationError.expired
+        }
+        guard value.ticketID == grant.ticketID, value.runID == grant.runID, value.stepID == grant.stepID,
+              value.attemptID == grant.attemptID, value.toolCallID == grant.toolCallID,
+              value.canonicalCall == grant.canonicalCall, value.principal == grant.principal,
+              value.resourceScope == grant.resourceScope, value.resourceRevision == grant.resourceRevision,
+              value.impact == grant.impact, value.nonce == grant.nonce,
+              intent.runID == value.runID, intent.stepID == value.stepID, intent.attemptID == value.attemptID,
+              intent.toolCallID == value.toolCallID, intent.argumentsDigest == value.canonicalCall.argumentsDigest,
+              intent.phase == .intentPersisted, intent.leaseGeneration == 1 else { throw BoneAuthorizationError.bindingMismatch }
+        record.intent = intent
+        records[intent.id] = record
+    }
+
+    func persistCancellation(effectID: BoneEffectID, leaseGeneration: UInt64) throws {
+        var record = try checked(effectID, leaseGeneration)
+        guard record.intent?.phase == .intentPersisted, !record.committed else { throw BoneWorkflowToolExecutionError.effectStoreRejected }
+        record.cancelled = true; records[effectID] = record
+    }
+    func markExecutionStarted(effectID: BoneEffectID, leaseGeneration: UInt64) throws {
+        var record = try checked(effectID, leaseGeneration)
+        guard let old = record.intent, old.phase == .intentPersisted, !record.cancelled else {
+            throw BoneWorkflowToolExecutionError.effectStoreRejected
+        }
+        record.intent = try .init(id: old.id, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID,
+            toolCallID: old.toolCallID, recoveryStrategy: old.recoveryStrategy, idempotencyKey: nil,
+            argumentsDigest: old.argumentsDigest, phase: .executionStarted, leaseGeneration: leaseGeneration)
+        records[effectID] = record
+    }
+    func recordReceipt(_ receipt: BoneEffectReceipt) throws {
+        var record = try checked(receipt.effectID, receipt.leaseGeneration)
+        guard record.intent?.phase == .executionStarted, record.receipt == nil, !record.unknown,
+              !record.cancelled, !record.committed else { throw BoneWorkflowToolExecutionError.effectStoreRejected }
+        record.receipt = receipt; records[receipt.effectID] = record
+    }
+    func commitReceipt(effectID: BoneEffectID, leaseGeneration: UInt64) throws {
+        var record = try checked(effectID, leaseGeneration)
+        guard record.receipt != nil, !record.cancelled, !record.unknown, !record.committed else {
+            throw BoneWorkflowToolExecutionError.effectStoreRejected
+        }
+        // Commit the call receipt and session-local checkpoint fact atomically within this actor.
+        record.committed = true; records[effectID] = record
+    }
+    func recoverySnapshot(effectID: BoneEffectID, currentLeaseGeneration: UInt64) throws -> BoneEffectRecoverySnapshot? {
+        guard let record = records[effectID] else { return nil }
+        _ = try checked(effectID, currentLeaseGeneration)
+        guard let intent = record.intent else { return nil }
+        return .init(intent: intent, receipt: record.receipt, stepCommitted: record.committed,
+                     cancellationPersisted: record.cancelled)
+    }
+    func persistOutcomeUnknown(effectID: BoneEffectID, currentLeaseGeneration: UInt64) throws {
+        var record = try checked(effectID, currentLeaseGeneration)
+        guard record.intent?.phase == .executionStarted, record.receipt == nil else {
+            throw BoneWorkflowToolExecutionError.effectStoreRejected
+        }
+        record.unknown = true; records[effectID] = record
+    }
+    // This chat Host never takes over or replays effects. Recovery requires a new conversation.
+    func resumePreparedEffect(effectID: BoneEffectID, expectedExecutionLeaseGeneration: UInt64, currentLeaseGeneration: UInt64) throws {
+        throw BoneWorkflowToolExecutionError.pipelineUnavailable
+    }
+    func commitRecoveredReceipt(effectID: BoneEffectID, receiptLeaseGeneration: UInt64, currentLeaseGeneration: UInt64) throws {
+        throw BoneWorkflowToolExecutionError.pipelineUnavailable
+    }
+    func recordRecoveredReceipt(_ receipt: BoneEffectReceipt, expectedExecutionLeaseGeneration: UInt64, currentLeaseGeneration: UInt64) throws {
+        throw BoneWorkflowToolExecutionError.pipelineUnavailable
+    }
+    private func checked(_ id: BoneEffectID, _ generation: UInt64) throws -> Record {
+        guard generation == 1, let record = records[id], record.intent?.leaseGeneration == generation else {
+            throw BoneWorkflowToolExecutionError.effectStoreRejected
+        }
+        return record
+    }
+}

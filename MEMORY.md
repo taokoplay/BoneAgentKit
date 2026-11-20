@@ -31,7 +31,7 @@
 - 2026-11-20，新增 `BoneFileResourceToolFactory`，统一包装取消检查、Host 授权重验、资源引用校验和结果预算校验。资源引用本身不承担权限语义，Host 仍负责 session scope、resource scope、version、撤销和读取预算。
 - 2026-11-20，文件窗口请求现在在构造阶段绑定资源类型、窗口类型和定位字段。PDF 空页被视为有效页，旧 inspection JSON 缺少 `format` 字段时仍保持可解码。
 - 2026-11-20，Demo 只负责内置工具装配和集成测试，PDF、Office、压缩包、编码和二进制解析继续位于 BoneAgentTools 核心 SDK。Demo 资源组工具数量已同步为 16 个。
-- 2026-11-20，持久派生视图缓存、PDF/Office/ZIP/GZIP 展开缓存、统一持久资源搜索、资源 GC/quota/usage API 和 100 MiB RSS/磁盘性能基准仍未实现。旧式 `.doc/.xls/.ppt` 完整排版解析、ZIP/旧式 Office 密码解密和 Demo 端文件能力接入仍属于后续范围。真实跨进程子进程恢复测试已补齐，覆盖删除原始文件后的文本/二进制恢复和篡改 blob 后的 `expired` fail-closed。
+- 2026-11-20，持久派生视图缓存、PDF/Office/ZIP/GZIP 展开缓存、统一持久资源搜索、资源 GC/quota/usage API 和 100 MiB RSS/磁盘性能基准仍未实现。旧式 `.doc/.xls/.ppt` 完整排版解析、ZIP/旧式 Office 密码解密仍属于后续范围。真实跨进程子进程恢复测试已补齐，覆盖删除原始文件后的文本/二进制恢复和篡改 blob 后的 `expired` fail-closed。
 - 2026-11-20，验证过程中 `omx setup` 因用户目录备份目录权限返回 EPERM，但 `omx doctor` 通过 19 项检查。Nowledge Mem 服务 `127.0.0.1:14242` 当前不可连接。
 
 ## 文件资源平台本轮增强
@@ -39,7 +39,7 @@
 - 2026-11-20，BoneAgentTools 核心 SDK 新增 `resource.readPDFLayout` 和 `resource.ocr`。PDF 布局按页返回媒体框、裁剪框、旋转、文本行、UTF-16 字符框、注释框和可选单页 PDF 数据，OCR 使用 PDFKit 渲染页面与 Apple Vision 识别文字，均受页范围和结果预算约束。
 - 2026-11-20，PDF 密码只允许由 Host 在单次授权调用中临时提供，不进入 Tool Schema、资源引用、metadata 或结果 JSON。PDF 检查结果现在包含加密、锁定、复制权限和内容可访问权限，缺少密码和错误密码分别映射到固定错误。
 - 2026-11-20，ZIP 条目增加 `isEncrypted`，加密条目可列出但读取返回 `protectedContent`。带 OLE Compound File 头的 `.docx`、`.xlsx`、`.pptx` 会识别为 `encrypted-office` 并关闭普通 OOXML 解析能力。当前不实现自定义 ZIP 或旧式 Office 密码解密。
-- 2026-11-20，SDK 资源组工具目录从 14 个增至 16 个。Demo 仍只装配文本资源工具，因此没有复制或伪装 PDF/OCR 解析实现。
+- 2026-11-20，SDK 资源组工具目录从 14 个增至 16 个。Demo 的统一文件资源装配随后已扩展到完整 16 工具目录，解析仍由 BoneAgentTools SDK 提供。
 - 2026-11-20，本轮验证使用受限沙箱外的 SwiftPM 测试，因为受限沙箱在 manifest 阶段返回 `sandbox_apply: Operation not permitted`。Nowledge Mem 服务 `127.0.0.1:14242` 仍不可连接。
 
 ## Workflow Agent execution snapshot 本轮进展
@@ -48,3 +48,11 @@
 - 2026-11-20，普通 checkpoint 只保存快照引用，不保存消息历史、Tool 参数、Tool result 或 Provider continuation；绑定快照后的下一次普通进度提交会清除旧引用。
 - 2026-11-20，`BoneWorkflowAgentStepCheckpointStore` 新增快照与 checkpoint 的统一提交入口，旧三参数 Store 收到完整快照时在写入前明确拒绝，不进入未知提交状态。
 - 2026-11-20，当前只提供快照模型、引用校验和 Store 协议，真实加密、认证、跨进程持久化、重启恢复和清理由 Host 实现，不能将 SDK 描述为已完成完整 Workflow 重启恢复。
+
+## WorkflowRunnerDemo 统一文件资源接入
+
+- 2026-11-21，WorkflowRunnerDemo 已完整接入 BoneAgentTools 的统一文件资源能力。Demo 通过 `DemoFileResourceHost` 管理导入、内容寻址快照、精确引用授权、撤销、跨进程恢复和会话存档；工具装配覆盖 `resource.inspect`、`resource.detectFormat`、`resource.readWindow`、`resource.readOffice`、`resource.listEntries`、`resource.readBytes`、`resource.readPDFLayout` 与 `resource.ocr`。
+- 2026-11-21，iOS Agent Lab 的聊天附件和实验室工具工作台均支持文件选择、删除、预览和发送。预览按资源类型执行有界分页，支持文本编码、PDF 布局/OCR/密码重试、Office 结构、ZIP/GZIP 条目和二进制窗口。PDF 布局预览使用单页原始 PDF 数据叠加文本行、字符框和注释框，单页数据上限为 4 MiB。
+- 2026-11-21，统一文件资源引用已进入消息、任务草稿和会话归档，旧归档缺少新字段时保持兼容。正文不进入会话存档，存档只保存有界引用状态；资源快照删除原始文件后仍可恢复，篡改快照会 fail-closed。
+- 2026-11-21，新增 Demo 文件资源 Host 回归测试，覆盖 GBK 文本、跨实例恢复、删除来源文件后的二进制分页和精确资源版本授权。WorkflowRunnerDemo SwiftPM 全量测试 225 项通过，iOS Simulator `BoneAgentLab` 构建通过。SwiftPM 测试需在受限沙箱外运行，因为本机 `sandbox-exec` 会在 manifest 阶段返回 `sandbox_apply: Operation not permitted`。
+- 2026-11-21，Demo 接入仍沿用 SDK 的能力边界。首期 Office 只覆盖 DOCX/XLSX/PPTX OOXML，旧式 `.doc/.xls/.ppt` 完整排版解析、ZIP 加密解密和旧式 Office 密码解密未实现；持久派生视图缓存、统一持久搜索、资源 GC/quota/usage API 也未随 Demo 接入。
