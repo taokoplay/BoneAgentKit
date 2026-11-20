@@ -143,6 +143,7 @@ let list = try await service.modelList(
 - Run 终态模型使用快照：模型身份、能力与证据来源、上下文限制、参数回显、终态与用量，只回传不落盘；
 - 可选跨 Provider 上下文管理：按完整 User Turn 裁剪、工具结果 UTF-8 限长、可选 Host 摘要与失败回退，默认关闭；
 - `BoneAgent.runEvents` 提供真实 Provider 增量事件、Tool 生命周期和唯一正式终态；不会把 buffered 响应或 Llama 整段生成伪装成实时 delta；
+- 可选 `BoneAgent.runObservedEvents` 关联实时事件与状态/Token 的运行身份，提供本流序号和端到端有界队列；慢消费可背压，原生回调溢出明确失败，正式 UI 由接入方负责；
 - `BoneAgentConversation` 提供跨成功 User Turn 的显式私有会话状态，不替代 Workflow checkpoint，也不自动落盘。
 
 ### Workflow 与恢复
@@ -150,6 +151,7 @@ let list = try await service.modelList(
 - 冻结 Workflow Plan 和 Run / Step / Attempt 状态机；
 - 原子 Run + Checkpoint、CAS 和 lease generation fencing；
 - Effect Intent / Receipt 与 reconcile-first 恢复；
+- 可选 Host-owned Agent execution snapshot reference，将会话恢复正文留在 Host Store，并与 Step checkpoint 的 revision、lease 和执行身份绑定；
 - 对不可确认副作用使用 `outcomeUnknown / recoveryRequired`，不伪造 exactly-once；
 - 安全事件、状态投影和可注入 Persistence seam。
 
@@ -237,7 +239,7 @@ swift run BoneAgentLiveProviderSmoke --dry-run
 - Synthetic Fixture 和 Simulator 不能替代真机及真实 Provider 验收；
 - `BoneAgentLlama` 默认只承诺文本能力；Native Template、受约束输出和 Tool Calling 都需具体 Runtime 显式实现并通过绑定完整执行身份的真实 Smoke。GBNF 只支持文档列出的 sound 子集，且 Grammar 后仍执行 SDK 复验；当前不提供 Agent 级实时 Token Streaming 或可靠加载百分比；
 - Agent 实时事件流只接受真实 Provider event stream；delta 是未完成草稿，只有 `completed` 才是正式结果，原始 Tool arguments 不会进入事件；
-- 上下文摘要、跨 Run 会话私有状态、Provider continuation 和 Host 持久化数据不由 SDK 自动加密、认证、落盘或跨进程恢复，需由 Host 实现相应 CAS、所有权与未知操作对账。
+- 上下文摘要、跨 Run 会话私有状态、Provider continuation 和 Host 持久化数据不由 SDK 自动加密、认证、落盘或跨进程恢复，需由 Host 实现相应 CAS、所有权与未知操作对账；Agent Step 的 execution snapshot 目前只提供 Host-owned 引用和联合提交协议，不包含默认持久化实现。
 - 未核验的 Model 级能力保持 unknown，不按模型名称猜测；当前 bundled 云模型尚未写入 Provider Smoke 身份，因此云端 Constraint seam 默认不自动启用。
 
 ## 许可证

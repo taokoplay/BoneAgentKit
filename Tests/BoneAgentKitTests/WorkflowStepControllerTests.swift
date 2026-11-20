@@ -66,7 +66,51 @@ private func stepCopy(
           state: checkpoint.state, inferenceResponseCount: inferenceCount ?? checkpoint.inferenceResponseCount,
           toolResultCount: checkpoint.toolResultCount, pendingAuthorizationTicketID: checkpoint.pendingAuthorizationTicketID,
           cancellationPersisted: checkpoint.cancellationPersisted, terminalState: checkpoint.terminalState,
-          persistenceRevision: revision ?? checkpoint.persistenceRevision, leaseGeneration: lease ?? checkpoint.leaseGeneration)
+          persistenceRevision: revision ?? checkpoint.persistenceRevision, leaseGeneration: lease ?? checkpoint.leaseGeneration,
+          executionSnapshotReference: checkpoint.executionSnapshotReference)
+}
+
+/// 记录统一提交闭包收到的快照、checkpoint、revision 和 lease，验证 Host 边界入参完整传递。
+private actor UnifiedSnapshotStore {
+    private(set) var stored: BoneWorkflowAgentStepCheckpoint
+    private(set) var receivedCheckpoint: BoneWorkflowAgentStepCheckpoint?
+    private(set) var receivedSnapshot: BoneWorkflowAgentExecutionSnapshot?
+    private(set) var receivedRevision: UInt64?
+    private(set) var receivedLeaseGeneration: UInt64?
+
+    init(_ checkpoint: BoneWorkflowAgentStepCheckpoint) {
+        stored = checkpoint
+    }
+
+    nonisolated var persistence: BoneWorkflowAgentStepCheckpointStore {
+        .init(commitWithSnapshot: { checkpoint, snapshot, revision, lease in
+            try await self.commit(
+                checkpoint,
+                snapshot: snapshot,
+                revision: revision,
+                lease: lease
+            )
+        })
+    }
+
+    /// 记录统一提交闭包收到的快照与检查点，并模拟 Host 的 CAS 返回新 revision。
+    private func commit(
+        _ checkpoint: BoneWorkflowAgentStepCheckpoint,
+        snapshot: BoneWorkflowAgentExecutionSnapshot?,
+        revision: UInt64,
+        lease: UInt64
+    ) throws -> BoneWorkflowAgentStepCheckpoint {
+        receivedCheckpoint = checkpoint
+        receivedSnapshot = snapshot
+        receivedRevision = revision
+        receivedLeaseGeneration = lease
+        guard revision == stored.persistenceRevision,
+              lease == stored.leaseGeneration else {
+            throw StepStoreError.revisionConflict
+        }
+        stored = stepCopy(checkpoint, revision: revision + 1)
+        return stored
+    }
 }
 
 /// A deterministic pre-CAS gate, without sleep or network operations.
@@ -278,6 +322,163 @@ final class WorkflowStepControllerTests: XCTestCase {
             XCTAssertEqual(local, seed)
             XCTAssertTrue(events.isEmpty)
         }
+    }
+
+    func testLegacyCheckpointWithoutExecutionSnapshotReferenceStillDecodes() throws {
+        let seed = try initial()
+        let data = try JSONEncoder().encode(seed)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "executionSnapshotReference")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(BoneWorkflowAgentStepCheckpoint.self, from: legacyData)
+        XCTAssertEqual(decoded, seed)
+        XCTAssertNil(decoded.executionSnapshotReference)
+    }
+
+    func testExecutionSnapshotReferenceBindsToCheckpointIdentityAndRevisions() async throws {
+        let seed = try initial()
+        let store = StepStore(seed)
+        let subject = try controller(seed, store: store)
+        let reference = try BoneWorkflowAgentExecutionSnapshotReference(
+            referenceID: "snapshot-1",
+            schemaVersion: 1,
+            runID: seed.runID,
+            stepID: seed.stepID,
+            attemptID: seed.attemptID,
+            conversationRevision: 4,
+            contextRevision: 5,
+            effectLedgerRevision: 6,
+            checkpointRevision: seed.persistenceRevision + 1,
+            leaseGeneration: seed.leaseGeneration
+        )
+
+        try await subject.bindExecutionSnapshot(reference)
+
+        let saved = await subject.checkpoint
+        XCTAssertEqual(saved.executionSnapshotReference, reference)
+        XCTAssertEqual(saved.persistenceRevision, seed.persistenceRevision + 1)
+    }
+
+    func testProgressAfterSnapshotBindingClearsStaleReference() async throws {
+        let seed = try initial()
+        let store = StepStore(seed)
+        let subject = try controller(seed, store: store)
+        let reference = try BoneWorkflowAgentExecutionSnapshotReference(
+            referenceID: "snapshot-3",
+            schemaVersion: 1,
+            runID: seed.runID,
+            stepID: seed.stepID,
+            attemptID: seed.attemptID,
+            conversationRevision: 1,
+            contextRevision: 1,
+            effectLedgerRevision: 1,
+            checkpointRevision: seed.persistenceRevision + 1,
+            leaseGeneration: seed.leaseGeneration
+        )
+
+        try await subject.bindExecutionSnapshot(reference)
+        try await subject.receive(.inferenceResponsePrepared(step: 1, kind: .toolCall))
+
+        let checkpoint = await subject.checkpoint
+        XCTAssertNil(checkpoint.executionSnapshotReference)
+        XCTAssertEqual(checkpoint.inferenceResponseCount, 1)
+    }
+
+    /// 验证完整执行快照与步骤 checkpoint 通过同一个提交闭包传递给 Host。
+    func testFullExecutionSnapshotIsPassedToUnifiedCommitClosure() async throws {
+        let seed = try initial()
+        let store = UnifiedSnapshotStore(seed)
+        let subject = try BoneWorkflowAgentStepController(
+            restoring: seed,
+            persistence: store.persistence
+        )
+        let reference = try BoneWorkflowAgentExecutionSnapshotReference(
+            referenceID: "snapshot-unified",
+            schemaVersion: 2,
+            runID: seed.runID,
+            stepID: seed.stepID,
+            attemptID: seed.attemptID,
+            conversationRevision: 8,
+            contextRevision: 9,
+            effectLedgerRevision: 10,
+            checkpointRevision: seed.persistenceRevision + 1,
+            leaseGeneration: seed.leaseGeneration
+        )
+        let snapshot = try BoneWorkflowAgentExecutionSnapshot(
+            reference: reference,
+            privateConversationState: Data("conversation-state".utf8)
+        )
+
+        try await subject.bindExecutionSnapshot(snapshot)
+
+        let receivedCheckpoint = await store.receivedCheckpoint
+        let receivedSnapshot = await store.receivedSnapshot
+        let receivedRevision = await store.receivedRevision
+        let receivedLeaseGeneration = await store.receivedLeaseGeneration
+        let saved = await subject.checkpoint
+        XCTAssertEqual(receivedCheckpoint?.executionSnapshotReference, reference)
+        XCTAssertEqual(receivedSnapshot, snapshot)
+        XCTAssertEqual(receivedRevision, seed.persistenceRevision)
+        XCTAssertEqual(receivedLeaseGeneration, seed.leaseGeneration)
+        XCTAssertEqual(saved.executionSnapshotReference, reference)
+        XCTAssertEqual(saved.persistenceRevision, seed.persistenceRevision + 1)
+    }
+
+    func testLegacyStoreRejectingFullSnapshotDoesNotCreateUnknownCommit() async throws {
+        let seed = try initial()
+        let store = StepStore(seed)
+        let subject = try controller(seed, store: store)
+        let reference = try BoneWorkflowAgentExecutionSnapshotReference(
+            referenceID: "snapshot-legacy",
+            schemaVersion: 1,
+            runID: seed.runID,
+            stepID: seed.stepID,
+            attemptID: seed.attemptID,
+            conversationRevision: 1,
+            contextRevision: 1,
+            effectLedgerRevision: 1,
+            checkpointRevision: seed.persistenceRevision + 1,
+            leaseGeneration: seed.leaseGeneration
+        )
+        let snapshot = try BoneWorkflowAgentExecutionSnapshot(
+            reference: reference,
+            privateConversationState: Data("private-state".utf8)
+        )
+
+        await assertError(BoneWorkflowAgentStepError.executionSnapshotCommitUnavailable) {
+            try await subject.bindExecutionSnapshot(snapshot)
+        }
+        let hasUnconfirmedCommit = await subject.hasUnconfirmedCommit
+        XCTAssertFalse(hasUnconfirmedCommit)
+        let checkpoint = await subject.checkpoint
+        XCTAssertEqual(checkpoint, seed)
+    }
+
+    func testExecutionSnapshotReferenceRejectsMismatchedIdentityBeforePersistence() async throws {
+        let seed = try initial()
+        let store = StepStore(seed)
+        let subject = try controller(seed, store: store)
+        let otherRun = try BoneRunID("other-run")
+        let reference = try BoneWorkflowAgentExecutionSnapshotReference(
+            referenceID: "snapshot-2",
+            schemaVersion: 1,
+            runID: otherRun,
+            stepID: seed.stepID,
+            attemptID: seed.attemptID,
+            conversationRevision: 1,
+            contextRevision: 1,
+            effectLedgerRevision: 1,
+            checkpointRevision: seed.persistenceRevision + 1,
+            leaseGeneration: seed.leaseGeneration
+        )
+
+        await assertError(BoneWorkflowAgentStepError.executionSnapshotMismatch) {
+            try await subject.bindExecutionSnapshot(reference)
+        }
+        let checkpoint = await subject.checkpoint
+        XCTAssertNil(checkpoint.executionSnapshotReference)
+        let submissions = await store.submissions
+        XCTAssertEqual(submissions, 0)
     }
 
     func testRestoreRejectsTerminalCheckpointWithPendingTicket() throws {

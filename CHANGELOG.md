@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- 可选 `BoneAgentTools` 支持将已授权的 UTF-8 文件导入会话期磁盘快照，按偏移直接回读，并在扫描预算内执行跨块字面搜索；原有内存集合与核心工具接口不变。见[长文件接入](Documentation/BuiltInTools.md#读取长文件)。
+
+- 新增可选 `runObservedEvents`、运行关联信封和单消费者有界流：贯通默认 URLSession、三家 Provider 和 Agent，支持 FIFO 背压、回调溢出显式失败、队列/单事件预算及取消唤醒。旧事件和默认入口保持可用；自定义源须明确采用流控协议。见 [实时流契约](Documentation/AgentStreaming.md#可选的有界观察流)。
+- 新增可选 Agent Workflow execution snapshot 合同：普通 Step checkpoint 保存与执行身份、revision 和 lease 绑定的快照引用，Host 可通过统一提交入口原子提交快照正文与 checkpoint。SDK 不提供默认持久化实现，旧三参数 Store 对完整快照明确拒绝。见 [Workflow 与恢复](Documentation/WorkflowAndRecovery.md#agent-执行快照引用)。
+- 运行身份与状态/Token 一致、每流序号独立；普通嵌套 Run 不继承外层观察身份。完成结果使用单独受限槽位，执行成功后的投递失败不改写执行事实或重跑工具。测试 Demo 新增 `--bounded-stream` 离线契约验证，正式 UI 继续由接入方负责。
+
 ### Fixed
 
 - 对齐运行状态与统计文档：区分 `currentStatus.tokens` 与 `currentTokens`，说明工具执行通知、流取消清理、模型/摘要尝试耗时及 revision 0 会话恢复的实际边界。

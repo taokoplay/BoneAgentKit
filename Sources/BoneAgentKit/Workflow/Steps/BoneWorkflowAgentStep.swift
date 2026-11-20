@@ -61,6 +61,8 @@ public struct BoneWorkflowAgentStepCheckpoint: Codable, Equatable, Sendable {
     public let terminalState: BoneWorkflowAgentStepTerminalState?
     public let persistenceRevision: UInt64
     public let leaseGeneration: UInt64
+    /// 指向 Host-owned Agent 执行快照的引用。正文不进入普通 Workflow checkpoint。
+    public let executionSnapshotReference: BoneWorkflowAgentExecutionSnapshotReference?
 
     public init(
         runID: BoneRunID,
@@ -73,7 +75,8 @@ public struct BoneWorkflowAgentStepCheckpoint: Codable, Equatable, Sendable {
         cancellationPersisted: Bool = false,
         terminalState: BoneWorkflowAgentStepTerminalState? = nil,
         persistenceRevision: UInt64 = 0,
-        leaseGeneration: UInt64 = 0
+        leaseGeneration: UInt64 = 0,
+        executionSnapshotReference: BoneWorkflowAgentExecutionSnapshotReference? = nil
     ) {
         self.runID = runID
         self.stepID = stepID
@@ -86,36 +89,65 @@ public struct BoneWorkflowAgentStepCheckpoint: Codable, Equatable, Sendable {
         self.terminalState = terminalState
         self.persistenceRevision = persistenceRevision
         self.leaseGeneration = leaseGeneration
+        self.executionSnapshotReference = executionSnapshotReference
     }
 }
 
 public struct BoneWorkflowAgentStepCheckpointStore: Sendable {
-    private let commitClosure: @Sendable (
+    /// 统一处理步骤 checkpoint 与可选执行快照的 Host 提交闭包。
+    private let commitWithSnapshotClosure: @Sendable (
         BoneWorkflowAgentStepCheckpoint,
+        BoneWorkflowAgentExecutionSnapshot?,
         UInt64,
         UInt64
     ) async throws -> BoneWorkflowAgentStepCheckpoint
 
+    /// 兼容已有 Host Store 的三参数提交入口。
     public init(_ commit: @escaping @Sendable (
         BoneWorkflowAgentStepCheckpoint,
         UInt64,
         UInt64
     ) async throws -> BoneWorkflowAgentStepCheckpoint) {
-        commitClosure = commit
+        commitWithSnapshotClosure = { checkpoint, snapshot, revision, lease in
+            guard snapshot == nil else {
+                throw BoneWorkflowAgentStepError.executionSnapshotCommitUnavailable
+            }
+            return try await commit(checkpoint, revision, lease)
+        }
     }
 
+    /// 支持将执行快照和 Step checkpoint 交给同一个 Host 提交边界。
+    public init(commitWithSnapshot: @escaping @Sendable (
+        BoneWorkflowAgentStepCheckpoint,
+        BoneWorkflowAgentExecutionSnapshot?,
+        UInt64,
+        UInt64
+    ) async throws -> BoneWorkflowAgentStepCheckpoint) {
+        commitWithSnapshotClosure = commitWithSnapshot
+    }
+
+    /// 提交步骤 checkpoint，并在需要时把完整执行快照交给同一 Host 边界。
+    /// - Parameters:
+    ///   - checkpoint: 待提交的下一版步骤 checkpoint。
+    ///   - expectedRevision: Host 当前已知的 checkpoint revision。
+    ///   - leaseGeneration: 发起提交的执行代次。
+    ///   - executionSnapshot: 与 checkpoint 引用匹配的可选执行快照正文。
+    /// - Returns: Host 确认提交后的步骤 checkpoint。
+    /// - Throws: Host Store 拒绝、CAS 冲突、lease 失效或快照能力不可用时抛出错误。
     public func commit(
         _ checkpoint: BoneWorkflowAgentStepCheckpoint,
         expectedRevision: UInt64,
-        leaseGeneration: UInt64
+        leaseGeneration: UInt64,
+        executionSnapshot: BoneWorkflowAgentExecutionSnapshot? = nil
     ) async throws -> BoneWorkflowAgentStepCheckpoint {
-        try await commitClosure(checkpoint, expectedRevision, leaseGeneration)
+        try await commitWithSnapshotClosure(checkpoint, executionSnapshot, expectedRevision, leaseGeneration)
     }
 }
 
 public enum BoneWorkflowAgentStepEventKind: String, Codable, Equatable, Sendable {
     case inferenceCheckpointed
     case toolResultCheckpointed
+    case executionSnapshotCheckpointed
     case waitingForAuthorization
     case resumed
     case paused
@@ -146,6 +178,8 @@ public enum BoneWorkflowAgentStepError: Error, Codable, Equatable, Sendable {
     case terminalState
     case invalidState
     case authorizationTicketMismatch
+    case executionSnapshotMismatch
+    case executionSnapshotCommitUnavailable
 }
 
 public actor BoneWorkflowAgentStepController {
@@ -200,6 +234,32 @@ public actor BoneWorkflowAgentStepController {
             event = .toolResultCheckpointed
         }
         try await commit(next, event: event)
+    }
+
+    /// 将 Host 保存的 Agent 执行快照引用绑定到下一版 Step checkpoint。
+    /// 引用正文由 Host 管理，方法只验证身份、lease 和 revision，避免敏感会话内容进入普通 checkpoint。
+    public func bindExecutionSnapshot(_ reference: BoneWorkflowAgentExecutionSnapshotReference) async throws {
+        try ensureMutableRunning()
+        guard reference.runID == checkpoint.runID,
+              reference.stepID == checkpoint.stepID,
+              reference.attemptID == checkpoint.attemptID,
+              reference.checkpointRevision == checkpoint.persistenceRevision + 1,
+              reference.leaseGeneration == checkpoint.leaseGeneration else {
+            throw BoneWorkflowAgentStepError.executionSnapshotMismatch
+        }
+        try await commit(copy(executionSnapshotReference: reference), event: .executionSnapshotCheckpointed)
+    }
+
+    /// 将完整 Host-owned 执行快照与下一版 Step checkpoint 交给同一个提交边界。
+    /// Host Store 必须在返回前确认两者已经按同一 revision 和 lease 成功写入。
+    public func bindExecutionSnapshot(_ snapshot: BoneWorkflowAgentExecutionSnapshot) async throws {
+        try ensureMutableRunning()
+        try validateSnapshotReference(snapshot.reference, nextRevision: checkpoint.persistenceRevision + 1)
+        try await commit(
+            copy(executionSnapshotReference: snapshot.reference),
+            snapshot: snapshot,
+            event: .executionSnapshotCheckpointed
+        )
     }
 
     public func waitForAuthorization(ticketID: BoneAuthorizationTicketID) async throws {
@@ -269,7 +329,11 @@ public actor BoneWorkflowAgentStepController {
         }
     }
 
-    private func commit(_ next: BoneWorkflowAgentStepCheckpoint, event: BoneWorkflowAgentStepEventKind) async throws {
+    private func commit(
+        _ next: BoneWorkflowAgentStepCheckpoint,
+        snapshot: BoneWorkflowAgentExecutionSnapshot? = nil,
+        event: BoneWorkflowAgentStepEventKind
+    ) async throws {
         // Reject illegal transitions before touching the Host store. Same-state updates
         // are running progress only; explicit recovery transitions are in the public table.
         if checkpoint.state != next.state {
@@ -278,13 +342,19 @@ public actor BoneWorkflowAgentStepController {
             }
         }
         guard next.persistenceRevision < UInt64.max else { throw BoneWorkflowAgentStepError.invalidState }
-        try Self.validate(next)
+        try Self.validate(next, referenceRevision: next.persistenceRevision + 1)
+        if let snapshot {
+            guard snapshot.reference == next.executionSnapshotReference else {
+                throw BoneWorkflowAgentStepError.executionSnapshotMismatch
+            }
+        }
         let stored: BoneWorkflowAgentStepCheckpoint
         do {
             stored = try await persistence.commit(
                 next,
                 expectedRevision: checkpoint.persistenceRevision,
-                leaseGeneration: checkpoint.leaseGeneration
+                leaseGeneration: checkpoint.leaseGeneration,
+                executionSnapshot: snapshot
             )
             try Self.validate(stored)
             guard stored.runID == next.runID,
@@ -296,10 +366,14 @@ public actor BoneWorkflowAgentStepController {
                   stored.pendingAuthorizationTicketID == next.pendingAuthorizationTicketID,
                   stored.cancellationPersisted == next.cancellationPersisted,
                   stored.terminalState == next.terminalState,
+                  stored.executionSnapshotReference == next.executionSnapshotReference,
                   stored.leaseGeneration == next.leaseGeneration,
                   stored.persistenceRevision == next.persistenceRevision + 1 else {
                 throw BoneWorkflowAgentStepError.invalidState
             }
+        } catch let error as BoneWorkflowAgentStepError where error == .executionSnapshotCommitUnavailable {
+            // 旧版三参数 Store 在真正写入前明确拒绝快照，不存在外部提交结果未知。
+            throw error
         } catch {
             hasUnconfirmedCommit = true
             throw error
@@ -308,7 +382,20 @@ public actor BoneWorkflowAgentStepController {
         await eventSink.receive(.init(kind: event))
     }
 
-    private static func validate(_ checkpoint: BoneWorkflowAgentStepCheckpoint) throws {
+    private func validateSnapshotReference(
+        _ reference: BoneWorkflowAgentExecutionSnapshotReference,
+        nextRevision: UInt64
+    ) throws {
+        guard reference.runID == checkpoint.runID,
+              reference.stepID == checkpoint.stepID,
+              reference.attemptID == checkpoint.attemptID,
+              reference.checkpointRevision == nextRevision,
+              reference.leaseGeneration == checkpoint.leaseGeneration else {
+            throw BoneWorkflowAgentStepError.executionSnapshotMismatch
+        }
+    }
+
+    private static func validate(_ checkpoint: BoneWorkflowAgentStepCheckpoint, referenceRevision: UInt64? = nil) throws {
         guard checkpoint.inferenceResponseCount >= 0,
               checkpoint.toolResultCount >= 0 else {
             throw BoneWorkflowAgentStepError.invalidState
@@ -328,6 +415,15 @@ public actor BoneWorkflowAgentStepController {
               checkpoint.cancellationPersisted == (checkpoint.state == .cancelled),
               (checkpoint.state == .waiting) == (checkpoint.pendingAuthorizationTicketID != nil) else {
             throw BoneWorkflowAgentStepError.invalidState
+        }
+        if let reference = checkpoint.executionSnapshotReference {
+            guard reference.runID == checkpoint.runID,
+                  reference.stepID == checkpoint.stepID,
+                  reference.attemptID == checkpoint.attemptID,
+                  reference.checkpointRevision == (referenceRevision ?? checkpoint.persistenceRevision),
+                  reference.leaseGeneration == checkpoint.leaseGeneration else {
+                throw BoneWorkflowAgentStepError.executionSnapshotMismatch
+            }
         }
     }
 
@@ -351,7 +447,8 @@ public actor BoneWorkflowAgentStepController {
         pendingAuthorizationTicketID: BoneAuthorizationTicketID? = nil,
         clearAuthorizationTicket: Bool = false,
         cancellationPersisted: Bool? = nil,
-        terminalState: BoneWorkflowAgentStepTerminalState? = nil
+        terminalState: BoneWorkflowAgentStepTerminalState? = nil,
+        executionSnapshotReference: BoneWorkflowAgentExecutionSnapshotReference? = nil
     ) -> BoneWorkflowAgentStepCheckpoint {
         .init(
             runID: checkpoint.runID,
@@ -364,7 +461,8 @@ public actor BoneWorkflowAgentStepController {
             cancellationPersisted: cancellationPersisted ?? checkpoint.cancellationPersisted,
             terminalState: terminalState ?? checkpoint.terminalState,
             persistenceRevision: checkpoint.persistenceRevision,
-            leaseGeneration: checkpoint.leaseGeneration
+            leaseGeneration: checkpoint.leaseGeneration,
+            executionSnapshotReference: executionSnapshotReference
         )
     }
 }

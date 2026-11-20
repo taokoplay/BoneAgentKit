@@ -41,3 +41,10 @@
 - 2026-11-20，ZIP 条目增加 `isEncrypted`，加密条目可列出但读取返回 `protectedContent`。带 OLE Compound File 头的 `.docx`、`.xlsx`、`.pptx` 会识别为 `encrypted-office` 并关闭普通 OOXML 解析能力。当前不实现自定义 ZIP 或旧式 Office 密码解密。
 - 2026-11-20，SDK 资源组工具目录从 14 个增至 16 个。Demo 仍只装配文本资源工具，因此没有复制或伪装 PDF/OCR 解析实现。
 - 2026-11-20，本轮验证使用受限沙箱外的 SwiftPM 测试，因为受限沙箱在 manifest 阶段返回 `sandbox_apply: Operation not permitted`。Nowledge Mem 服务 `127.0.0.1:14242` 仍不可连接。
+
+## Workflow Agent execution snapshot 本轮进展
+
+- 2026-11-20，Agent Step checkpoint 新增 Host-owned execution snapshot reference，引用绑定 run、step、attempt、checkpoint revision 和 lease generation。
+- 2026-11-20，普通 checkpoint 只保存快照引用，不保存消息历史、Tool 参数、Tool result 或 Provider continuation；绑定快照后的下一次普通进度提交会清除旧引用。
+- 2026-11-20，`BoneWorkflowAgentStepCheckpointStore` 新增快照与 checkpoint 的统一提交入口，旧三参数 Store 收到完整快照时在写入前明确拒绝，不进入未知提交状态。
+- 2026-11-20，当前只提供快照模型、引用校验和 Store 协议，真实加密、认证、跨进程持久化、重启恢复和清理由 Host 实现，不能将 SDK 描述为已完成完整 Workflow 重启恢复。

@@ -152,7 +152,8 @@ final class WorkflowEffectExecutionTests: XCTestCase {
                               inferenceResponseCount: n.inferenceResponseCount, toolResultCount: n.toolResultCount,
                               pendingAuthorizationTicketID: n.pendingAuthorizationTicketID,
                               cancellationPersisted: n.cancellationPersisted, terminalState: n.terminalState,
-                              persistenceRevision: revision + 1, leaseGeneration: generation)
+                              persistenceRevision: revision + 1, leaseGeneration: generation,
+                              executionSnapshotReference: n.executionSnapshotReference)
                     })
                 let agent = BoneAgent(inferenceEngine: engine,
                     toolRegistry: try .init(tools: [BoneAnyAgentTool(EffectWriteTool(fixture: fixture))]),

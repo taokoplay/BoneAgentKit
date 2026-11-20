@@ -43,6 +43,25 @@
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
 
+## 未发布：可选长文件读取
+
+- `BoneAgentTools.BoneDiskTextResource` 公开 `descriptor`、`init(importing:name:maximumBytes:)`、`read(_:)`、`search(_:maximumScanBytes:)`；`BoneDiskTextResourceError` 提供不含路径的导入错误。作用域和模型外传授权由 Host 管理。
+- 复用现有 UTF-8 字节偏移、工具引用与返回类型，没有给 `BoneAgentKit` 的 `resource.readText` 增加新参数或持久化义务。见[接入说明](Documentation/BuiltInTools.md#读取长文件)。
+
+## 未发布：有界观察流与运行关联
+
+- 新增 `BoneAgent.runObservedEvents`、`BoneAgentObservedEvent`、`BoneAgentObservedEventStream`。信封包含与状态和 Token 一致的观测 Run ID、本流交付序号和原事件；不自动 Codable，不等同于 Workflow 持久身份。嵌套普通 Run 显式清除继承的观察作用域。
+- 新增 `BoneEventBufferLimits`、`BoneEventBufferSnapshot`、`BoneEventStreamError`、`BoneBoundedEventStream<Element>`：单消费者、事件数/逻辑载荷/单事件限制、可取消 FIFO 发送、原生回调显式 offer 失败与容量统计。
+- 新增可选协议 `BoneInferenceFlowControlledEventStreaming`、`BoneInferenceFlowControlledHTTPTransport`。内置三家 Engine 与默认 URLSession Transport 贯通新路径，不兼容的实现明确拒绝；既有必需协议、事件 enum 和默认流入口不变。
+- 每层队列分别有界，Agent 另有一个受限完成结果槽位；已执行成功后的投递失败不改写执行事实，也不授权重跑工具。排队载荷预算不是 RSS，接入方仍负责生产并发与自身保留的数据。
+- 8 个新增顶层 public 类型属于未发布增量；不新增 Product、UI 依赖或最低平台要求，不改动现有持久化格式。详见 [实时流契约](Documentation/AgentStreaming.md#可选的有界观察流)。
+
+## 未发布：Agent Workflow 执行快照
+
+- 新增 `BoneWorkflowAgentExecutionSnapshotReference`、`BoneWorkflowAgentExecutionSnapshot`、`BoneWorkflowAgentExecutionSnapshotError` 和 `BoneWorkflowAgentExecutionSnapshotStore`。普通 `BoneWorkflowAgentStepCheckpoint` 只保存绑定到 run、step、attempt、checkpoint revision 与 lease generation 的引用。
+- `BoneWorkflowAgentStepCheckpointStore` 新增 `commitWithSnapshot` 初始化入口和可选快照提交参数，允许 Host 在同一 CAS 与 lease 边界内提交快照正文和步骤 checkpoint。原三参数初始化入口继续可用，收到完整快照时明确返回 `executionSnapshotCommitUnavailable`。
+- 快照正文上限为 8 MiB，SDK 不提供默认磁盘或内存实现，不自动加密、认证、跨进程持久化或恢复。旧 checkpoint 缺少引用字段时保持可解码。
+
 ## Alpha.30 观测性能与有界保留
 
 - 新增 `BoneAgentObservationPolicy` / `BoneAgentObservationPolicyError`，通过 Agent configuration 注入。默认保留 64 条已完成请求、128 条已结束工具明细、16 个模型分项；活动调用额外保留，累计总数不受淘汰影响。

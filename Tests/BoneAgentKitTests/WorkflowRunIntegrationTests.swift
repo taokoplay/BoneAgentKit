@@ -214,7 +214,8 @@ private actor WorkflowRunStore {
         stored = .init(runID: n.runID, stepID: n.stepID, attemptID: n.attemptID, state: n.state,
             inferenceResponseCount: n.inferenceResponseCount, toolResultCount: n.toolResultCount,
             pendingAuthorizationTicketID: n.pendingAuthorizationTicketID, cancellationPersisted: n.cancellationPersisted,
-            terminalState: n.terminalState, persistenceRevision: revision + 1, leaseGeneration: generation)
+            terminalState: n.terminalState, persistenceRevision: revision + 1, leaseGeneration: generation,
+            executionSnapshotReference: n.executionSnapshotReference)
         return stored
     }
 }

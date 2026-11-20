@@ -266,19 +266,46 @@ Session 与 Ledger 编码使用 schemaVersion=1，解码重新计算 admissionHa
 
 ## Agent Step
 
-`BoneWorkflowAgentStepController` 在每次 inference response 和每个 Tool result 后先提交 checkpoint，再发布安全事件并进入下一项工作。授权等待、pause、resume、cancel、成功、失败和取消终态都可恢复；事件不是持久事实源。Agent 运行统一由 `BoneAgent.run` 提供。
+`BoneWorkflowAgentStepController` 接收推理响应与工具结果进度，提交步骤检查点；它的 `BoneWorkflowAgentStepEventSink` 在确认提交后才收到对应事件。`BoneAgent` 的普通生命周期事件和 Streaming 草稿有独立时序，不能作为已落盘证明。Host 通过 `runWorkflowStep` 组合 Agent 执行与步骤终态提交；直接 `run` 不会自动启用这些持久化行为。
+
+### 三类持久化屏障与实际触发点
+
+以下是当前实现的顺序契约，仅在 Host 接入相应 Store 和进度 sink 时成立。三类屏障分别覆盖推理响应、副作用执行和继续推进；它们不等同于“所有模型请求发送前都自动保存完整会话”。
+
+| 屏障 | 当前触发点与保存事实 | 通过后允许的动作 | 提交未确认时 |
+| --- | --- | --- | --- |
+| 推理响应屏障 | 完整响应返回后，`inferenceResponsePrepared` 使 Controller 提交响应计数；不保存响应正文或 Tool arguments | 处理该响应、调度其中的工具或进入步骤成功收口 | 停止当前 Controller 的后继写入；重读原记录，不能补写普通失败 |
+| 副作用准入与完成屏障 | 非本地只读工具经 Effect Store 消费授权并保存 Intent，再保存 `executionStarted`；返回后保存 Receipt 并确认 `commitReceipt` | 前半段允许调用工具；后半段允许把执行结果交回 Agent | 按原 Effect identity 对账；`executionStarted` 后执行抛错归为 `outcomeUnknown`，Receipt/控制面写入未确认归为 `recoveryRequired` |
+| 工具结果与继续推进屏障 | `toolResultPrepared` 提交结果计数；成功路径由 `runWorkflowStep` 另行调用 `finish(.succeeded)` 提交步骤终态 | 结果进度确认后才能进入下一次推理；步骤终态确认后 wrapper 才返回成功 | 保留最后确认状态，停止后继推理；不得用重新调用 Tool 补齐计数 |
+
+Agent 的多工具路径先执行批次，再逐个提交结果进度；该屏障不保证同批工具之间逐一 checkpoint。需要单工具副作用围栏时使用 Effect 管线。普通 Tool 生命周期或 `toolResultReady` 等观察事件可能先于结果进度提交，仍不属于持久事实。
+
+模型请求前的 `BoneRunBudgetMeter` 预留是进程内额度管理。跨恢复的请求准入应由 Host 显式接入持久预算和工作账本；当前 Agent Loop 没有自动执行“每个模型请求前持久保存 dispatch 标记和完整输入”的契约。步骤 checkpoint 只保存状态、身份、计数和授权票据等元数据，不能仅凭这些字段重建私有 Prompt、响应、Provider continuation 或推理中的会话。
+
+### Agent 执行快照引用
+
+`BoneWorkflowAgentStepCheckpoint.executionSnapshotReference` 是普通步骤 checkpoint 与 Host-owned Agent 执行快照之间的连接。checkpoint 只保存不透明引用，快照正文可由 Host 保存消息历史、Tool 结果、Context history 引用和 Provider continuation。正文不会自动进入普通 checkpoint、事件或日志。
+
+引用必须同时匹配 `runID`、`stepID`、`attemptID`、下一版 `checkpointRevision` 和当前 `leaseGeneration`。Host 需要读取快照时，应使用完整引用执行身份校验，不能只凭 `referenceID` 取得数据。绑定引用后的下一次普通进度提交会清除旧引用，避免 checkpoint 继续指向已经过期的快照。
+
+需要同时提交快照正文和步骤 checkpoint 时，Host 应使用 `BoneWorkflowAgentStepCheckpointStore` 的 `commitWithSnapshot` 初始化入口，在同一 CAS 与 lease 边界内完成两者提交。旧版三参数 Store 仍可继续处理没有快照正文的提交，收到完整快照时会以 `executionSnapshotCommitUnavailable` 在写入前拒绝，不会把确定性的能力缺失误判为提交结果未知。
+
+SDK 当前只提供快照模型、引用校验和 Store 协议，不提供默认内存或磁盘实现。快照加密、完整性认证、跨进程持久化、恢复后的清理、配额和事务落盘由 Host 负责。接入快照协议后仍需 Host 完成真实数据库、进程重启和独立连接验收，不能把该协议单独描述为完整的 Workflow 重启恢复。
+
+相关实现见 [Agent Loop](../Sources/BoneAgentKit/Agent/Core/BoneAgent.swift)、[Step Controller](../Sources/BoneAgentKit/Workflow/Steps/BoneWorkflowAgentStep.swift) 与 [Effect 管线](../Sources/BoneAgentKit/Workflow/Execution/BoneWorkflowToolExecutionPipeline.swift)。现有故障回归位于 [WorkflowRunIntegrationTests](../Tests/BoneAgentKitTests/WorkflowRunIntegrationTests.swift)、[WorkflowEffectExecutionTests](../Tests/BoneAgentKitTests/WorkflowEffectExecutionTests.swift) 和 [WorkflowRecoveryTests](../Tests/BoneAgentKitTests/WorkflowRecoveryTests.swift)，分别覆盖 checkpoint 未确认后的停止、Effect 提交窗口和对账决策。
 
 ## 副作用
 
 有副作用的 Tool 遵循：
 
 ```text
-Effect Intent
-→ stable idempotency key
-→ Authorization revalidation
+稳定 Effect/Tool Call 身份与幂等键
+→ 授权复验、消费并持久化 Effect Intent
+→ 持久化 executionStarted
 → Execute
-→ Effect Receipt
-→ atomic step commit
+→ 记录 Effect Receipt
+→ commitReceipt（由 Host Store 与业务 Checkpoint 原子提交）
+→ Agent Step 结果进度提交
 ```
 
 策略包括 naturallyIdempotent、idempotencyKeyRequired、reconcilable、compensatable、nonRecoverableRequiresUserDecision。副作用可能成功但 Receipt/Checkpoint 尚未写入的窗口必须先 reconcile，不能盲目重跑。无法查询的外部系统进入 `outcomeUnknown / recoveryRequired`；Kit 不保证 exactly-once。
@@ -331,3 +358,7 @@ Store 提交抛错（包括取消）或返回无效回执后，Controller 保留
 Effect 的授权消费/Intent、executionStarted 或取消事实写入，如果 Store 抛出非确定授权拒绝错误，不能推断已回滚。执行管线返回 `recoveryRequired`，Agent 返回 `toolRecoveryRequired`，Workflow wrapper 保留 `commitUncertain`，Host 必须按原 Effect identity 重读。`effectStoreRejected` 不再用于这些执行写入的未知窗口；恢复查询的错误分类不变。Store 的事务原子性不代表客户端总能收到提交回执。
 
 Step Controller 在提交前统一检查公共状态迁移表。pending/ready/paused 不可直接成功或失败，waiting 不可直接成功；running 才允许普通成功收口。保留已有 `resume()` 的 paused → running 语义，公共状态表同步允许；waiting/paused 允许进入 commitUncertain，避免外部操作迟到未知结果被普通失败掩盖。终态和 skipped 不复活，非法迁移不会调用持久层。
+
+## 设计中的默认流程与 Prompt 组装
+
+[Agent Workflow Runner 草案](Plans/2026-11-12-bone-agent-workflow-runner-design.md) 规划可选的默认流程、Run 模式与能力范围绑定；[Prompt 组装草案](Plans/2026-11-12-bone-agent-prompt-compositor-design.md) 规划分节、替换和追加语义。两份文档均为尚未实现的设计，不改变本页描述的现有持久化、授权或 Agent API 契约。
