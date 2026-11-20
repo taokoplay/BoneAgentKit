@@ -63,6 +63,76 @@ public struct BoneFileResourceListEntriesRequest: Codable, Equatable, Sendable {
 /// 读取 Office 结构化内容的请求。
 public typealias BoneFileResourceReadOfficeRequest = BoneFileResourceOfficeStructureRequest
 
+/// PDF 布局读取工具。
+public struct BoneFileResourcePDFLayoutTool<Context: BoneAgentToolContext>: BoneAgentTool {
+    public typealias Input = BoneFileResourcePDFLayoutRequest
+    public typealias Output = BoneFileResourcePDFLayoutResult
+    public typealias Handler = @Sendable (Input, Context) async throws -> Output
+    private let handler: Handler
+
+    /// 注入 Host 授权后的 PDF 布局处理器。
+    /// - Parameter readLayout: PDF 布局读取闭包。
+    public init(readLayout: @escaping Handler) { handler = readLayout }
+
+    public static var definition: BoneAgentToolDefinition {
+        .init(id: "resource.readPDFLayout", version: "1.0.0", title: "还原 PDF 布局",
+              summary: "按页读取 PDF 页面几何、字符框、注释框和可选原始页面数据，结果受布局预算限制。",
+              wireName: "resource_read_pdf_layout", schemaVersion: 1,
+              inputSchema: .object(properties: [
+                "reference": fileResourceReferenceSchema,
+                "startPage": .integer(minimum: 0, maximum: 1_000_000),
+                "pageCount": .integer(minimum: 1, maximum: 100),
+                "maximumTextBytes": .integer(minimum: 1, maximum: BoneStructuredFileReaders.maximumPDFTextBytes),
+                "maximumElements": .integer(minimum: 1, maximum: 100_000),
+                "includePageData": .boolean,
+                "maximumPageDataBytes": .integer(minimum: 1, maximum: 4 * 1_048_576),
+              ], required: ["reference"], additionalProperties: false),
+              executionPolicy: .serial, impact: fileResourceImpact)
+    }
+
+    public func execute(input: Input, context: Context) async throws -> Output {
+        try Task.checkCancellation()
+        let output = try await handler(input, context)
+        try Task.checkCancellation()
+        return try output.validated(for: input)
+    }
+}
+
+/// PDF OCR 工具。
+public struct BoneFileResourceOCRTool<Context: BoneAgentToolContext>: BoneAgentTool {
+    public typealias Input = BoneFileResourceOCRRequest
+    public typealias Output = BoneFileResourceOCRResult
+    public typealias Handler = @Sendable (Input, Context) async throws -> Output
+    private let handler: Handler
+
+    /// 注入 Host 授权后的 PDF OCR 处理器。
+    /// - Parameter recognize: PDF OCR 识别闭包。
+    public init(recognize: @escaping Handler) { handler = recognize }
+
+    public static var definition: BoneAgentToolDefinition {
+        .init(id: "resource.ocr", version: "1.0.0", title: "识别 PDF 文字",
+              summary: "按页使用系统 Vision 识别 PDF 图像文字，返回识别框、坐标和置信度。",
+              wireName: "resource_ocr", schemaVersion: 1,
+              inputSchema: .object(properties: [
+                "reference": fileResourceReferenceSchema,
+                "startPage": .integer(minimum: 0, maximum: 1_000_000),
+                "pageCount": .integer(minimum: 1, maximum: 100),
+                "languages": .array(items: .string(enumValues: [], minimumLength: 1, maximumLength: 32), minimumItems: 0, maximumItems: 16),
+                "recognitionLevel": .string(enumValues: BoneFileResourceOCRRecognitionLevel.allCases.map(\.rawValue), minimumLength: 1, maximumLength: 16),
+                "maximumBytes": .integer(minimum: 1, maximum: BoneStructuredFileReaders.maximumPDFTextBytes),
+                "maximumObservations": .integer(minimum: 1, maximum: 100_000),
+              ], required: ["reference"], additionalProperties: false),
+              executionPolicy: .serial, impact: fileResourceImpact)
+    }
+
+    public func execute(input: Input, context: Context) async throws -> Output {
+        try Task.checkCancellation()
+        let output = try await handler(input, context)
+        try Task.checkCancellation()
+        return try output.validated(for: input)
+    }
+}
+
 private let fileResourceReferenceSchema: BoneToolSchema = .object(
     properties: [
         "id": .string(enumValues: [], minimumLength: 1, maximumLength: 128),

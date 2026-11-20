@@ -426,6 +426,23 @@ final class FileResourceStoreTests: XCTestCase {
         }
     }
 
+    /// ZIP 条目加密标志必须暴露，读取时返回稳定的受保护错误。
+    func testZIPEncryptedEntryIsDetectedAndRejected() throws {
+        var archive = makeStoredZIP(name: "secret.txt", data: Data("secret".utf8))
+        let centralOffset = archive.count - 22 - (46 + "secret.txt".utf8.count)
+        archive[6] = 0x01
+        archive[centralOffset + 8] = 0x01
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try archive.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let entries = try BoneFileArchiveReader.listEntries(at: url)
+        XCTAssertEqual(entries.first?.isEncrypted, true)
+        XCTAssertThrowsError(try BoneFileArchiveReader.readEntry(at: url, name: "secret.txt")) { error in
+            XCTAssertEqual(error as? BoneFileResourceError, .protectedContent)
+        }
+    }
+
     /// deflate 条目通过临时文件流式展开后仍返回正确窗口。
     func testZIPDeflateEntryReadsContent() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -546,6 +563,65 @@ final class FileResourceStoreTests: XCTestCase {
         }
     }
 
+    /// PDF 布局和 OCR 请求必须只接受 PDF 引用，并拒绝越界预算。
+    func testPDFLayoutAndOCRRequestsValidatePDFAndBudgets() throws {
+        let textReference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 10,
+            kind: .text
+        )
+        XCTAssertThrowsError(try BoneFileResourcePDFLayoutRequest(reference: textReference))
+        XCTAssertThrowsError(try BoneFileResourceOCRRequest(reference: textReference))
+
+        let pdfReference = try BoneFileResourceReference(
+            id: "pdf",
+            version: "version",
+            sha256: String(repeating: "b", count: 64),
+            byteCount: 10,
+            kind: .pdf
+        )
+        XCTAssertThrowsError(try BoneFileResourcePDFLayoutRequest(reference: pdfReference, pageCount: 0))
+        XCTAssertThrowsError(try BoneFileResourcePDFLayoutRequest(reference: pdfReference, maximumElements: 0))
+        XCTAssertThrowsError(try BoneFileResourceOCRRequest(reference: pdfReference, maximumObservations: 0))
+        XCTAssertThrowsError(try BoneFileResourceOCRRequest(reference: pdfReference, languages: [String(repeating: "x", count: 33)]))
+    }
+
+    /// 布局和 OCR 结果必须保持连续页序、引用和预算，分页游标不能被伪造。
+    func testPDFLayoutAndOCRResultValidationRejectsInvalidPagingAndBudget() throws {
+        let reference = try BoneFileResourceReference(
+            id: "pdf",
+            version: "version",
+            sha256: String(repeating: "c", count: 64),
+            byteCount: 10,
+            kind: .pdf
+        )
+        let layoutRequest = try BoneFileResourcePDFLayoutRequest(reference: reference, pageCount: 2,
+                                                                  maximumTextBytes: 4, maximumElements: 1)
+        let layoutPage = try BoneFilePDFLayoutPage(
+            pageIndex: 0,
+            mediaBox: try BoneFilePDFRectangle(x: 0, y: 0, width: 10, height: 10),
+            cropBox: try BoneFilePDFRectangle(x: 0, y: 0, width: 10, height: 10),
+            rotation: 0,
+            text: [],
+            annotationBounds: []
+        )
+        let layout = BoneFileResourcePDFLayoutResult(reference: reference, pages: [layoutPage], nextPage: 2)
+        XCTAssertThrowsError(try layout.validated(for: layoutRequest))
+
+        let ocrRequest = try BoneFileResourceOCRRequest(reference: reference, pageCount: 2, maximumBytes: 4,
+                                                        maximumObservations: 1)
+        let observation = try BoneFilePDFOCRObservation(
+            text: "too long",
+            bounds: try BoneFilePDFRectangle(x: 0, y: 0, width: 1, height: 1),
+            confidence: 0.9
+        )
+        let ocrPage = try BoneFilePDFOCRPage(pageIndex: 0, observations: [observation], text: "too long")
+        let ocr = BoneFileResourceOCRResult(reference: reference, pages: [ocrPage], nextPage: 1)
+        XCTAssertThrowsError(try ocr.validated(for: ocrRequest))
+    }
+
     /// 空白 PDF 页仍然是有效页，不能因为没有正文而被判为解析失败。
     func testPDFEmptyPageIsReadable() throws {
         let page = try BoneFilePDFPage(pageIndex: 0, text: "", isTruncated: false)
@@ -566,6 +642,18 @@ final class FileResourceStoreTests: XCTestCase {
                 let result = try await store.readWindow(request)
                 XCTAssertEqual(result.text, "Hello PDF")
                 XCTAssertEqual(result.pageIndex, 0)
+
+                let layoutRequest = try BoneFileResourcePDFLayoutRequest(
+                    reference: metadata.reference,
+                    maximumTextBytes: 64,
+                    maximumElements: 16
+                )
+                let layout = try BoneStructuredFileReaders.readPDFLayout(at: url, request: layoutRequest)
+                XCTAssertEqual(layout.pages.map(\.pageIndex), [0])
+                XCTAssertEqual(layout.pages.first?.mediaBox.width, 612)
+                XCTAssertEqual(layout.pages.first?.mediaBox.height, 792)
+                XCTAssertEqual(layout.pages.first?.text.map(\.text).joined(), "Hello PDF")
+                XCTAssertNil(layout.nextPage)
             }
         }
     }
@@ -590,6 +678,10 @@ final class FileResourceStoreTests: XCTestCase {
                     XCTAssertEqual(format.subtype, subtype, name)
                     XCTAssertEqual(format.mimeType, mimeType, name)
                     XCTAssertEqual(format.family.matches(kind), true, name)
+                    if kind == .pdf {
+                        XCTAssertTrue(format.capabilities.contains(.readPDFLayout))
+                        XCTAssertTrue(format.capabilities.contains(.ocr))
+                    }
                 }
             }
         }
@@ -617,9 +709,11 @@ final class FileResourceToolDefinitionTests: XCTestCase {
             BoneFileResourceReadOfficeTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceListEntriesTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceReadBytesTool<BoneAgentEmptyContext>.definition,
+            BoneFileResourcePDFLayoutTool<BoneAgentEmptyContext>.definition,
+            BoneFileResourceOCRTool<BoneAgentEmptyContext>.definition,
         ]
         XCTAssertEqual(definitions.map(\.id), [
-            "resource.inspect", "resource.detectFormat", "resource.readWindow", "resource.readOffice", "resource.listEntries", "resource.readBytes"
+            "resource.inspect", "resource.detectFormat", "resource.readWindow", "resource.readOffice", "resource.listEntries", "resource.readBytes", "resource.readPDFLayout", "resource.ocr"
         ])
         for definition in definitions {
             XCTAssertNoThrow(try definition.validatedForModelExposure())

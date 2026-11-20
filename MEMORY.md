@@ -30,6 +30,14 @@
 - 2026-11-20，新增 `BoneFileResourceFormatInspection` 格式探测模型和 `resource.detectFormat` 工具，覆盖 UTF-8、UTF-16 LE/BE、GBK、GB18030、PDF、DOCX、XLSX、PPTX、ZIP、GZIP 与二进制资源，并返回 MIME、可信度、编码、保护状态、解析器信息和能力集合。
 - 2026-11-20，新增 `BoneFileResourceToolFactory`，统一包装取消检查、Host 授权重验、资源引用校验和结果预算校验。资源引用本身不承担权限语义，Host 仍负责 session scope、resource scope、version、撤销和读取预算。
 - 2026-11-20，文件窗口请求现在在构造阶段绑定资源类型、窗口类型和定位字段。PDF 空页被视为有效页，旧 inspection JSON 缺少 `format` 字段时仍保持可解码。
-- 2026-11-20，Demo 只负责内置工具装配和集成测试，PDF、Office、压缩包、编码和二进制解析继续位于 BoneAgentTools 核心 SDK。Demo 资源组工具数量已同步为 14 个。
-- 2026-11-20，本轮尚未实现持久派生视图缓存、PDF/Office/ZIP/GZIP 展开缓存、统一持久资源搜索、资源 GC/quota/usage API、真实跨进程子进程恢复测试和 100 MiB RSS/磁盘性能基准。旧式 `.doc/.xls/.ppt`、OCR、加密格式和完整 PDF 布局复现仍属于后续范围。
+- 2026-11-20，Demo 只负责内置工具装配和集成测试，PDF、Office、压缩包、编码和二进制解析继续位于 BoneAgentTools 核心 SDK。Demo 资源组工具数量已同步为 16 个。
+- 2026-11-20，持久派生视图缓存、PDF/Office/ZIP/GZIP 展开缓存、统一持久资源搜索、资源 GC/quota/usage API、真实跨进程子进程恢复测试和 100 MiB RSS/磁盘性能基准仍未实现。旧式 `.doc/.xls/.ppt` 完整排版解析、ZIP/旧式 Office 密码解密和 Demo 端文件能力接入仍属于后续范围。
 - 2026-11-20，验证过程中 `omx setup` 因用户目录备份目录权限返回 EPERM，但 `omx doctor` 通过 19 项检查。Nowledge Mem 服务 `127.0.0.1:14242` 当前不可连接。
+
+## 文件资源平台本轮增强
+
+- 2026-11-20，BoneAgentTools 核心 SDK 新增 `resource.readPDFLayout` 和 `resource.ocr`。PDF 布局按页返回媒体框、裁剪框、旋转、文本行、UTF-16 字符框、注释框和可选单页 PDF 数据，OCR 使用 PDFKit 渲染页面与 Apple Vision 识别文字，均受页范围和结果预算约束。
+- 2026-11-20，PDF 密码只允许由 Host 在单次授权调用中临时提供，不进入 Tool Schema、资源引用、metadata 或结果 JSON。PDF 检查结果现在包含加密、锁定、复制权限和内容可访问权限，缺少密码和错误密码分别映射到固定错误。
+- 2026-11-20，ZIP 条目增加 `isEncrypted`，加密条目可列出但读取返回 `protectedContent`。带 OLE Compound File 头的 `.docx`、`.xlsx`、`.pptx` 会识别为 `encrypted-office` 并关闭普通 OOXML 解析能力。当前不实现自定义 ZIP 或旧式 Office 密码解密。
+- 2026-11-20，SDK 资源组工具目录从 14 个增至 16 个。Demo 仍只装配文本资源工具，因此没有复制或伪装 PDF/OCR 解析实现。
+- 2026-11-20，本轮验证使用受限沙箱外的 SwiftPM 测试，因为受限沙箱在 manifest 阶段返回 `sandbox_apply: Operation not permitted`。Nowledge Mem 服务 `127.0.0.1:14242` 仍不可连接。

@@ -21,7 +21,7 @@ struct LabToolPlanTests {
 
     @Test func researchSelectionRetainsAllToolsAndReportsEachMissingDependency() {
         let plan = DemoLabToolPlan(groups: Set(BoneBuiltInToolPreset.research.groups))
-        #expect(plan.groups.count == 6 && plan.toolCount == 14)
+        #expect(plan.groups.count == 6 && plan.toolCount == 16)
         let requirements = plan.requirements(settings: .init(), hasModelKey: false, hasSearchKey: false)
         #expect(requirements.map(\.kind) == [.model, .webHosts, .searchKey])
         #expect(plan.groups.contains(.webFetch) && plan.groups.contains(.webSearch))

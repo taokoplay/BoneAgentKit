@@ -40,6 +40,10 @@ public enum BoneFileResourceCapability: String, Codable, CaseIterable, Sendable 
     case structuredRead
     case listEntries
     case search
+    /// 读取 PDF 页面几何和字符布局。
+    case readPDFLayout
+    /// 对 PDF 页面执行 OCR。
+    case ocr
 }
 
 /// 文件保护状态；密码和密钥由 Host 管理，不进入普通资源工具参数。

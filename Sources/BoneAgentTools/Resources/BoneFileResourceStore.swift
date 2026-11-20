@@ -182,6 +182,9 @@ public actor BoneFileResourceStore {
             return BoneFileResourceInspection(metadata: value, format: format,
                                               pdf: try BoneStructuredFileReaders.inspectPDF(at: blob))
         case .officeOpenXML:
+            if format.protectionStatus == .passwordRequired || format.protectionStatus == .encrypted || format.protectionStatus == .unsupported {
+                return BoneFileResourceInspection(metadata: value, format: format)
+            }
             return BoneFileResourceInspection(metadata: value,
                                                format: format,
                                                office: try BoneStructuredFileReaders.inspectOffice(
@@ -205,7 +208,8 @@ public actor BoneFileResourceStore {
     /// 按资源类型读取一个结构化窗口；每次调用都会重新校验持久快照。
     /// - Parameter request: 绑定引用、视图类型和有界定位信息的窗口请求。
     /// - Returns: 文本、PDF 页、Office 投影或归档条目的统一结果。
-    public func readWindow(_ request: BoneFileResourceWindowRequest) throws -> BoneFileResourceWindowResult {
+    public func readWindow(_ request: BoneFileResourceWindowRequest,
+                           password: String? = nil) throws -> BoneFileResourceWindowResult {
         let value = try restore(request.reference)
         let blob = blobURL(for: request.reference)
         switch request.kind {
@@ -219,7 +223,8 @@ public actor BoneFileResourceStore {
                 throw BoneFileResourceError.invalidRequest
             }
             let page = try BoneStructuredFileReaders.readPDFPage(at: blob, pageIndex: pageIndex,
-                                                                  maximumBytes: request.maximumBytes)
+                                                                  maximumBytes: request.maximumBytes,
+                                                                  password: password)
             return BoneFileResourceWindowResult(reference: request.reference, kind: .pdfPage,
                                                 text: page.text, pageIndex: page.pageIndex,
                                                 isTruncated: page.isTruncated)
@@ -242,6 +247,32 @@ public actor BoneFileResourceStore {
                                                 nextOffset: page.nextOffset, data: page.data,
                                                 archiveEntry: page.entry)
         }
+    }
+
+    /// 读取 PDF 页面布局，密码只在本次调用中由 Host 临时提供。
+    /// - Parameters:
+    ///   - request: 绑定 PDF 资源和布局预算的请求。
+    ///   - password: Host 临时提供的 PDF 密码。
+    /// - Returns: 带原始引用和连续页游标的布局结果。
+    public func readPDFLayout(_ request: BoneFileResourcePDFLayoutRequest,
+                              password: String? = nil) throws -> BoneFileResourcePDFLayoutResult {
+        guard request.reference.kind == .pdf else { throw BoneFileResourceError.invalidRequest }
+        _ = try restore(request.reference)
+        return try BoneStructuredFileReaders.readPDFLayout(at: blobURL(for: request.reference),
+                                                           request: request, password: password)
+    }
+
+    /// 对 PDF 页面执行 OCR，密码只在本次调用中由 Host 临时提供。
+    /// - Parameters:
+    ///   - request: 绑定 PDF 资源和 OCR 预算的请求。
+    ///   - password: Host 临时提供的 PDF 密码。
+    /// - Returns: 带原始引用和连续页游标的 OCR 结果。
+    public func recognizePDF(_ request: BoneFileResourceOCRRequest,
+                             password: String? = nil) throws -> BoneFileResourceOCRResult {
+        guard request.reference.kind == .pdf else { throw BoneFileResourceError.invalidRequest }
+        _ = try restore(request.reference)
+        return try BoneStructuredFileReaders.recognizePDF(at: blobURL(for: request.reference),
+                                                          request: request, password: password)
     }
 
     /// 读取 Office 的段落、工作表/单元格或幻灯片结构，并重新校验持久快照。
@@ -450,9 +481,14 @@ public actor BoneFileResourceStore {
         if n >= 2, (header[0] == 0xFF && header[1] == 0xFE) || (header[0] == 0xFE && header[1] == 0xFF) {
             return .text
         }
+        let ext = source.pathExtension.lowercased()
         if n >= 4, header[0] == 0x50, header[1] == 0x4B {
-            let ext = source.pathExtension.lowercased()
             return ["docx", "xlsx", "pptx"].contains(ext) ? .officeOpenXML : .archive
+        }
+        if n >= 8,
+           Array(header.prefix(8)) == [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1],
+           ["docx", "xlsx", "pptx"].contains(ext) {
+            return .officeOpenXML
         }
         return canConfirmUTF8(fd: fd) ? .text : .binary
     }
@@ -481,15 +517,24 @@ public actor BoneFileResourceStore {
                 parserVersion: "1"
             )
         case .pdf:
+            let inspection = try BoneStructuredFileReaders.inspectPDF(at: blob)
+            let contentIsProtected = inspection.isEncrypted && !inspection.allowsContentAccessibility
+            let protectionStatus: BoneFileResourceProtectionStatus = inspection.isLocked
+                ? .passwordRequired
+                : (inspection.isEncrypted ? .encrypted : .none)
+            let capabilities: [BoneFileResourceCapability] = inspection.isLocked || contentIsProtected
+                ? [.inspect, .readBytes]
+                : [.inspect, .readWindow, .readBytes, .readPDFLayout, .ocr]
             return try BoneFileResourceFormatInspection(
                 family: .pdf,
                 subtype: "pdf",
                 mimeType: "application/pdf",
                 confidence: .high,
-                capabilities: [.inspect, .readWindow],
-                protectionStatus: .none,
+                capabilities: capabilities,
+                protectionStatus: protectionStatus,
                 parserID: "pdfkit",
-                parserVersion: "1"
+                parserVersion: "1",
+                warnings: inspection.isEncrypted ? ["encrypted_pdf"] : []
             )
         case .officeOpenXML:
             let subtype = URL(fileURLWithPath: metadata.name).pathExtension.lowercased()
@@ -500,28 +545,38 @@ public actor BoneFileResourceStore {
             case "pptx": mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
             default: throw BoneFileResourceError.unsupportedFormat
             }
+            let prefix = try Self.readPrefix(at: blob, count: 8)
+            let isEncryptedOffice = prefix == Data([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
             return try BoneFileResourceFormatInspection(
                 family: .officeOpenXML,
-                subtype: subtype,
+                subtype: isEncryptedOffice ? "encrypted-office" : subtype,
                 mimeType: mimeType,
                 confidence: .high,
-                capabilities: [.inspect, .readWindow, .structuredRead, .listEntries],
-                protectionStatus: .none,
-                parserID: "ooxml",
-                parserVersion: "1"
+                capabilities: isEncryptedOffice ? [.inspect, .readBytes] : [.inspect, .readWindow, .structuredRead, .listEntries],
+                protectionStatus: isEncryptedOffice ? .passwordRequired : .none,
+                parserID: isEncryptedOffice ? nil : "ooxml",
+                parserVersion: isEncryptedOffice ? nil : "1",
+                warnings: isEncryptedOffice ? ["encrypted_office_container"] : []
             )
         case .archive:
             let prefix = try Self.readPrefix(at: blob, count: 2)
             let isGZIP = prefix == Data([0x1F, 0x8B])
+            let encrypted: Bool
+            if isGZIP {
+                encrypted = false
+            } else {
+                encrypted = try BoneFileArchiveReader.listEntries(at: blob).contains(where: \.isEncrypted)
+            }
             return try BoneFileResourceFormatInspection(
                 family: .archive,
                 subtype: isGZIP ? "gzip" : "zip",
                 mimeType: isGZIP ? "application/gzip" : "application/zip",
                 confidence: .high,
-                capabilities: [.inspect, .readWindow, .listEntries],
-                protectionStatus: .none,
+                capabilities: encrypted ? [.inspect, .listEntries] : [.inspect, .readWindow, .listEntries],
+                protectionStatus: encrypted ? .encrypted : .none,
                 parserID: "safe-archive",
-                parserVersion: "1"
+                parserVersion: "1",
+                warnings: encrypted ? ["encrypted_archive_entry"] : []
             )
         case .binary:
             return try BoneFileResourceFormatInspection(

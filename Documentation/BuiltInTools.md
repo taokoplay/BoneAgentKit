@@ -93,14 +93,18 @@ if let hit = result.hits.first {
 | 类型 | 支持范围 | 读取入口 |
 | --- | --- | --- |
 | 文本 | 严格 UTF-8、UTF-16 LE/BE、GBK、GB18030 | `resource.readText`、`resource.readWindow` |
-| PDF | 页数、标题、作者、页级文本窗口 | `resource.inspect`、`resource.detectFormat`、`resource.readWindow` |
+| PDF | 页数、标题、作者、页级文本窗口、字符坐标布局和 Vision OCR | `resource.inspect`、`resource.detectFormat`、`resource.readWindow`、`resource.readPDFLayout`、`resource.ocr` |
 | Office | OOXML 的 DOCX 段落、XLSX 工作表/单元格、PPTX 幻灯片 | `resource.inspect`、`resource.detectFormat`、`resource.readOffice`、`resource.readWindow` |
 | 压缩包 | ZIP stored/deflate、GZIP content 条目、目录和条目窗口 | `resource.inspect`、`resource.detectFormat`、`resource.listEntries`、`resource.readWindow` |
 | 二进制 | 原始字节范围分页，最多 65,536 字节一页 | `resource.readBytes` |
 
 `automatic` 只确认 BOM 或严格 UTF-8，不猜测 GBK。需要按 GBK 或 GB18030 读取时，导入时显式传入编码。所有正文读取都有页大小、条目展开、XML、Office 结构化结果或 PDF 页预算。ZIP 会校验 local header、data descriptor、CRC32、路径和符号链接，并限制条目数、单条展开大小、累计展开大小和压缩比。
 
-首期不承诺旧式 `.doc`、`.xls`、`.ppt` 的完整排版解析，OCR、完整 PDF 布局复现和任意二进制格式的语义解析也由宿主另行实现。`resource.detectFormat` 返回具体格式、MIME、编码、保护状态和可用能力。`BoneFileResourceToolFactory` 统一要求宿主在每次调用前重验当前 session scope、资源版本、权限、预算和撤销状态，并在交付前校验返回结果仍绑定原始引用。
+首期不承诺旧式 `.doc`、`.xls`、`.ppt` 的完整排版解析和任意二进制格式的语义解析。PDF 布局工具返回媒体框、裁剪框、旋转、文本行、UTF-16 字符框和注释区域，OCR 工具按页渲染 PDF 并返回 Vision 识别框、坐标和置信度。两者都使用页范围、文本、元素和识别框预算，布局还支持可选的单页 PDF 数据。`resource.detectFormat` 返回具体格式、MIME、编码、保护状态和可用能力。`BoneFileResourceToolFactory` 统一要求宿主在每次调用前重验当前 session scope、资源版本、权限、预算和撤销状态，并在交付前校验返回结果仍绑定原始引用。
+
+## 加密文件
+
+密码由宿主授权上下文临时提供，不进入 Tool Schema、资源引用、metadata 或结果 JSON。PDF 检查结果会返回 `isEncrypted`、`isLocked`、`allowsCopying` 和 `allowsContentAccessibility`。受保护 PDF 在宿主提供密码后可以继续使用页文本、布局和 OCR，缺少密码、密码错误和受保护内容分别返回固定错误分类。ZIP 目录暴露 `isEncrypted` 条目，读取加密条目返回 `protectedContent`。带 OLE Compound File 头的加密 Office 文档会被识别为 `encrypted-office`，只保留检查和原始字节能力，不会误判为普通 OOXML。
 
 ## 网页与搜索
 

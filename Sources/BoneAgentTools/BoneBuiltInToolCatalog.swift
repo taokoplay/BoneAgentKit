@@ -20,7 +20,7 @@ public enum BoneBuiltInToolGroup: String, Codable, CaseIterable, Identifiable, S
         case .dateTime: return ["time.query"]
         case .resources: return ["resource.list", "resource.search", "resource.readText",
                                  "resource.inspect", "resource.detectFormat", "resource.readWindow", "resource.readOffice",
-                                 "resource.listEntries", "resource.readBytes"]
+                                 "resource.listEntries", "resource.readBytes", "resource.readPDFLayout", "resource.ocr"]
         case .webFetch: return ["web.fetch"]
         case .webSearch: return ["web.search"]
         case .askUser: return ["user.ask"]

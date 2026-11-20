@@ -17,6 +17,9 @@ public enum BoneFileResourceError: Error, Equatable, Sendable {
     case referenceMismatch
     case accessDenied
     case expired
+    case passwordRequired
+    case invalidPassword
+    case protectedContent
 }
 
 /// 资源类型；derived view 仍绑定到同一份原始快照。
@@ -228,6 +231,7 @@ public struct BoneFileArchiveEntry: Codable, Equatable, Hashable, Sendable {
     public let uncompressedByteCount: Int
     public let isDirectory: Bool
     public let isSymbolicLink: Bool
+    public let isEncrypted: Bool
 
     /// 创建一个压缩包条目描述。
     /// - Parameters:
@@ -236,8 +240,9 @@ public struct BoneFileArchiveEntry: Codable, Equatable, Hashable, Sendable {
     ///   - uncompressedByteCount: 展开后字节数。
     ///   - isDirectory: 是否为目录条目。
     ///   - isSymbolicLink: 是否声明为符号链接。
+    ///   - isEncrypted: 是否声明为 ZIP 加密条目。
     public init(name: String, compressedByteCount: Int, uncompressedByteCount: Int,
-                isDirectory: Bool, isSymbolicLink: Bool) throws {
+                isDirectory: Bool, isSymbolicLink: Bool, isEncrypted: Bool = false) throws {
         guard !name.isEmpty, compressedByteCount >= 0, uncompressedByteCount >= 0 else {
             throw BoneFileResourceError.archiveUnsafe
         }
@@ -246,6 +251,24 @@ public struct BoneFileArchiveEntry: Codable, Equatable, Hashable, Sendable {
         self.uncompressedByteCount = uncompressedByteCount
         self.isDirectory = isDirectory
         self.isSymbolicLink = isSymbolicLink
+        self.isEncrypted = isEncrypted
+    }
+
+    /// 从旧版归档目录结果恢复条目，缺少加密字段时按未加密处理。
+    /// - Parameter decoder: 外部工具结果解码器。
+    /// - Throws: 条目字段不符合归档安全合同。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(name: container.decode(String.self, forKey: .name),
+                      compressedByteCount: container.decode(Int.self, forKey: .compressedByteCount),
+                      uncompressedByteCount: container.decode(Int.self, forKey: .uncompressedByteCount),
+                      isDirectory: container.decode(Bool.self, forKey: .isDirectory),
+                      isSymbolicLink: container.decode(Bool.self, forKey: .isSymbolicLink),
+                      isEncrypted: container.decodeIfPresent(Bool.self, forKey: .isEncrypted) ?? false)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, compressedByteCount, uncompressedByteCount, isDirectory, isSymbolicLink, isEncrypted
     }
 }
 
@@ -279,17 +302,45 @@ public struct BoneFilePDFInspection: Codable, Equatable, Sendable {
     public let pageCount: Int
     public let title: String?
     public let author: String?
+    public let isEncrypted: Bool
+    public let isLocked: Bool
+    public let allowsCopying: Bool
+    public let allowsContentAccessibility: Bool
 
     /// 创建 PDF 结构化元数据。
     /// - Parameters:
     ///   - pageCount: PDF 页数。
     ///   - title: 文档标题。
     ///   - author: 文档作者。
-    public init(pageCount: Int, title: String?, author: String?) throws {
+    public init(pageCount: Int, title: String?, author: String?,
+                isEncrypted: Bool = false, isLocked: Bool = false,
+                allowsCopying: Bool = true, allowsContentAccessibility: Bool = true) throws {
         guard pageCount >= 0 else { throw BoneFileResourceError.parseFailed }
         self.pageCount = pageCount
         self.title = title
         self.author = author
+        self.isEncrypted = isEncrypted
+        self.isLocked = isLocked
+        self.allowsCopying = allowsCopying
+        self.allowsContentAccessibility = allowsContentAccessibility
+    }
+
+    /// 从旧版 PDF 检查结果恢复新增的保护状态字段。
+    /// - Parameter decoder: 外部检查结果解码器。
+    /// - Throws: JSON 字段不符合类型时抛出解码错误。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(pageCount: container.decode(Int.self, forKey: .pageCount),
+                      title: container.decodeIfPresent(String.self, forKey: .title),
+                      author: container.decodeIfPresent(String.self, forKey: .author),
+                      isEncrypted: container.decodeIfPresent(Bool.self, forKey: .isEncrypted) ?? false,
+                      isLocked: container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false,
+                      allowsCopying: container.decodeIfPresent(Bool.self, forKey: .allowsCopying) ?? true,
+                      allowsContentAccessibility: container.decodeIfPresent(Bool.self, forKey: .allowsContentAccessibility) ?? true)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pageCount, title, author, isEncrypted, isLocked, allowsCopying, allowsContentAccessibility
     }
 }
 
@@ -736,9 +787,13 @@ public struct BoneFileResourceInspection: Codable, Equatable, Sendable {
         }
         switch request.kind {
         case .pdf:
-            guard pdf != nil, office == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+            guard office == nil, archiveEntries == nil, pdf != nil else { throw BoneFileResourceError.invalidRequest }
         case .officeOpenXML:
-            guard office != nil, pdf == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+            if format?.protectionStatus == .passwordRequired || format?.protectionStatus == .encrypted || format?.protectionStatus == .unsupported {
+                guard office == nil, pdf == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+            } else {
+                guard office != nil, pdf == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+            }
         case .archive:
             guard archiveEntries != nil, pdf == nil, office == nil else { throw BoneFileResourceError.invalidRequest }
         case .text, .binary:

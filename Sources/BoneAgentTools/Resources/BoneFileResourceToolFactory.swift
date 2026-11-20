@@ -82,6 +82,42 @@ public enum BoneFileResourceToolFactory {
         }
     }
 
+    /// 创建带授权和结果校验的 PDF 布局工具。
+    /// - Parameters:
+    ///   - authorizer: 每次调用前重新检查资源访问权限的授权器。
+    ///   - readLayout: Host 绑定的 PDF 布局处理器。
+    /// - Returns: 已绑定授权和结果校验的 PDF 布局工具。
+    public static func makePDFLayoutTool<Context: BoneAgentToolContext>(
+        authorizer: BoneFileResourceAuthorizer<Context>,
+        readLayout: @escaping BoneFileResourcePDFLayoutTool<Context>.Handler
+    ) -> BoneFileResourcePDFLayoutTool<Context> {
+        BoneFileResourcePDFLayoutTool { input, context in
+            try Task.checkCancellation()
+            try await authorizer.authorize(input.reference, context: context)
+            let output = try await readLayout(input, context)
+            try Task.checkCancellation()
+            return try output.validated(for: input)
+        }
+    }
+
+    /// 创建带授权和结果校验的 PDF OCR 工具。
+    /// - Parameters:
+    ///   - authorizer: 每次调用前重新检查资源访问权限的授权器。
+    ///   - recognize: Host 绑定的 PDF OCR 处理器。
+    /// - Returns: 已绑定授权和结果校验的 PDF OCR 工具。
+    public static func makeOCRTool<Context: BoneAgentToolContext>(
+        authorizer: BoneFileResourceAuthorizer<Context>,
+        recognize: @escaping BoneFileResourceOCRTool<Context>.Handler
+    ) -> BoneFileResourceOCRTool<Context> {
+        BoneFileResourceOCRTool { input, context in
+            try Task.checkCancellation()
+            try await authorizer.authorize(input.reference, context: context)
+            let output = try await recognize(input, context)
+            try Task.checkCancellation()
+            return try output.validated(for: input)
+        }
+    }
+
     /// 创建带授权和结果校验的归档目录工具。
     /// - Parameters:
     ///   - authorizer: 每次调用前重新检查资源访问权限的授权器。

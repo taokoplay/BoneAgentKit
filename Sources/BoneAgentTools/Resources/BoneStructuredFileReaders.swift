@@ -16,9 +16,15 @@ public enum BoneStructuredFileReaders {
     public static func inspectPDF(at url: URL) throws -> BoneFilePDFInspection {
         #if canImport(PDFKit)
         guard let document = PDFDocument(url: url) else { throw BoneFileResourceError.parseFailed }
-        return try BoneFilePDFInspection(pageCount: document.pageCount,
-                                         title: document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String,
-                                         author: document.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String)
+        return try BoneFilePDFInspection(
+            pageCount: document.pageCount,
+            title: document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String,
+            author: document.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String,
+            isEncrypted: document.isEncrypted,
+            isLocked: document.isLocked,
+            allowsCopying: document.allowsCopying,
+            allowsContentAccessibility: document.allowsContentAccessibility
+        )
         #else
         throw BoneFileResourceError.unsupportedFormat
         #endif
@@ -30,12 +36,14 @@ public enum BoneStructuredFileReaders {
     ///   - pageIndex: 从零开始的页索引。
     ///   - maximumBytes: 本页最多返回的 UTF-8 字节数。
     /// - Returns: PDF 页文本。
-    public static func readPDFPage(at url: URL, pageIndex: Int, maximumBytes: Int = 65_536) throws -> BoneFilePDFPage {
+    public static func readPDFPage(at url: URL, pageIndex: Int, maximumBytes: Int = 65_536,
+                                   password: String? = nil) throws -> BoneFilePDFPage {
         guard (1...BoneFileResourceByteReadRequest.maximumPageBytes).contains(maximumBytes), pageIndex >= 0 else {
             throw BoneFileResourceError.invalidRequest
         }
         #if canImport(PDFKit)
-        guard let document = PDFDocument(url: url), pageIndex < document.pageCount,
+        let document = try openPDF(at: url, password: password)
+        guard pageIndex < document.pageCount,
               let page = document.page(at: pageIndex) else {
             throw BoneFileResourceError.parseFailed
         }

@@ -26,7 +26,7 @@ public enum BoneFileArchiveReader {
             let uncompressedByteCount = try gzipISize(fd: descriptor.fd, byteCount: descriptor.byteCount)
             return [try BoneFileArchiveEntry(name: "content", compressedByteCount: descriptor.byteCount,
                                              uncompressedByteCount: uncompressedByteCount,
-                                             isDirectory: false, isSymbolicLink: false)]
+                                             isDirectory: false, isSymbolicLink: false, isEncrypted: false)]
         }
         return try parseZIP(fd: descriptor.fd, byteCount: descriptor.byteCount).map(\.entry)
     }
@@ -58,6 +58,9 @@ public enum BoneFileArchiveReader {
         }
         guard !item.entry.isDirectory, !item.entry.isSymbolicLink else {
             throw BoneFileResourceError.archiveUnsafe
+        }
+        guard !item.entry.isEncrypted else {
+            throw BoneFileResourceError.protectedContent
         }
         return try readZIPEntry(fd: descriptor.fd, item: item, offset: offset, maximumBytes: maximumBytes)
     }
@@ -200,7 +203,8 @@ public enum BoneFileArchiveReader {
             let isSymbolicLink = typeBits == 0xA000
             let entry = try BoneFileArchiveEntry(name: name, compressedByteCount: compressedSize,
                                                   uncompressedByteCount: uncompressedSize,
-                                                  isDirectory: isDirectory, isSymbolicLink: isSymbolicLink)
+                                                  isDirectory: isDirectory, isSymbolicLink: isSymbolicLink,
+                                                  isEncrypted: flags & 0x0001 != 0)
             let item = ZIPItem(entry: entry, compressionMethod: method, flags: flags,
                                expectedCRC32: crc32, localHeaderOffset: localOffset, dataOffset: 0)
             let dataOffset = try validateLocalHeader(fd: fd, byteCount: byteCount, item: item)
