@@ -176,18 +176,30 @@ public actor BoneFileResourceStore {
     public func inspect(_ reference: BoneFileResourceReference) throws -> BoneFileResourceInspection {
         let value = try restore(reference)
         let blob = blobURL(for: reference)
+        let format = try detectFormat(reference, metadata: value, blob: blob)
         switch reference.kind {
         case .pdf:
-            return BoneFileResourceInspection(metadata: value, pdf: try BoneStructuredFileReaders.inspectPDF(at: blob))
+            return BoneFileResourceInspection(metadata: value, format: format,
+                                              pdf: try BoneStructuredFileReaders.inspectPDF(at: blob))
         case .officeOpenXML:
             return BoneFileResourceInspection(metadata: value,
+                                               format: format,
                                                office: try BoneStructuredFileReaders.inspectOffice(
                                                 at: blob, fileExtension: URL(fileURLWithPath: value.name).pathExtension))
         case .archive:
-            return BoneFileResourceInspection(metadata: value, archiveEntries: try BoneFileArchiveReader.listEntries(at: blob))
+            return BoneFileResourceInspection(metadata: value, format: format,
+                                               archiveEntries: try BoneFileArchiveReader.listEntries(at: blob))
         case .text, .binary:
-            return BoneFileResourceInspection(metadata: value)
+            return BoneFileResourceInspection(metadata: value, format: format)
         }
+    }
+
+    /// 探测已恢复资源的具体格式、编码和可用能力。
+    /// - Parameter reference: 精确资源版本引用。
+    /// - Returns: 绑定原始快照的格式描述。
+    public func detectFormat(_ reference: BoneFileResourceReference) throws -> BoneFileResourceFormatInspection {
+        let value = try restore(reference)
+        return try detectFormat(reference, metadata: value, blob: blobURL(for: reference))
     }
 
     /// 按资源类型读取一个结构化窗口；每次调用都会重新校验持久快照。
@@ -443,6 +455,100 @@ public actor BoneFileResourceStore {
             return ["docx", "xlsx", "pptx"].contains(ext) ? .officeOpenXML : .archive
         }
         return canConfirmUTF8(fd: fd) ? .text : .binary
+    }
+
+    /// 从已验证快照生成格式描述，避免把路径或底层错误暴露到 Tool 边界。
+    /// - Parameters:
+    ///   - reference: 已校验的资源引用。
+    ///   - metadata: 已校验的资源元数据。
+    ///   - blob: 内容寻址快照路径。
+    /// - Returns: 具体格式、MIME、能力和解析器身份。
+    private func detectFormat(_ reference: BoneFileResourceReference,
+                              metadata: BoneFileResourceMetadata,
+                              blob: URL) throws -> BoneFileResourceFormatInspection {
+        switch reference.kind {
+        case .text:
+            let encoding = metadata.originalEncoding ?? .utf8
+            return try BoneFileResourceFormatInspection(
+                family: .text,
+                subtype: encoding.rawValue,
+                mimeType: "text/plain",
+                confidence: .high,
+                encoding: encoding,
+                capabilities: [.inspect, .readWindow, .readBytes],
+                protectionStatus: .none,
+                parserID: "foundation-text",
+                parserVersion: "1"
+            )
+        case .pdf:
+            return try BoneFileResourceFormatInspection(
+                family: .pdf,
+                subtype: "pdf",
+                mimeType: "application/pdf",
+                confidence: .high,
+                capabilities: [.inspect, .readWindow],
+                protectionStatus: .none,
+                parserID: "pdfkit",
+                parserVersion: "1"
+            )
+        case .officeOpenXML:
+            let subtype = URL(fileURLWithPath: metadata.name).pathExtension.lowercased()
+            let mimeType: String
+            switch subtype {
+            case "docx": mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            case "xlsx": mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            case "pptx": mimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            default: throw BoneFileResourceError.unsupportedFormat
+            }
+            return try BoneFileResourceFormatInspection(
+                family: .officeOpenXML,
+                subtype: subtype,
+                mimeType: mimeType,
+                confidence: .high,
+                capabilities: [.inspect, .readWindow, .structuredRead, .listEntries],
+                protectionStatus: .none,
+                parserID: "ooxml",
+                parserVersion: "1"
+            )
+        case .archive:
+            let prefix = try Self.readPrefix(at: blob, count: 2)
+            let isGZIP = prefix == Data([0x1F, 0x8B])
+            return try BoneFileResourceFormatInspection(
+                family: .archive,
+                subtype: isGZIP ? "gzip" : "zip",
+                mimeType: isGZIP ? "application/gzip" : "application/zip",
+                confidence: .high,
+                capabilities: [.inspect, .readWindow, .listEntries],
+                protectionStatus: .none,
+                parserID: "safe-archive",
+                parserVersion: "1"
+            )
+        case .binary:
+            return try BoneFileResourceFormatInspection(
+                family: .binary,
+                subtype: "binary",
+                mimeType: "application/octet-stream",
+                confidence: .medium,
+                capabilities: [.inspect, .readBytes],
+                protectionStatus: .none
+            )
+        }
+    }
+
+    /// 从私有快照读取固定长度前缀，用于格式身份探测。
+    /// - Parameters:
+    ///   - url: 已验证的快照路径。
+    ///   - count: 需要读取的最大字节数。
+    /// - Returns: 实际读取的前缀字节。
+    private static func readPrefix(at url: URL, count: Int) throws -> Data {
+        let fd = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        guard fd >= 0 else { throw BoneFileResourceError.unavailable }
+        defer { _ = close(fd) }
+        var data = Data(count: count)
+        let readCount = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress!, count, 0) }
+        guard readCount >= 0 else { throw BoneFileResourceError.unavailable }
+        data.removeSubrange(readCount..<data.count)
+        return data
     }
 
     private static func canConfirmUTF8(fd: Int32) -> Bool {

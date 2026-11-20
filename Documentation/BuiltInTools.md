@@ -93,14 +93,14 @@ if let hit = result.hits.first {
 | 类型 | 支持范围 | 读取入口 |
 | --- | --- | --- |
 | 文本 | 严格 UTF-8、UTF-16 LE/BE、GBK、GB18030 | `resource.readText`、`resource.readWindow` |
-| PDF | 页数、标题、作者、页级文本窗口 | `resource.inspect`、`resource.readWindow` |
-| Office | OOXML 的 DOCX 段落、XLSX 工作表/单元格、PPTX 幻灯片 | `resource.inspect`、`resource.readOffice`、`resource.readWindow` |
-| 压缩包 | ZIP stored/deflate、GZIP content 条目、目录和条目窗口 | `resource.inspect`、`resource.listEntries`、`resource.readWindow` |
+| PDF | 页数、标题、作者、页级文本窗口 | `resource.inspect`、`resource.detectFormat`、`resource.readWindow` |
+| Office | OOXML 的 DOCX 段落、XLSX 工作表/单元格、PPTX 幻灯片 | `resource.inspect`、`resource.detectFormat`、`resource.readOffice`、`resource.readWindow` |
+| 压缩包 | ZIP stored/deflate、GZIP content 条目、目录和条目窗口 | `resource.inspect`、`resource.detectFormat`、`resource.listEntries`、`resource.readWindow` |
 | 二进制 | 原始字节范围分页，最多 65,536 字节一页 | `resource.readBytes` |
 
 `automatic` 只确认 BOM 或严格 UTF-8，不猜测 GBK。需要按 GBK 或 GB18030 读取时，导入时显式传入编码。所有正文读取都有页大小、条目展开、XML、Office 结构化结果或 PDF 页预算。ZIP 会校验 local header、data descriptor、CRC32、路径和符号链接，并限制条目数、单条展开大小、累计展开大小和压缩比。
 
-首期不承诺旧式 `.doc`、`.xls`、`.ppt` 的完整排版解析，OCR、完整 PDF 布局复现和任意二进制格式的语义解析也由宿主另行实现。`BoneFileResourceStore` 已完成 SDK 层能力，工具 handler 仍需要宿主绑定当前 session scope、资源 scope、权限重验、预算和撤销状态。
+首期不承诺旧式 `.doc`、`.xls`、`.ppt` 的完整排版解析，OCR、完整 PDF 布局复现和任意二进制格式的语义解析也由宿主另行实现。`resource.detectFormat` 返回具体格式、MIME、编码、保护状态和可用能力。`BoneFileResourceToolFactory` 统一要求宿主在每次调用前重验当前 session scope、资源版本、权限、预算和撤销状态，并在交付前校验返回结果仍绑定原始引用。
 
 ## 网页与搜索
 

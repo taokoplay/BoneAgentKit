@@ -206,6 +206,19 @@ public struct BoneFileResourceBytePage: Codable, Equatable, Sendable {
         self.data = data
         nextOffset = offset + data.count < reference.byteCount ? offset + data.count : nil
     }
+
+    /// 按原始字节读取请求重新校验 Host handler 返回的页。
+    /// - Parameter request: 产生该页的原始读取请求。
+    /// - Returns: 通过引用、偏移、长度和连续游标校验的页。
+    public func validated(for request: BoneFileResourceByteReadRequest) throws -> Self {
+        guard reference == request.reference, offset == request.offset,
+              data.count <= request.maximumBytes else {
+            throw BoneFileResourceError.referenceMismatch
+        }
+        let expected = offset + data.count < reference.byteCount ? offset + data.count : nil
+        guard nextOffset == expected else { throw BoneFileResourceError.invalidRequest }
+        return self
+    }
 }
 
 /// 压缩包中的安全条目目录项；条目名只用于选择内容，不会成为本地路径。
@@ -292,7 +305,7 @@ public struct BoneFilePDFPage: Codable, Equatable, Sendable {
     ///   - text: 页文本。
     ///   - isTruncated: 是否因预算截断。
     public init(pageIndex: Int, text: String, isTruncated: Bool) throws {
-        guard pageIndex >= 0, !text.isEmpty || !isTruncated else {
+        guard pageIndex >= 0 else {
             throw BoneFileResourceError.parseFailed
         }
         self.pageIndex = pageIndex
@@ -478,6 +491,17 @@ public struct BoneFileResourceOfficeStructureResult: Codable, Equatable, Sendabl
         self.reference = reference
         self.structure = structure
     }
+
+    /// 按 Office 读取请求重新校验 Host handler 返回的结构。
+    /// - Parameter request: 产生该结构的原始请求。
+    /// - Returns: 通过资源引用和 Office 类型校验的结果。
+    public func validated(for request: BoneFileResourceOfficeStructureRequest) throws -> Self {
+        guard reference == request.reference,
+              ["docx", "xlsx", "pptx"].contains(structure.fileExtension.lowercased()) else {
+            throw BoneFileResourceError.referenceMismatch
+        }
+        return self
+    }
 }
 
 /// 资源窗口读取模式；每种模式对应一个明确的解析视图。
@@ -513,6 +537,23 @@ public struct BoneFileResourceWindowRequest: Codable, Equatable, Sendable {
               entryName.map({ !$0.isEmpty && $0.utf8.count <= 1_024 && !$0.contains("\0") }) ?? true else {
             throw BoneFileResourceError.invalidRequest
         }
+
+        // 在请求创建阶段绑定资源类型和窗口类型，避免 Host 收到互相矛盾的定位字段。
+        let hasPageIndex = pageIndex != nil
+        let hasEntryName = entryName != nil
+        let matchesResourceKind: Bool
+        switch kind {
+        case .text:
+            matchesResourceKind = reference.kind == .text && !hasPageIndex && !hasEntryName
+        case .pdfPage:
+            matchesResourceKind = reference.kind == .pdf && hasPageIndex && !hasEntryName && offset == 0
+        case .officeText:
+            matchesResourceKind = reference.kind == .officeOpenXML && !hasPageIndex && !hasEntryName
+        case .archiveEntry:
+            matchesResourceKind = reference.kind == .archive && !hasPageIndex && hasEntryName
+        }
+        guard matchesResourceKind else { throw BoneFileResourceError.invalidRequest }
+
         self.reference = reference
         self.kind = kind
         self.offset = offset
@@ -565,11 +606,71 @@ public struct BoneFileResourceWindowResult: Codable, Equatable, Sendable {
         self.data = data
         self.archiveEntry = archiveEntry
     }
+
+    /// 按请求重新校验 Host handler 返回的结构化窗口。
+    /// - Parameter request: 产生该结果的原始窗口请求。
+    /// - Returns: 通过资源引用、模式、字段和范围校验的结果。
+    public func validated(for request: BoneFileResourceWindowRequest) throws -> Self {
+        guard reference == request.reference, kind == request.kind else {
+            throw BoneFileResourceError.referenceMismatch
+        }
+
+        switch kind {
+        case .text, .officeText:
+            guard let text, text.utf8.count <= request.maximumBytes,
+                  data == nil, pageIndex == nil, isTruncated == nil, archiveEntry == nil else {
+                throw BoneFileResourceError.invalidRequest
+            }
+            try Self.validateNextOffset(nextOffset, offset: request.offset, minimum: request.offset + text.utf8.count)
+        case .pdfPage:
+            guard let requestedPage = request.pageIndex,
+                  let text,
+                  text.utf8.count <= request.maximumBytes,
+                  pageIndex == requestedPage,
+                  data == nil,
+                  nextOffset == nil,
+                  isTruncated != nil,
+                  archiveEntry == nil else {
+                throw BoneFileResourceError.invalidRequest
+            }
+        case .archiveEntry:
+            guard let entryName = request.entryName,
+                  let archiveEntry,
+                  archiveEntry.name == entryName,
+                  text == nil,
+                  pageIndex == nil,
+                  isTruncated == nil,
+                  let data,
+                  data.count <= request.maximumBytes else {
+                throw BoneFileResourceError.invalidRequest
+            }
+            try Self.validateNextOffset(nextOffset, offset: request.offset,
+                                        maximum: archiveEntry.uncompressedByteCount)
+        }
+        return self
+    }
+
+    /// 校验一个连续字节窗口的结束游标。
+    /// - Parameters:
+    ///   - nextOffset: Host 返回的下一次读取位置。
+    ///   - offset: 本次请求的起始位置。
+    ///   - maximum: 当前视图的总字节数。
+    ///   - minimum: 本页正文结束后的最小连续位置。
+    private static func validateNextOffset(_ nextOffset: Int?, offset: Int,
+                                           minimum: Int? = nil, maximum: Int? = nil) throws {
+        guard let nextOffset else { return }
+        guard nextOffset > offset,
+              minimum.map({ nextOffset >= $0 }) ?? true,
+              maximum.map({ nextOffset <= $0 }) ?? true else {
+            throw BoneFileResourceError.invalidRequest
+        }
+    }
 }
 
 /// 资源检查结果；只返回结构化元数据，不返回正文。
 public struct BoneFileResourceInspection: Codable, Equatable, Sendable {
     public let metadata: BoneFileResourceMetadata
+    public let format: BoneFileResourceFormatInspection?
     public let pdf: BoneFilePDFInspection?
     public let office: BoneFileOfficeInspection?
     public let archiveEntries: [BoneFileArchiveEntry]?
@@ -580,8 +681,69 @@ public struct BoneFileResourceInspection: Codable, Equatable, Sendable {
                 office: BoneFileOfficeInspection? = nil,
                 archiveEntries: [BoneFileArchiveEntry]? = nil) {
         self.metadata = metadata
+        self.format = nil
         self.pdf = pdf
         self.office = office
         self.archiveEntries = archiveEntries
+    }
+
+    /// 创建带格式探测结果的资源检查结果。
+    /// - Parameters:
+    ///   - metadata: 持久资源元数据。
+    ///   - format: 资源格式和能力描述。
+    ///   - pdf: PDF 结构化信息。
+    ///   - office: Office 结构化信息。
+    ///   - archiveEntries: 压缩包安全条目。
+    public init(metadata: BoneFileResourceMetadata,
+                format: BoneFileResourceFormatInspection,
+                pdf: BoneFilePDFInspection? = nil,
+                office: BoneFileOfficeInspection? = nil,
+                archiveEntries: [BoneFileArchiveEntry]? = nil) {
+        self.metadata = metadata
+        self.format = format
+        self.pdf = pdf
+        self.office = office
+        self.archiveEntries = archiveEntries
+    }
+
+    /// 从旧版或新版工具结果恢复检查结果，缺少 format 字段时按旧协议处理。
+    /// - Parameter decoder: 外部工具结果解码器。
+    /// - Throws: 结果字段不符合资源检查合同。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let metadata = try container.decode(BoneFileResourceMetadata.self, forKey: .metadata)
+        let pdf = try container.decodeIfPresent(BoneFilePDFInspection.self, forKey: .pdf)
+        let office = try container.decodeIfPresent(BoneFileOfficeInspection.self, forKey: .office)
+        let archiveEntries = try container.decodeIfPresent([BoneFileArchiveEntry].self, forKey: .archiveEntries)
+        if let format = try container.decodeIfPresent(BoneFileResourceFormatInspection.self, forKey: .format) {
+            self.init(metadata: metadata, format: format, pdf: pdf, office: office, archiveEntries: archiveEntries)
+        } else {
+            self.init(metadata: metadata, pdf: pdf, office: office, archiveEntries: archiveEntries)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case metadata, format, pdf, office, archiveEntries
+    }
+
+    /// 按检查请求校验 Host handler 返回的资源检查结果。
+    /// - Parameter request: 原始资源检查请求。
+    /// - Returns: 通过资源引用和资源类型校验的结果。
+    public func validated(for request: BoneFileResourceReference) throws -> Self {
+        guard metadata.reference == request else { throw BoneFileResourceError.referenceMismatch }
+        if let format {
+            guard format.family.matches(request.kind) else { throw BoneFileResourceError.invalidRequest }
+        }
+        switch request.kind {
+        case .pdf:
+            guard pdf != nil, office == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+        case .officeOpenXML:
+            guard office != nil, pdf == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+        case .archive:
+            guard archiveEntries != nil, pdf == nil, office == nil else { throw BoneFileResourceError.invalidRequest }
+        case .text, .binary:
+            guard pdf == nil, office == nil, archiveEntries == nil else { throw BoneFileResourceError.invalidRequest }
+        }
+        return self
     }
 }

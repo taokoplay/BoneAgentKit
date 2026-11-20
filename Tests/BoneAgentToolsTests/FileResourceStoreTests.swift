@@ -546,6 +546,14 @@ final class FileResourceStoreTests: XCTestCase {
         }
     }
 
+    /// 空白 PDF 页仍然是有效页，不能因为没有正文而被判为解析失败。
+    func testPDFEmptyPageIsReadable() throws {
+        let page = try BoneFilePDFPage(pageIndex: 0, text: "", isTruncated: false)
+        XCTAssertEqual(page.pageIndex, 0)
+        XCTAssertEqual(page.text, "")
+        XCTAssertFalse(page.isTruncated)
+    }
+
     /// PDF 快照可按页检查并读取文本，正文仍以页级预算返回。
     func testPDFInspectionAndPageRead() async throws {
         try await withStore { _, store in
@@ -558,6 +566,31 @@ final class FileResourceStoreTests: XCTestCase {
                 let result = try await store.readWindow(request)
                 XCTAssertEqual(result.text, "Hello PDF")
                 XCTAssertEqual(result.pageIndex, 0)
+            }
+        }
+    }
+
+    /// 持久快照格式探测应覆盖常见文本、容器和二进制类型。
+    func testStoreDetectsPersistedResourceFormats() async throws {
+        try await withStore { _, store in
+            let fixtures: [(String, Data, BoneFileResourceKind, BoneFileResourceEncoding, String, String)] = [
+                ("utf8.txt", Data("hello".utf8), .text, .automatic, "utf8", "text/plain"),
+                ("legacy.txt", Data([0xD6, 0xD0]), .text, .gbk, "gbk", "text/plain"),
+                ("document.pdf", makeMinimalPDF(), .pdf, .automatic, "pdf", "application/pdf"),
+                ("document.docx", makeStoredZIP(name: "word/document.xml", data: Data("<w:document/>".utf8)), .officeOpenXML, .automatic, "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+                ("archive.zip", makeStoredZIP(name: "item.txt", data: Data("item".utf8)), .archive, .automatic, "zip", "application/zip"),
+                ("archive.gz", Data([0x1F, 0x8B, 0x08, 0x00]), .archive, .automatic, "gzip", "application/gzip"),
+                ("data.bin", Data([0x00, 0xFF, 0x01]), .binary, .automatic, "binary", "application/octet-stream"),
+            ]
+
+            for (name, data, kind, encoding, subtype, mimeType) in fixtures {
+                try await withSource(data) { url in
+                    let metadata = try await store.importFile(source: url, name: name, kind: kind, encoding: encoding)
+                    let format = try await store.detectFormat(metadata.reference)
+                    XCTAssertEqual(format.subtype, subtype, name)
+                    XCTAssertEqual(format.mimeType, mimeType, name)
+                    XCTAssertEqual(format.family.matches(kind), true, name)
+                }
             }
         }
     }
@@ -579,16 +612,168 @@ final class FileResourceToolDefinitionTests: XCTestCase {
     func testFileResourceToolsExposeValidatedSchemas() throws {
         let definitions: [BoneAgentToolDefinition] = [
             BoneFileResourceInspectTool<BoneAgentEmptyContext>.definition,
+            BoneFileResourceDetectFormatTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceReadWindowTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceReadOfficeTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceListEntriesTool<BoneAgentEmptyContext>.definition,
             BoneFileResourceReadBytesTool<BoneAgentEmptyContext>.definition,
         ]
         XCTAssertEqual(definitions.map(\.id), [
-            "resource.inspect", "resource.readWindow", "resource.readOffice", "resource.listEntries", "resource.readBytes"
+            "resource.inspect", "resource.detectFormat", "resource.readWindow", "resource.readOffice", "resource.listEntries", "resource.readBytes"
         ])
         for definition in definitions {
             XCTAssertNoThrow(try definition.validatedForModelExposure())
         }
+    }
+}
+
+final class FileResourceFormatAndToolContractTests: XCTestCase {
+    /// 格式探测结果必须提供稳定的具体格式、MIME、置信度和读取能力。
+    func testFormatInspectionExposesConcreteCapabilities() throws {
+        let inspection = try BoneFileResourceFormatInspection(
+            family: .text,
+            subtype: "utf8",
+            mimeType: "text/plain",
+            confidence: .high,
+            encoding: .utf8,
+            capabilities: [.readWindow, .search],
+            protectionStatus: .none
+        )
+
+        XCTAssertEqual(inspection.family, .text)
+        XCTAssertEqual(inspection.subtype, "utf8")
+        XCTAssertEqual(inspection.mimeType, "text/plain")
+        XCTAssertEqual(inspection.capabilities, [.readWindow, .search])
+    }
+
+    /// 旧版 inspection JSON 缺少 format 字段时仍可恢复。
+    func testInspectionDecodingRemainsCompatibleWithoutFormatField() throws {
+        let reference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 1,
+            kind: .binary
+        )
+        let metadata = try BoneFileResourceMetadata(name: "data.bin", reference: reference)
+        let data = try JSONEncoder().encode(BoneFileResourceInspection(metadata: metadata))
+        let decoded = try JSONDecoder().decode(BoneFileResourceInspection.self, from: data)
+
+        XCTAssertNil(decoded.format)
+        XCTAssertEqual(decoded.metadata.reference, reference)
+    }
+
+    /// 窗口请求必须只携带当前读取模式需要的定位字段。
+    func testWindowRequestRejectsFieldsFromAnotherMode() throws {
+        let reference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 10,
+            kind: .text
+        )
+
+        XCTAssertThrowsError(try BoneFileResourceWindowRequest(
+            reference: reference,
+            kind: .text,
+            pageIndex: 0
+        ))
+    }
+
+    /// 结构化窗口结果不能携带与请求不同的资源引用或模式字段。
+    func testWindowResultValidationRejectsMismatchedReferenceAndKind() throws {
+        let reference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 10,
+            kind: .text
+        )
+        let request = try BoneFileResourceWindowRequest(reference: reference, kind: .text, maximumBytes: 4)
+        let otherReference = try BoneFileResourceReference(
+            id: "other",
+            version: "version",
+            sha256: String(repeating: "b", count: 64),
+            byteCount: 10,
+            kind: .text
+        )
+        let result = BoneFileResourceWindowResult(reference: otherReference, kind: .archiveEntry, text: "data")
+
+        XCTAssertThrowsError(try result.validated(for: request))
+    }
+
+    /// PDF 窗口结果的正文不得超过请求的 UTF-8 字节预算。
+    func testWindowResultValidationRejectsPDFTextOverBudget() throws {
+        let reference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 10,
+            kind: .pdf
+        )
+        let request = try BoneFileResourceWindowRequest(
+            reference: reference,
+            kind: .pdfPage,
+            maximumBytes: 4,
+            pageIndex: 0
+        )
+        let result = BoneFileResourceWindowResult(
+            reference: reference,
+            kind: .pdfPage,
+            text: "超过预算",
+            pageIndex: 0,
+            isTruncated: true
+        )
+
+        XCTAssertThrowsError(try result.validated(for: request))
+    }
+
+    /// 授权失败时统一工厂必须在调用 Host handler 前拒绝请求。
+    func testResourceToolFactoryDeniesBeforeHandlerExecution() async throws {
+        let reference = try BoneFileResourceReference(
+            id: "resource",
+            version: "version",
+            sha256: String(repeating: "a", count: 64),
+            byteCount: 10,
+            kind: .text
+        )
+        let request = BoneFileResourceInspectRequest(reference: reference)
+        let authorizer = BoneFileResourceAuthorizer<BoneAgentEmptyContext> { _, _ in
+            throw BoneFileResourceError.accessDenied
+        }
+        let handlerCalled = ManagedHandlerCallState()
+        let tool = BoneFileResourceToolFactory.makeInspectTool(
+            authorizer: authorizer,
+            inspect: { (_: BoneFileResourceInspectRequest, _: BoneAgentEmptyContext) in
+                handlerCalled.markCalled()
+                return BoneFileResourceInspection(metadata: try BoneFileResourceMetadata(name: "a.txt", reference: reference, originalEncoding: .utf8, normalizedUTF8ByteCount: 1, normalizedTextPathToken: "view"))
+            }
+        )
+
+        do {
+            _ = try await tool.execute(input: request, context: BoneAgentEmptyContext())
+            XCTFail("expected access denial")
+        } catch BoneFileResourceError.accessDenied {
+            XCTAssertFalse(handlerCalled.wasCalled)
+        }
+    }
+}
+
+private final class ManagedHandlerCallState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    /// 记录 Host handler 是否被调用。
+    func markCalled() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    /// 读取 Host handler 调用状态。
+    var wasCalled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

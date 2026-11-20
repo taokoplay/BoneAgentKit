@@ -16,6 +16,41 @@ public struct BoneFileResourceInspectRequest: Codable, Equatable, Sendable {
     public init(reference: BoneFileResourceReference) { self.reference = reference }
 }
 
+/// 检查授权资源格式的请求。
+public struct BoneFileResourceDetectFormatRequest: Codable, Equatable, Sendable {
+    public let reference: BoneFileResourceReference
+
+    /// 创建格式探测请求。
+    /// - Parameter reference: 精确资源版本引用。
+    public init(reference: BoneFileResourceReference) { self.reference = reference }
+}
+
+/// 格式探测工具返回值，带回资源引用以绑定探测结果来源。
+public struct BoneFileResourceFormatResult: Codable, Equatable, Sendable {
+    public let reference: BoneFileResourceReference
+    public let format: BoneFileResourceFormatInspection
+
+    /// 创建格式探测结果。
+    /// - Parameters:
+    ///   - reference: 被探测的资源版本引用。
+    ///   - format: 资源格式和能力描述。
+    public init(reference: BoneFileResourceReference, format: BoneFileResourceFormatInspection) {
+        self.reference = reference
+        self.format = format
+    }
+
+    /// 按格式探测请求校验返回结果的资源绑定和格式族。
+    /// - Parameter request: 产生该探测结果的原始请求。
+    /// - Returns: 通过资源引用和格式族校验的结果。
+    public func validated(for request: BoneFileResourceDetectFormatRequest) throws -> Self {
+        guard reference == request.reference,
+              format.family.matches(request.reference.kind) else {
+            throw BoneFileResourceError.referenceMismatch
+        }
+        return self
+    }
+}
+
 /// 列出归档条目的请求。
 public struct BoneFileResourceListEntriesRequest: Codable, Equatable, Sendable {
     public let reference: BoneFileResourceReference
@@ -39,6 +74,34 @@ private let fileResourceReferenceSchema: BoneToolSchema = .object(
     required: ["id", "version", "sha256", "byteCount", "kind"],
     additionalProperties: false
 )
+
+/// 绑定资源引用的最小格式探测工具。
+public struct BoneFileResourceDetectFormatTool<Context: BoneAgentToolContext>: BoneAgentTool {
+    public typealias Input = BoneFileResourceDetectFormatRequest
+    public typealias Output = BoneFileResourceFormatResult
+    public typealias Handler = @Sendable (Input, Context) async throws -> Output
+    private let handler: Handler
+
+    /// 注入 Host 授权后的格式探测处理器。
+    /// - Parameter detectFormat: 格式探测闭包。
+    public init(detectFormat: @escaping Handler) { handler = detectFormat }
+
+    public static var definition: BoneAgentToolDefinition {
+        .init(id: "resource.detectFormat", version: "1.0.0", title: "探测文件格式",
+              summary: "读取授权文件的具体格式、编码、保护状态和可用读取能力，不返回正文。",
+              wireName: "resource_detect_format", schemaVersion: 1,
+              inputSchema: .object(properties: ["reference": fileResourceReferenceSchema],
+                                    required: ["reference"], additionalProperties: false),
+              executionPolicy: .serial, impact: fileResourceImpact)
+    }
+
+    public func execute(input: Input, context: Context) async throws -> Output {
+        try Task.checkCancellation()
+        let output = try await handler(input, context)
+        try Task.checkCancellation()
+        return try output.validated(for: input)
+    }
+}
 
 private let fileResourceImpact = BoneToolImpact(
     dataAccess: .userPrivate,
@@ -73,7 +136,7 @@ public struct BoneFileResourceInspectTool<Context: BoneAgentToolContext>: BoneAg
         try Task.checkCancellation()
         let output = try await handler(input, context)
         try Task.checkCancellation()
-        return output
+        return try output.validated(for: input.reference)
     }
 }
 
@@ -107,7 +170,7 @@ public struct BoneFileResourceReadWindowTool<Context: BoneAgentToolContext>: Bon
         try Task.checkCancellation()
         let output = try await handler(input, context)
         try Task.checkCancellation()
-        return output
+        return try output.validated(for: input)
     }
 }
 
@@ -135,7 +198,7 @@ public struct BoneFileResourceReadOfficeTool<Context: BoneAgentToolContext>: Bon
         try Task.checkCancellation()
         let output = try await handler(input, context)
         try Task.checkCancellation()
-        return output
+        return try output.validated(for: input)
     }
 }
 
@@ -163,7 +226,7 @@ public struct BoneFileResourceListEntriesTool<Context: BoneAgentToolContext>: Bo
         try Task.checkCancellation()
         let output = try await handler(input, context)
         try Task.checkCancellation()
-        return output
+        return try output.validated(for: input)
     }
 }
 
@@ -179,6 +242,17 @@ public struct BoneFileResourceArchiveEntriesResult: Codable, Equatable, Sendable
     public init(reference: BoneFileResourceReference, entries: [BoneFileArchiveEntry]) {
         self.reference = reference
         self.entries = entries
+    }
+
+    /// 按归档目录请求重新校验 Host handler 返回的条目。
+    /// - Parameter request: 产生该目录的原始请求。
+    /// - Returns: 通过资源引用、类型和条目数量校验的结果。
+    public func validated(for request: BoneFileResourceListEntriesRequest) throws -> Self {
+        guard reference == request.reference, reference.kind == .archive,
+              entries.count <= BoneFileArchiveReader.maximumEntries else {
+            throw BoneFileResourceError.invalidRequest
+        }
+        return self
     }
 }
 
@@ -209,6 +283,6 @@ public struct BoneFileResourceReadBytesTool<Context: BoneAgentToolContext>: Bone
         try Task.checkCancellation()
         let output = try await handler(input, context)
         try Task.checkCancellation()
-        return output
+        return try output.validated(for: input)
     }
 }
