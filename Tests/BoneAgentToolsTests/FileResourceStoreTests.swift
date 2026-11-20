@@ -252,6 +252,166 @@ final class FileResourceStoreTests: XCTestCase {
         }
     }
 
+    /// 父进程删除原始文件后，独立子进程仍能恢复文本派生视图和二进制原始快照。
+    func testResourceSnapshotSurvivesIndependentProcessRestart() async throws {
+        // 创建跨进程测试专用目录，父进程和子进程共享同一份持久化快照。
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // 写入超过一个固定 I/O 块的文本来源，覆盖长文件分页恢复路径。
+        let text = String(repeating: "跨进程长文件读取\n", count: 8_000) + "文件末尾"
+        let textSource = root.appendingPathComponent("source.txt")
+        try Data(text.utf8).write(to: textSource)
+        let binary = Data((0..<131_072).map { UInt8($0 % 251) })
+        let binarySource = root.appendingPathComponent("source.bin")
+        try binary.write(to: binarySource)
+
+        // 在父进程导入并提交 metadata，随后删除原始文件以证明恢复不依赖原路径。
+        let metadataStore = BoneFileResourceStore(directory: root)
+        let textMetadata = try await metadataStore.importFile(source: textSource, name: "long.txt", kind: .text)
+        let binaryMetadata = try await metadataStore.importFile(source: binarySource, name: "payload.bin", kind: .binary)
+        try FileManager.default.removeItem(at: textSource)
+        try FileManager.default.removeItem(at: binarySource)
+
+        // 通过私有测试文件传递引用和期望字节，避免把正文放进子进程参数或环境变量。
+        let referencesURL = root.appendingPathComponent("child-references.json")
+        let expectedTextURL = root.appendingPathComponent("child-expected.txt")
+        let expectedBinaryURL = root.appendingPathComponent("child-expected.bin")
+        let references = [textMetadata.reference, binaryMetadata.reference]
+        try JSONEncoder().encode(references).write(to: referencesURL)
+        try Data(text.utf8).write(to: expectedTextURL)
+        try binary.write(to: expectedBinaryURL)
+
+        // 使用 XCTest 工具重新加载测试 bundle，避免直接执行 bundle 内的测试二进制造成递归等待。
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["xctest", "-XCTest", "FileResourceStoreTests/testChildRestoresResourceSnapshot",
+                             Bundle(for: FileResourceStoreTests.self).bundleURL.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["BONE_FILE_RESOURCE_CHILD_ROOT"] = root.path
+        environment["BONE_FILE_RESOURCE_CHILD_REFERENCES"] = referencesURL.path
+        environment["BONE_FILE_RESOURCE_CHILD_EXPECTED_TEXT"] = expectedTextURL.path
+        environment["BONE_FILE_RESOURCE_CHILD_EXPECTED_BINARY"] = expectedBinaryURL.path
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+
+        // 启动独立进程并等待恢复测试完成。
+        try process.run()
+        process.waitUntilExit()
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let outputText = String(decoding: outputData, as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, outputText)
+        XCTAssertTrue(outputText.contains("BONE_RESOURCE_CHILD_OK"), outputText)
+    }
+
+    /// 子进程测试入口只在父进程通过环境变量传入恢复上下文时执行。
+    func testChildRestoresResourceSnapshot() async throws {
+        // 普通测试运行不应执行子进程专用断言。
+        guard let rootPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_ROOT"],
+              let referencesPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_REFERENCES"],
+              let expectedTextPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_EXPECTED_TEXT"],
+              let expectedBinaryPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_EXPECTED_BINARY"] else {
+            throw XCTSkip("仅由独立恢复子进程执行")
+        }
+
+        // 子进程重新创建 Store，模拟应用重启后首次恢复时的完整性校验。
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let referencesData = try Data(contentsOf: URL(fileURLWithPath: referencesPath))
+        let expectedText = String(decoding: try Data(contentsOf: URL(fileURLWithPath: expectedTextPath)), as: UTF8.self)
+        let expectedBinary = try Data(contentsOf: URL(fileURLWithPath: expectedBinaryPath))
+        let references = try JSONDecoder().decode([BoneFileResourceReference].self, from: referencesData)
+        XCTAssertEqual(references.count, 2)
+        let store = BoneFileResourceStore(directory: root)
+        let textReference = try XCTUnwrap(references.first(where: { $0.kind == .text }))
+        let binaryReference = try XCTUnwrap(references.first(where: { $0.kind == .binary }))
+
+        // 分页读取完整规范化文本，证明派生视图也能跨进程恢复。
+        let textMetadata = try await store.restore(textReference)
+        XCTAssertEqual(textMetadata.originalEncoding, .utf8)
+        var recoveredText = Data()
+        var textOffset = 0
+        while true {
+            let page = try await store.readText(reference: textReference, offset: textOffset, maximumBytes: 4_096)
+            recoveredText.append(contentsOf: page.text.utf8)
+            guard let nextOffset = page.nextOffset else { break }
+            textOffset = nextOffset
+        }
+        XCTAssertEqual(String(decoding: recoveredText, as: UTF8.self), expectedText)
+
+        // 从原始 blob 读取有界窗口并计算摘要，证明恢复使用的是内容寻址快照。
+        let binaryMetadata = try await store.restore(binaryReference)
+        XCTAssertEqual(binaryMetadata.reference.byteCount, expectedBinary.count)
+        let binaryOffset = 65_000
+        let binaryPage = try await store.readBytes(try BoneFileResourceByteReadRequest(
+            reference: binaryReference, offset: binaryOffset, maximumBytes: 65_536))
+        XCTAssertEqual(binaryPage.data, expectedBinary.subdata(in: binaryOffset..<(binaryOffset + binaryPage.data.count)))
+        print("BONE_RESOURCE_CHILD_OK")
+    }
+
+    /// 独立恢复进程发现 blob 内容与引用摘要不一致时必须 fail closed。
+    func testIndependentProcessRejectsTamperedSnapshot() async throws {
+        // 创建跨进程测试专用目录并提交一份最小二进制快照。
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.bin")
+        try Data("original snapshot".utf8).write(to: source)
+        let store = BoneFileResourceStore(directory: root)
+        let metadata = try await store.importFile(source: source, name: "payload.bin", kind: .binary)
+        let referencesURL = root.appendingPathComponent("child-references.json")
+        try JSONEncoder().encode([metadata.reference]).write(to: referencesURL)
+
+        // 篡改内容寻址 blob，模拟进程重启期间的磁盘损坏或非预期写入。
+        let blobURL = root.appendingPathComponent("blobs", isDirectory: true)
+            .appendingPathComponent(metadata.reference.sha256 + ".blob")
+        try Data("tampered snapshot".utf8).write(to: blobURL)
+
+        // 通过独立 XCTest 进程重新执行恢复入口，验证首次校验不会信任旧进程缓存。
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["xctest", "-XCTest", "FileResourceStoreTests/testChildRejectsTamperedSnapshot",
+                             Bundle(for: FileResourceStoreTests.self).bundleURL.path]
+        var environment = ProcessInfo.processInfo.environment
+        environment["BONE_FILE_RESOURCE_CHILD_ROOT"] = root.path
+        environment["BONE_FILE_RESOURCE_CHILD_REFERENCES"] = referencesURL.path
+        process.environment = environment
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+
+        // 启动独立进程并验证固定错误分类。
+        try process.run()
+        process.waitUntilExit()
+        let outputText = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertEqual(process.terminationStatus, 0, outputText)
+        XCTAssertTrue(outputText.contains("BONE_RESOURCE_TAMPERED_OK"), outputText)
+    }
+
+    /// 子进程验证损坏快照被恢复入口拒绝。
+    func testChildRejectsTamperedSnapshot() async throws {
+        // 普通测试运行不应执行子进程专用断言。
+        guard let rootPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_ROOT"],
+              let referencesPath = ProcessInfo.processInfo.environment["BONE_FILE_RESOURCE_CHILD_REFERENCES"] else {
+            throw XCTSkip("仅由独立恢复子进程执行")
+        }
+
+        // 子进程重新创建 Store，并要求摘要校验失败时返回 expired。
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+        let references = try JSONDecoder().decode([BoneFileResourceReference].self,
+                                                    from: Data(contentsOf: URL(fileURLWithPath: referencesPath)))
+        let reference = try XCTUnwrap(references.first)
+        do {
+            _ = try await BoneFileResourceStore(directory: root).restore(reference)
+            XCTFail("损坏快照不能被恢复")
+        } catch let error as BoneFileResourceError {
+            XCTAssertEqual(error, .expired)
+            print("BONE_RESOURCE_TAMPERED_OK")
+        }
+    }
+
     /// 多字节 UTF-8 字符跨固定分块边界时，规范化内容仍必须与原文一致。
     func testUTF8CharactersCrossChunkBoundaryWithoutLoss() async throws {
         try await withStore { _, store in

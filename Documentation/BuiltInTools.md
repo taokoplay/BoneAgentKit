@@ -89,6 +89,7 @@ if let hit = result.hits.first {
 ### 多格式文件与持久长文件快照
 
 需要跨进程或重启继续读取时，宿主使用 `BoneFileResourceStore` 导入用户已授权的本地文件。Store 会把原始文件复制到应用私有的内容寻址 blob，公开给模型的只有 `BoneFileResourceReference`，其中包含不透明资源 ID、版本、大小、SHA-256 和资源类型。会话存档保存引用，正文和派生视图留在 Store 中，恢复时重新校验 blob 摘要。
+恢复合同已通过独立 XCTest 子进程验证，删除原始文件后仍可恢复文本派生视图和二进制快照，blob 摘要不一致时恢复会 fail closed。
 
 | 类型 | 支持范围 | 读取入口 |
 | --- | --- | --- |
