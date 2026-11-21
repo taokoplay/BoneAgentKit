@@ -153,10 +153,13 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
     var enablesNotifications = false
     var enablesPhotos = false
     var enablesContacts = false
+    var enablesLocation = false
+    var enablesShare = false
+    var enablesCompose = false
     var enablesAskUser = false
 
     /// 当前设置是否启用了任一 Apple 系统能力。
-    var enablesAppleTools: Bool { enablesCalendar || enablesReminders || enablesNotifications || enablesPhotos || enablesContacts }
+    var enablesAppleTools: Bool { enablesCalendar || enablesReminders || enablesNotifications || enablesPhotos || enablesContacts || enablesLocation || enablesShare || enablesCompose }
     var enablesWebFetch = false
     var enablesWebSearch = false
     var webAllowedHosts = ""
@@ -179,7 +182,7 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         case usesStreaming, managesContext, summarizesContext, contextWindowTokens, preservesConversation, enablesTextResources
         case contextToolHistoryCompaction, contextSummaryOutputTokens
         case visionPolicy, visionTokenBase, visionTokensPerMegapixel, visionBindingID
-        case enablesDateTime, enablesCalendar, enablesReminders, enablesNotifications, enablesPhotos, enablesContacts
+        case enablesDateTime, enablesCalendar, enablesReminders, enablesNotifications, enablesPhotos, enablesContacts, enablesLocation, enablesShare, enablesCompose
         case enablesAskUser, enablesWebFetch, enablesWebSearch, webAllowedHosts
         case searchConfiguration
     }
@@ -212,6 +215,9 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         enablesNotifications = try c.decodeIfPresent(Bool.self, forKey: .enablesNotifications) ?? false
         enablesPhotos = try c.decodeIfPresent(Bool.self, forKey: .enablesPhotos) ?? false
         enablesContacts = try c.decodeIfPresent(Bool.self, forKey: .enablesContacts) ?? false
+        enablesLocation = try c.decodeIfPresent(Bool.self, forKey: .enablesLocation) ?? false
+        enablesShare = try c.decodeIfPresent(Bool.self, forKey: .enablesShare) ?? false
+        enablesCompose = try c.decodeIfPresent(Bool.self, forKey: .enablesCompose) ?? false
         enablesAskUser = try c.decodeIfPresent(Bool.self, forKey: .enablesAskUser) ?? false
         enablesWebFetch = try c.decodeIfPresent(Bool.self, forKey: .enablesWebFetch) ?? false
         enablesWebSearch = try c.decodeIfPresent(Bool.self, forKey: .enablesWebSearch) ?? false

@@ -101,7 +101,7 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
         let canonical = try BoneCanonicalToolCall(toolID: definition.id, toolVersion: definition.version,
                                                   schemaVersion: schemaVersion, arguments: call.arguments)
         // Asking is itself the selected user interaction. It never approves another tool.
-        if requiresApproval && definition.id != "user.ask" && definition.id != "calendar.manage" && definition.id != "reminder.manage" && definition.id != "notification.manage" && definition.id != "photo.manage" && definition.id != "contact.manage" {
+        if requiresApproval && definition.id != "user.ask" && definition.id != "calendar.manage" && definition.id != "reminder.manage" && definition.id != "notification.manage" && definition.id != "photo.manage" && definition.id != "contact.manage" && definition.id != "share.present" && definition.id != "compose.present" {
             // Validate the exact typed input and Host policy before presenting consent.
             let value: String
             var webHost: String?
@@ -130,7 +130,7 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
                 target: value, webHost: webHost, fallbackTitle: definition.title,
                 searchProvider: searchProvider, handlers: handlers)
         }
-        if requiresApproval && ["calendar.manage", "reminder.manage", "notification.manage", "photo.manage", "contact.manage"].contains(definition.id) {
+        if requiresApproval && ["calendar.manage", "reminder.manage", "notification.manage", "photo.manage", "contact.manage", "share.present", "compose.present"].contains(definition.id) {
             guard try await handlers.authorize(.init(id: UUID(), title: definition.title,
                 detail: try appleAuthorizationDetail(call, definition: definition))) else {
                 throw BoneAuthorizationError.denied
@@ -213,6 +213,12 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
             case .search, .get:
                 return "当前操作不会写入系统通讯录。"
             }
+        case "share.present":
+            let input = try decoder.decode(BoneShareRequest.self, from: call.arguments)
+            return "将打开系统分享面板，内容类型为 \(input.contentType.rawValue)。确认后交给你选择分享目标。"
+        case "compose.present":
+            let input = try decoder.decode(BoneComposeRequest.self, from: call.arguments)
+            return "将打开 \(input.channel == .mail ? "邮件" : "信息") 编辑器，收件人数量为 \(input.recipients.count)。确认后由你检查和发送。"
         default:
             return "请核对本次系统操作的内容和目标。确认后才会写入系统数据。"
         }

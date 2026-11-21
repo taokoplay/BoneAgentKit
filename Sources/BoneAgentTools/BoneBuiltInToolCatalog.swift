@@ -2,7 +2,7 @@ import Foundation
 
 /// Selection metadata only. Presets never register tools, create clients, grant access, or perform I/O.
 public enum BoneBuiltInToolGroup: String, Codable, CaseIterable, Identifiable, Sendable {
-    case calculator, dateTime, resources, calendar, reminders, notifications, photos, contacts, webFetch, webSearch, askUser
+    case calculator, dateTime, resources, calendar, reminders, notifications, photos, contacts, location, share, compose, webFetch, webSearch, askUser
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -14,6 +14,9 @@ public enum BoneBuiltInToolGroup: String, Codable, CaseIterable, Identifiable, S
         case .notifications: return "本地通知"
         case .photos: return "相册图片"
         case .contacts: return "联系人"
+        case .location: return "当前位置"
+        case .share: return "系统分享"
+        case .compose: return "邮件或信息草稿"
         case .webFetch: return "网页正文读取"
         case .webSearch: return "联网搜索"
         case .askUser: return "询问用户"
@@ -31,6 +34,9 @@ public enum BoneBuiltInToolGroup: String, Codable, CaseIterable, Identifiable, S
         case .notifications: return ["notification.manage"]
         case .photos: return ["photo.manage"]
         case .contacts: return ["contact.manage"]
+        case .location: return ["location.lookup"]
+        case .share: return ["share.present"]
+        case .compose: return ["compose.present"]
         case .webFetch: return ["web.fetch"]
         case .webSearch: return ["web.search"]
         case .askUser: return ["user.ask"]

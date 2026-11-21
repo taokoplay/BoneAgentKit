@@ -20,7 +20,7 @@
 | --- | --- |
 | [架构与模块边界](Architecture.md) | Agent Harness、模块职责和依赖方向 |
 | [Tool Calling](ToolCalling.md) | 统一事实模型、Provider wire、调度与授权 |
-| [可选内置工具](BuiltInTools.md) | BoneAgentTools 内置工具、Apple 系统能力、资源检索、网页/搜索与用户询问的 Host 授权接入 |
+| [可选内置工具](BuiltInTools.md) | BoneAgentTools 内置工具、Apple 系统能力、前台交互、资源检索、网页/搜索与用户询问的 Host 授权接入 |
 | [Workflow 与恢复](WorkflowAndRecovery.md) | 状态机、CAS、lease、Effect 和恢复语义 |
 | [跨 Run 会话连续性](ConversationContinuity.md) | 私有 Conversation Session、导出/恢复、revision 和失败锁定 |
 | [Agent 实时事件流](AgentStreaming.md) | 显式实时 delta、Tool 生命周期、终态与 Llama 能力边界 |

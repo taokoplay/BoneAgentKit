@@ -13,6 +13,9 @@ struct DemoLabToolPlan: Codable, Equatable, Sendable {
         if settings.enablesNotifications { groups.insert(.notifications) }
         if settings.enablesPhotos { groups.insert(.photos) }
         if settings.enablesContacts { groups.insert(.contacts) }
+        if settings.enablesLocation { groups.insert(.location) }
+        if settings.enablesShare { groups.insert(.share) }
+        if settings.enablesCompose { groups.insert(.compose) }
         if settings.enablesTextResources { groups.insert(.resources) }
         if settings.enablesWebFetch { groups.insert(.webFetch) }
         if settings.enablesWebSearch { groups.insert(.webSearch) }
@@ -34,6 +37,9 @@ struct DemoLabToolPlan: Codable, Equatable, Sendable {
         settings.enablesNotifications = groups.contains(.notifications)
         settings.enablesPhotos = groups.contains(.photos)
         settings.enablesContacts = groups.contains(.contacts)
+        settings.enablesLocation = groups.contains(.location)
+        settings.enablesShare = groups.contains(.share)
+        settings.enablesCompose = groups.contains(.compose)
         settings.enablesTextResources = groups.contains(.resources)
         settings.enablesWebFetch = groups.contains(.webFetch)
         settings.enablesWebSearch = groups.contains(.webSearch)
@@ -119,6 +125,18 @@ struct DemoToolUsage: Identifiable, Sendable {
             return .init(group: group, symbol: "person.crop.circle", purpose: "查询和管理授权的联系人。",
                 preparation: "首次使用时系统会请求联系人权限；创建、修改和删除会再次确认。", example: "请查找联系人张三的电话，并在确认后把他的公司更新为新公司。",
                 steps: ["模型按姓名、电话或邮箱查找有限结果。", "写入前展示联系人标识和变更字段。", "确认后由 App 写入系统通讯录。"])
+        case .location:
+            return .init(group: group, symbol: "location.fill", purpose: "查询当前设备位置或把坐标转换为地址。",
+                preparation: "首次查询当前位置时系统会请求定位权限；位置结果只在当前工具调用中返回。", example: "请查询我当前所在的城市，并给出附近安排的建议。",
+                steps: ["模型调用位置工具请求当前位置。", "App 在前台请求系统定位并返回有限字段。", "模型结合位置结果继续回答，不保存位置历史。"])
+        case .share:
+            return .init(group: group, symbol: "square.and.arrow.up", purpose: "把文本、链接或已登记图片交给系统分享面板。",
+                preparation: "系统会打开分享面板，由你选择目标并确认；分享结果由系统返回。", example: "请把刚才的总结通过系统分享面板发给我选择的应用。",
+                steps: ["模型准备分享内容。", "App 打开系统分享面板。", "你选择目标并完成或取消分享。"])
+        case .compose:
+            return .init(group: group, symbol: "square.and.pencil", purpose: "生成邮件或信息草稿并打开系统编辑器。",
+                preparation: "草稿会进入系统编辑界面，由你检查、修改和发送；App 不会静默发送。", example: "请给项目负责人写一封进度邮件，打开邮件编辑器让我检查后发送。",
+                steps: ["模型生成收件人、主题和正文。", "App 打开邮件或信息编辑界面。", "你检查、修改、发送或取消草稿。"])
         case .resources:
             return .init(group: group, symbol: "doc.text.magnifyingglass", purpose: "在已导入文本中列出、检索并分页读取原文。",
                 preparation: "先导入 UTF-8 文本，或从文本分页专项加入材料。", example: "请使用资料工具列出已导入材料，检索关键内容并说明依据。",

@@ -121,6 +121,18 @@ struct DemoBuiltInToolAssembly {
             let tool = BoneContactTool<BoneAgentEmptyContext> { input, _ in try await appleTools.contacts(input) }
             tools.append(BoneAnyAgentTool(DemoDiagnosedTool(tool, observe: failureObserver)))
         }
+        if settings.enablesLocation {
+            let tool = BoneLocationTool<BoneAgentEmptyContext> { input, _ in try await appleTools.location(input) }
+            tools.append(BoneAnyAgentTool(DemoDiagnosedTool(tool, observe: failureObserver)))
+        }
+        if settings.enablesShare {
+            let tool = BoneShareTool<BoneAgentEmptyContext> { input, _ in try await appleTools.share(input) }
+            tools.append(BoneAnyAgentTool(DemoDiagnosedTool(tool, observe: failureObserver)))
+        }
+        if settings.enablesCompose {
+            let tool = BoneComposeTool<BoneAgentEmptyContext> { input, _ in try await appleTools.compose(input) }
+            tools.append(BoneAnyAgentTool(DemoDiagnosedTool(tool, observe: failureObserver)))
+        }
         if settings.enablesAskUser {
             let tool = BoneAskUserTool<BoneAgentEmptyContext> { question, _ in try await handlers.ask(question) }
             tools.append(BoneAnyAgentTool(DemoDiagnosedTool(tool, observe: failureObserver)))
@@ -176,6 +188,9 @@ struct DemoBuiltInToolAssembly {
         case .notification: _ = try decoder.decode(BoneNotificationRequest.self, from: call.arguments)
         case .photo: _ = try decoder.decode(BonePhotoRequest.self, from: call.arguments)
         case .contact: _ = try decoder.decode(BoneContactRequest.self, from: call.arguments)
+        case .location: _ = try decoder.decode(BoneLocationRequest.self, from: call.arguments)
+        case .share: _ = try decoder.decode(BoneShareRequest.self, from: call.arguments)
+        case .compose: _ = try decoder.decode(BoneComposeRequest.self, from: call.arguments)
         case .askUser: try decoder.decode(BoneUserQuestion.self, from: call.arguments).validated()
         case .webFetch, .webSearch, nil: break // Network inputs are checked with the exact Host policy.
         }
@@ -203,6 +218,11 @@ struct DemoBuiltInToolAssembly {
         case "contact.manage":
             let input = try decoder.decode(BoneContactRequest.self, from: call.arguments)
             return [.create, .update, .delete].contains(input.action)
+        case "location.lookup":
+            _ = try decoder.decode(BoneLocationRequest.self, from: call.arguments)
+            return false
+        case "share.present", "compose.present":
+            return true
         default:
             return definition.id == "user.ask" || definition.id == "web.fetch" || definition.id == "web.search"
         }

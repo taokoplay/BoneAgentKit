@@ -65,3 +65,9 @@
 - 2026-11-21，相册工具返回实际创建的 `PHAsset` 标识。输入只允许 Host 已登记的图片 ID，正文不进入工具参数；当前使用添加权限，不扫描完整相册。
 - 2026-11-21，Apple Notes、系统通知中心历史、Mail 收件箱、Messages 历史和任意系统 App 自动化不纳入通用 CRUD 工具。原因是缺少稳定的公开数据 API，私有数据库或 UI 自动化会带来系统版本、隐私和审核风险。定位、分享、相机、邮件草稿和短信草稿适合作为用户主动触发的前台能力，HealthKit 需要独立专项。
 - 2026-11-21，本轮修复后 WorkflowRunnerDemo SwiftPM 全量测试达到 232 项通过，Apple 工具定向测试 8 项通过，iOS Simulator `BoneAgentLab` 构建通过。构建使用临时 ModuleCache 和 DerivedData，日志中只保留 CoreSimulator 与 AppIntents 环境提示。
+
+## Apple 系统工具前台交互增强
+
+- 2026-11-21，新增的 `location.lookup`、`share.present` 和 `compose.present` 已从 SDK 契约接入 WorkflowRunnerDemo。定位使用 Core Location/MapKit 的一次性前台查询，分享使用系统分享面板，邮件和信息使用系统草稿编辑器。
+- 2026-11-21，iOS Host 为定位、分享和邮件/信息编辑器增加请求身份、取消收敛和重复调用保护。取消会关闭当前系统 UI 并恢复当前工具调用，延迟到达的旧系统回调不会恢复后续请求。分享和草稿内容继续受 Host 已登记资源、系统能力检查和 Demo 授权确认约束。
+- 2026-11-21，公开文档已同步八类 Apple 工具及其边界。Apple Notes、通知中心历史、Mail/Messages 历史、静默发送、任意系统 App 自动化仍不纳入通用工具集，相机和 HealthKit 保留为后续专项。

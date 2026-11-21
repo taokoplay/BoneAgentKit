@@ -2,7 +2,10 @@ import Foundation
 import BoneAgentKit
 import BoneAgentTools
 import Contacts
+import CoreLocation
 import EventKit
+import MessageUI
+import MapKit
 import Photos
 import UIKit
 import UserNotifications
@@ -10,13 +13,29 @@ import UserNotifications
 /// iOS Host 对 Apple 系统框架的适配器。
 /// - Note: 该类型只存在于 Demo App，跨平台 SDK 通过 `DemoAppleToolHandlers` 接收闭包。
 @MainActor
-final class DemoAppleSystemToolHost {
+final class DemoAppleSystemToolHost: NSObject, CLLocationManagerDelegate, MFMailComposeViewControllerDelegate, MFMessageComposeViewControllerDelegate {
     private let eventStore = EKEventStore()
     private let contactStore = CNContactStore()
     private let notificationCenter = UNUserNotificationCenter.current()
+    private let locationManager = CLLocationManager()
     private let imageDataProvider: @Sendable (String) async throws -> Data
     private let notificationDefaults: UserDefaults
     private var notificationIdentifiers: Set<String>
+    /// 当前定位请求的异步等待句柄。
+    private var locationContinuation: CheckedContinuation<CLLocation, Error>?
+    /// 当前定位请求的唯一身份，用于隔离取消回调与后续请求。
+    private var locationRequestID: UUID?
+    /// 当前分享请求的异步等待句柄。
+    private var shareContinuation: CheckedContinuation<BoneShareResult, Error>?
+    /// 当前分享请求的系统面板控制器。
+    private var shareController: UIActivityViewController?
+    /// 当前分享请求的唯一身份。
+    private var shareRequestID: UUID?
+    /// 当前邮件或信息草稿请求的唯一身份。
+    private var composeRequestID: UUID?
+    /// 当前邮件或信息草稿请求的系统编辑器。
+    private var composeController: UIViewController?
+    private var composeContinuation: CheckedContinuation<(BoneAppleOperationStatus, String?), Error>?
 
     private static let notificationDefaultsKey = "boneagentkit.appleTools.notificationIdentifiers"
     private static let notificationIdentifierPrefix = "boneagentkit.notification."
@@ -30,6 +49,9 @@ final class DemoAppleSystemToolHost {
         self.imageDataProvider = imageDataProvider
         self.notificationDefaults = notificationDefaults
         self.notificationIdentifiers = Set(notificationDefaults.stringArray(forKey: Self.notificationDefaultsKey) ?? [])
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
     /// 将 iOS 框架适配为跨平台 Demo 工具处理闭包。
@@ -54,8 +76,403 @@ final class DemoAppleSystemToolHost {
             contacts: { [weak self] request in
                 guard let self else { throw BoneAppleToolError.unavailable }
                 return try await self.handleContact(request)
+            },
+            location: { [weak self] request in
+                guard let self else { throw BoneAppleToolError.unavailable }
+                return try await self.handleLocation(request)
+            },
+            share: { [weak self] request in
+                guard let self else { throw BoneAppleToolError.unavailable }
+                return try await self.handleShare(request)
+            },
+            compose: { [weak self] request in
+                guard let self else { throw BoneAppleToolError.unavailable }
+                return try await self.handleCompose(request)
             }
         )
+    }
+
+    /// 处理当前位置和反向地理编码工具调用。
+    /// - Parameter request: 已通过 SDK 输入校验的位置请求。
+    /// - Returns: 有界位置或地址结果。
+    private func handleLocation(_ request: BoneLocationRequest) async throws -> BoneLocationResult {
+        switch request.action {
+        case .current:
+            let location = try await currentLocation()
+            return .init(status: .completed, location: Self.locationCoordinate(location))
+        case .reverseGeocode:
+            let location = CLLocation(latitude: request.latitude!, longitude: request.longitude!)
+            guard let geocodingRequest = MKReverseGeocodingRequest(location: location) else {
+                throw BoneAppleToolError.invalidArguments
+            }
+            let mapItems = try await geocodingRequest.mapItems
+            let placemarks = mapItems.prefix(request.limit).map(Self.locationPlacemark)
+            return .init(status: .completed, placemarks: Array(placemarks))
+        }
+    }
+
+    /// 请求一次当前设备位置，使用前台 When In Use 权限。
+    /// - Returns: 系统返回的第一条有效位置。
+    private func currentLocation() async throws -> CLLocation {
+        guard CLLocationManager.locationServicesEnabled() else { throw BoneAppleToolError.unavailable }
+        switch locationManager.authorizationStatus {
+        case .denied, .restricted:
+            throw BoneAppleToolError.permissionDenied
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        default:
+            break
+        }
+        guard locationManager.authorizationStatus != .denied,
+              locationManager.authorizationStatus != .restricted else {
+            throw BoneAppleToolError.permissionDenied
+        }
+        if let lastLocation = locationManager.location, lastLocation.timestamp.timeIntervalSinceNow > -300 {
+            return lastLocation
+        }
+        guard locationContinuation == nil else { throw BoneAppleToolError.conflict }
+        let requestID = UUID()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                locationRequestID = requestID
+                locationContinuation = continuation
+                locationManager.requestLocation()
+            }
+        }, onCancel: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.locationRequestID == requestID,
+                      let continuation = self.locationContinuation else { return }
+                self.locationRequestID = nil
+                self.locationContinuation = nil
+                self.locationManager.stopUpdatingLocation()
+                continuation.resume(throwing: CancellationError())
+            }
+        })
+    }
+
+    /// 将系统位置转换为跨平台坐标 DTO。
+    /// - Parameter location: Core Location 位置对象。
+    /// - Returns: 位置工具稳定结果。
+    private static func locationCoordinate(_ location: CLLocation) -> BoneLocationCoordinate {
+        .init(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
+              altitude: location.altitude.isFinite ? location.altitude : nil,
+              horizontalAccuracy: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+              timestamp: iso8601(location.timestamp))
+    }
+
+    /// 将系统地标转换为跨平台地址 DTO。
+    /// - Parameter placemark: Core Location 地标对象。
+    /// - Returns: 地址工具稳定结果。
+    private static func locationPlacemark(_ mapItem: MKMapItem) -> BoneLocationPlacemark {
+        let address = mapItem.address
+        let representations = mapItem.addressRepresentations
+        return .init(country: representations?.regionName,
+                     administrativeArea: nil,
+                     locality: representations?.cityName,
+                     thoroughfare: nil,
+                     subThoroughfare: nil,
+                     postalCode: nil,
+                     formattedAddress: address?.fullAddress ?? representations?.fullAddress(includingRegion: true, singleLine: true))
+    }
+
+    /// 处理系统分享面板工具调用。
+    /// - Parameter request: 已通过 SDK 输入校验的分享请求。
+    /// - Returns: 用户完成或取消分享的结果。
+    private func handleShare(_ request: BoneShareRequest) async throws -> BoneShareResult {
+        guard shareRequestID == nil else { throw BoneAppleToolError.conflict }
+        let requestID = UUID()
+        shareRequestID = requestID
+        do {
+            let result = try await withTaskCancellationHandler(operation: {
+                try await prepareAndPresentShare(request, requestID: requestID)
+            }, onCancel: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.cancelShare(requestID: requestID)
+                }
+            })
+            if shareRequestID == requestID {
+                shareRequestID = nil
+            }
+            return result
+        } catch {
+            if shareRequestID == requestID {
+                shareRequestID = nil
+            }
+            throw error
+        }
+    }
+
+    /// 准备分享内容并等待系统分享面板结束。
+    /// - Parameters:
+    ///   - request: 已通过 SDK 输入校验的分享请求。
+    ///   - requestID: 当前分享请求的唯一身份。
+    /// - Returns: 用户完成或取消分享的结果。
+    private func prepareAndPresentShare(_ request: BoneShareRequest, requestID: UUID) async throws -> BoneShareResult {
+        let item: Any
+        switch request.contentType {
+        case .text:
+            item = request.text!
+        case .url:
+            item = URL(string: request.url!)!
+        case .image:
+            guard let image = UIImage(data: try await imageDataProvider(request.imageID!)) else {
+                throw BoneAppleToolError.unsupported
+            }
+            item = image
+        }
+        try Task.checkCancellation()
+        guard shareRequestID == requestID else { throw CancellationError() }
+        guard let presenter = topViewController() else {
+            throw BoneAppleToolError.unavailable
+        }
+        let controller = UIActivityViewController(activityItems: [item], applicationActivities: nil)
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+        }
+        shareController = controller
+        return try await withCheckedThrowingContinuation { continuation in
+            guard !Task.isCancelled, shareRequestID == requestID else {
+                shareController = nil
+                continuation.resume(throwing: CancellationError())
+                return
+            }
+            shareContinuation = continuation
+            controller.completionWithItemsHandler = { [weak self] activityType, completed, _, error in
+                Task { @MainActor [weak self] in
+                    self?.finishShare(requestID: requestID, contentType: request.contentType,
+                                      activityType: activityType?.rawValue, completed: completed, error: error)
+                }
+            }
+            presenter.present(controller, animated: true)
+        }
+    }
+
+    /// 处理分享面板结束回调，并确保同一请求只恢复一次。
+    /// - Parameters:
+    ///   - requestID: 回调对应的分享请求身份。
+    ///   - contentType: 分享内容类型。
+    ///   - activityType: 系统返回的目标活动类型。
+    ///   - completed: 系统是否报告完成。
+    ///   - error: 系统返回的错误。
+    private func finishShare(requestID: UUID, contentType: BoneShareContentType,
+                            activityType: String?, completed: Bool, error: Error?) {
+        guard shareRequestID == requestID, let continuation = shareContinuation else { return }
+        shareRequestID = nil
+        shareContinuation = nil
+        shareController = nil
+        if error != nil {
+            continuation.resume(throwing: BoneAppleToolError.operationFailed)
+        } else {
+            continuation.resume(returning: .init(status: completed ? .completed : .cancelled,
+                                                 contentType: contentType, activityType: activityType))
+        }
+    }
+
+    /// 取消当前分享请求并关闭系统面板。
+    /// - Parameter requestID: 待取消的分享请求身份。
+    private func cancelShare(requestID: UUID) {
+        guard shareRequestID == requestID else { return }
+        let controller = shareController
+        let continuation = shareContinuation
+        shareRequestID = nil
+        shareController = nil
+        shareContinuation = nil
+        controller?.dismiss(animated: true)
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    /// 处理邮件或信息草稿工具调用。
+    /// - Parameter request: 已通过 SDK 输入校验的草稿请求。
+    /// - Returns: 用户在系统编辑器中的最终操作结果。
+    private func handleCompose(_ request: BoneComposeRequest) async throws -> BoneComposeResult {
+        guard composeRequestID == nil else { throw BoneAppleToolError.conflict }
+        let requestID = UUID()
+        guard let presenter = topViewController() else { throw BoneAppleToolError.unavailable }
+        let controller: UIViewController
+        switch request.channel {
+        case .mail:
+            guard MFMailComposeViewController.canSendMail() else { throw BoneAppleToolError.unavailable }
+            let mail = MFMailComposeViewController()
+            mail.setToRecipients(request.recipients)
+            mail.setSubject(request.subject ?? "")
+            mail.setMessageBody(request.body, isHTML: false)
+            mail.mailComposeDelegate = self
+            controller = mail
+        case .message:
+            guard MFMessageComposeViewController.canSendText() else { throw BoneAppleToolError.unavailable }
+            let message = MFMessageComposeViewController()
+            message.recipients = request.recipients
+            message.body = request.body
+            message.messageComposeDelegate = self
+            controller = message
+        }
+        composeRequestID = requestID
+        composeController = controller
+        do {
+            let result: (BoneAppleOperationStatus, String?) = try await withTaskCancellationHandler(operation: {
+                try await withCheckedThrowingContinuation { continuation in
+                    guard !Task.isCancelled, composeRequestID == requestID else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    composeContinuation = continuation
+                    presenter.present(controller, animated: true)
+                }
+            }, onCancel: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.cancelCompose(requestID: requestID)
+                }
+            })
+            if composeRequestID == requestID {
+                composeRequestID = nil
+                composeController = nil
+            }
+            return .init(status: result.0, channel: request.channel, activityType: result.1)
+        } catch {
+            if composeRequestID == requestID {
+                composeRequestID = nil
+                composeController = nil
+            }
+            throw error
+        }
+    }
+
+    /// 取消当前邮件或信息草稿请求，并关闭系统编辑器。
+    /// - Parameter requestID: 待取消的草稿请求身份。
+    private func cancelCompose(requestID: UUID) {
+        guard composeRequestID == requestID else { return }
+        let controller = composeController
+        let continuation = composeContinuation
+        composeRequestID = nil
+        composeController = nil
+        composeContinuation = nil
+        controller?.dismiss(animated: true)
+        continuation?.resume(throwing: CancellationError())
+    }
+
+    /// 查找当前前台场景最上层的视图控制器。
+    /// - Returns: 可以呈现系统界面的视图控制器。
+    private func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first { $0.isKeyWindow } ?? scenes.flatMap(\.windows).first
+        var controller = window?.rootViewController
+        while let presented = controller?.presentedViewController { controller = presented }
+        return controller
+    }
+
+    /// CLLocationManager 授权状态变化回调。
+    /// - Parameter manager: 发生状态变化的位置管理器。
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        Task { @MainActor [weak self] in
+            self?.handleLocationAuthorizationChange(status)
+        }
+    }
+
+    /// 在主 Actor 上处理定位授权变化并继续或结束当前请求。
+    /// - Parameter status: 系统返回的授权状态。
+    private func handleLocationAuthorizationChange(_ status: CLAuthorizationStatus) {
+        guard let continuation = locationContinuation else { return }
+        switch status {
+        case .denied, .restricted:
+            locationRequestID = nil
+            locationContinuation = nil
+            continuation.resume(throwing: BoneAppleToolError.permissionDenied)
+        case .authorizedWhenInUse, .authorizedAlways:
+            locationManager.requestLocation()
+        default:
+            break
+        }
+    }
+
+    /// CLLocationManager 单次位置更新回调。
+    /// - Parameters:
+    ///   - manager: 返回位置的位置管理器。
+    ///   - locations: 系统返回的位置列表。
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor [weak self] in
+            guard let self, let continuation = self.locationContinuation else { return }
+            self.locationRequestID = nil
+            self.locationContinuation = nil
+            continuation.resume(returning: location)
+        }
+    }
+
+    /// CLLocationManager 失败回调。
+    /// - Parameters:
+    ///   - manager: 发生失败的位置管理器。
+    ///   - error: 系统返回的定位错误。
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor [weak self] in
+            guard let self, let continuation = self.locationContinuation else { return }
+            self.locationRequestID = nil
+            self.locationContinuation = nil
+            if (error as NSError).code == CLError.denied.rawValue {
+                continuation.resume(throwing: BoneAppleToolError.permissionDenied)
+            } else {
+                continuation.resume(throwing: BoneAppleToolError.operationFailed)
+            }
+        }
+    }
+
+    /// 邮件编辑器结束回调。
+    /// - Parameters:
+    ///   - controller: 邮件编辑器。
+    ///   - result: 用户操作结果。
+    ///   - error: 系统返回的错误。
+    nonisolated func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+        Task { @MainActor [weak self] in
+            self?.finishCompose(controller, result: result, error: error)
+        }
+    }
+
+    /// 信息编辑器结束回调。
+    /// - Parameters:
+    ///   - controller: 信息编辑器。
+    ///   - result: 用户操作结果。
+    /// - Returns: 无返回值，结果通过挂起的工具调用继续传递。
+    nonisolated func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let status: BoneAppleOperationStatus = result == .cancelled ? .cancelled : .completed
+            let error: Error? = result == .failed ? BoneAppleToolError.operationFailed : nil
+            self.finishCompose(controller, status: status, error: error)
+        }
+    }
+
+    /// 统一完成邮件编辑器的挂起调用。
+    /// - Parameters:
+    ///   - controller: 邮件编辑器。
+    ///   - result: 用户操作结果。
+    ///   - error: 系统返回的错误。
+    private func finishCompose(_ controller: MFMailComposeViewController, result: MFMailComposeResult, error: Error?) {
+        finishCompose(controller, status: result == .cancelled ? .cancelled : .completed,
+                      error: error ?? (result == .failed ? BoneAppleToolError.operationFailed : nil))
+    }
+
+    /// 统一结束邮件或信息编辑器请求，并检查回调是否属于当前控制器。
+    /// - Parameters:
+    ///   - controller: 已结束的系统编辑器。
+    ///   - status: 用户操作状态。
+    ///   - error: 需要交给工具调用的固定错误。
+    private func finishCompose(_ controller: UIViewController, status: BoneAppleOperationStatus, error: Error?) {
+        guard let currentController = composeController, currentController === controller,
+              let continuation = composeContinuation else { return }
+        composeRequestID = nil
+        composeController = nil
+        composeContinuation = nil
+        controller.dismiss(animated: true)
+        if let error {
+            continuation.resume(throwing: error is BoneAppleToolError ? error : BoneAppleToolError.operationFailed)
+        } else {
+            continuation.resume(returning: (status, nil))
+        }
     }
 
     /// 处理日历工具调用。

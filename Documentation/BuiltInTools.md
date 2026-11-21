@@ -43,23 +43,29 @@ Apple 系统工具的稳定契约位于 `BoneAgentTools`，EventKit、Contacts�
 | `notification.manage` | 已实现 | UserNotifications | 安排、列出和取消本 App 自己登记的本地通知。不能读取其他 App 的通知历史。 |
 | `photo.manage` | 已实现 | PhotoKit | 保存 Host 已登记的图片，可创建指定标题的相簿。首期采用添加权限，不扫描完整相册。 |
 | `contact.manage` | 已实现 | Contacts | 按姓名、组织、电话或邮箱搜索，获取、创建、修改和删除联系人。结果字段和数量有界，写操作需要确认。 |
+| `location.lookup` | 已实现 | Core Location、MapKit | 查询当前设备位置，或把明确坐标反向地理编码为有限地址结果。只请求前台 When In Use 权限，不保存位置历史。 |
+| `share.present` | 已实现 | UIKit `UIActivityViewController` | 将文本、HTTP/HTTPS 链接或 Host 已登记图片交给系统分享面板，由用户选择目标并完成或取消。 |
+| `compose.present` | 已实现 | MessageUI | 生成邮件或信息草稿并打开系统编辑器，由用户检查、修改、发送或取消。不能静默发送，也不读取历史消息。 |
 | `resource.*` 文件工具 | 已实现 | FileManager、UIDocumentPicker 及解析器 | 负责用户明确选择的文件导入、快照、分页读取、Office、PDF、OCR、压缩包和二进制窗口。它是文件资源能力，不等同于任意访问 iPhone 文件系统。 |
 
 ### Apple 工具的授权规则
 
 - 查询操作可以在当前会话权限内执行，不重复弹出写入确认。
-- 创建、修改、完成、删除、安排通知和保存图片都要展示绑定当前参数的确认预览。
+- 创建、修改、完成、删除、安排通知、保存图片、打开分享面板和打开邮件或信息编辑器都要展示绑定当前参数的确认预览。
 - Apple 工具只返回有界字段。联系人不返回备注、地址和头像，通知只返回本 App 自己登记的逻辑 ID。
 - 权限拒绝、资源不存在、参数错误和系统操作失败映射为固定错误类别，不把系统原始错误文本交给模型。
 - 相册工具只接受 Host 已登记的图片 ID。图片正文不进入工具参数，也不由 SDK 自行读取相册。
 
+### 已实现的前台能力
+
+`location.lookup`、`share.present` 和 `compose.present` 已接入 SDK 契约与 WorkflowRunnerDemo。定位只执行一次前台查询，分享和草稿工具都由系统 UI 接管最终目标选择或发送动作。工具调用支持取消和重复调用保护，系统回调只恢复对应的当前请求。
+
+邮件和信息能力只生成草稿并展示系统编辑界面。它们不静默发送、不读取 Mail 或 Messages 历史，也不把“用户点击发送”解释为送达确认。
+
 ### 后续能力排序
 
-下一阶段优先级是 `location.current`、`location.reverseGeocode` 和 `share.present`。定位适合做成用户发起的短时查询，分享适合做成用户选择目标 App 的前台流程。两者都应由 Host 提供 UI 和权限状态，SDK 只定义有界输入、结果与取消语义。
+相机可作为用户主动触发的前台工具，但需要单独设计拍摄结果的 Host 图片登记、隐私提示和取消语义。Apple Notes 不适合作为通用系统 CRUD 工具，建议优先实现 BoneAgentKit 自有笔记资源。HealthKit 需要独立的数据类型授权、能力开关和合规边界，暂不纳入通用工具集。
 
-相机、邮件草稿和短信草稿也可以做成前台一次性工具，执行结果只能表示用户完成或取消了系统编辑界面。它们不应被设计成静默拍摄、静默发送或送达确认工具。
-
-Apple Notes、通知中心历史、Mail 收件箱、Messages 历史和任意系统 App 的自动化没有适合通用 SDK 的公开 CRUD 边界。Notes 若要支持，应先实现 BoneAgentKit 自有的笔记资源，而不是读取 Apple Notes 私有数据库或依赖 UI 自动化。HealthKit 需要独立的健康数据权限、能力开关和合规模型，暂不纳入通用工具集。
 
 ## 计算与时间
 

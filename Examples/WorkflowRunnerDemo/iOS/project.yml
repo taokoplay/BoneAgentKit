@@ -47,6 +47,7 @@ targets:
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: '允许 Agent Lab 查询和管理你的提醒事项。'
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '允许 Agent Lab 将已确认的图片保存到相册。'
         INFOPLIST_KEY_NSContactsUsageDescription: '允许 Agent Lab 在确认后查询和管理你的联系人。'
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: '允许 Agent Lab 在你请求时查询当前位置并提供相关结果。'
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: '1'
