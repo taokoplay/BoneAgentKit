@@ -43,6 +43,7 @@
 		41B7CAE4AEEDD7D3DAFB092E /* DemoTextResourceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36FC7CF6022B23223CC94F4E /* DemoTextResourceStore.swift */; };
 		4296A5F83944C52A165930B4 /* LiveChatCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20F0DC8081A0DF3C253A7AF /* LiveChatCredentialStore.swift */; };
 		479B54B639C58F0A3831AA83 /* LabStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F4060C17D8A29E9D870A31 /* LabStyle.swift */; };
+		47DB8C60C95248FB80BCF26B /* AppleSystemToolHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0032544ED9F3977C93B008 /* AppleSystemToolHost.swift */; };
 		4A39E5AEF0236EEF62756936 /* ModelCapacityDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DC01BBDD8D5E4397963582A /* ModelCapacityDiagnostic.swift */; };
 		4ADAB289CD3A7A292B5110F2 /* LabValidationResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8573C96702DE92B28A239F47 /* LabValidationResultView.swift */; };
 		4B88BF309F51D7F691CE7285 /* DemoFileRecoveryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3786B16B88B77D1BE41D184B /* DemoFileRecoveryFixture.swift */; };
@@ -114,6 +115,7 @@
 		F2CA97AC6B147F710694AB29 /* PromptLabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DDDF37EA4F52F6D77EEF7CC /* PromptLabView.swift */; };
 		F2D654BF798C7725B05C99E9 /* DemoToolFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD532D09FB72ECAA7669550 /* DemoToolFailure.swift */; };
 		F999F482B6880AF150FA438E /* DemoToolEffectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51FAEEF1B50B660FC1916063 /* DemoToolEffectStore.swift */; };
+		F9F475AA82FDE41451F74079 /* DemoAppleToolSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5603D88346873AF644B1EF63 /* DemoAppleToolSupport.swift */; };
 		FA24C66FECC9074F95F10A5C /* DemoChatTaskBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09893003E8C3260E25D6254 /* DemoChatTaskBundle.swift */; };
 		FBC06CA418BDAED093856AFF /* LiveFileResourcePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2270EA2044C4757999582C01 /* LiveFileResourcePreviewView.swift */; };
 		FC1D6DB7090BE8AC5FE5511E /* DemoTaskRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216147C331E79C0C0F34DE0D /* DemoTaskRecovery.swift */; };
@@ -166,12 +168,14 @@
 		505592B26EBFAEE594F754D9 /* DemoScenarios.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoScenarios.swift; sourceTree = "<group>"; };
 		51FAEEF1B50B660FC1916063 /* DemoToolEffectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoToolEffectStore.swift; sourceTree = "<group>"; };
 		540DFEAC1414DC7BD45B8524 /* SDKModelPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDKModelPickerView.swift; sourceTree = "<group>"; };
+		5603D88346873AF644B1EF63 /* DemoAppleToolSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoAppleToolSupport.swift; sourceTree = "<group>"; };
 		577FCB2975182B7E968A4531 /* LiveChatModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveChatModel.swift; sourceTree = "<group>"; };
 		584CD2A095849A70A8753D5E /* SDKVisionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDKVisionSettingsView.swift; sourceTree = "<group>"; };
 		5971FB96CACDA9DBC5642CD5 /* BaiduPublicPageDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaiduPublicPageDiagnostic.swift; sourceTree = "<group>"; };
 		5C8447816C11F9D70E596D85 /* LabToolWorkbenchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabToolWorkbenchView.swift; sourceTree = "<group>"; };
 		5C8515C8CBDF5A0BF5672B7F /* LiveChatUITestTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveChatUITestTransport.swift; sourceTree = "<group>"; };
 		5DDDF37EA4F52F6D77EEF7CC /* PromptLabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptLabView.swift; sourceTree = "<group>"; };
+		5E0032544ED9F3977C93B008 /* AppleSystemToolHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSystemToolHost.swift; sourceTree = "<group>"; };
 		61A3FD9A40040A72E205E82F /* LiveChatCapabilitySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveChatCapabilitySettings.swift; sourceTree = "<group>"; };
 		63AB82E165BBF6C57B606E09 /* SDKProviderPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDKProviderPickerView.swift; sourceTree = "<group>"; };
 		68D9DE982E4B4845E4C18FBC /* DemoLiveChatObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoLiveChatObservation.swift; sourceTree = "<group>"; };
@@ -342,6 +346,7 @@
 		AB1B67A69137482285DDB687 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				5E0032544ED9F3977C93B008 /* AppleSystemToolHost.swift */,
 				BFF7E455916FE5051928623F /* BoneAgentLab.entitlements */,
 				07B12FA485E5BEDC55B29EB9 /* BoneAgentLabApp.swift */,
 				E931A797CE0403B71B2F520B /* PromptLabModels.swift */,
@@ -415,6 +420,7 @@
 		D162C0F1B873B214307B62C8 /* WorkflowRunnerDemo */ = {
 			isa = PBXGroup;
 			children = (
+				5603D88346873AF644B1EF63 /* DemoAppleToolSupport.swift */,
 				8D578CED842C212F913424E2 /* DemoBoundedStreaming.swift */,
 				A625283CE4BE0F4E76C0D269 /* DemoBrowserSearchExtraction.swift */,
 				2377412325D105F6CE4788C4 /* DemoBrowserSearchSupport.swift */,
@@ -566,9 +572,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				47DB8C60C95248FB80BCF26B /* AppleSystemToolHost.swift in Sources */,
 				2664D318EF4341CBEE886A78 /* BaiduAnswerUITestFixture.swift in Sources */,
 				17E38D351DCCDCACF4B88C72 /* BaiduPublicPageDiagnostic.swift in Sources */,
 				61C84F5B155AB240155A5826 /* BoneAgentLabApp.swift in Sources */,
+				F9F475AA82FDE41451F74079 /* DemoAppleToolSupport.swift in Sources */,
 				30F4E9CC9FBF3207A333C8EE /* DemoBoundedStreaming.swift in Sources */,
 				9BBEF7120A23F2C865429CBA /* DemoBrowserSearchExtraction.swift in Sources */,
 				0327AC2A345093335F672AB9 /* DemoBrowserSearchSupport.swift in Sources */,
@@ -702,6 +710,11 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_KEY_CFBundleDisplayName = "Agent Lab";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "允许 Agent Lab 查询和管理你的日历事件。";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "允许 Agent Lab 创建和修改你的日历事件。";
+				INFOPLIST_KEY_NSContactsUsageDescription = "允许 Agent Lab 在确认后查询和管理你的联系人。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 Agent Lab 将已确认的图片保存到相册。";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "允许 Agent Lab 查询和管理你的提醒事项。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -742,6 +755,11 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_KEY_CFBundleDisplayName = "Agent Lab";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "允许 Agent Lab 查询和管理你的日历事件。";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "允许 Agent Lab 创建和修改你的日历事件。";
+				INFOPLIST_KEY_NSContactsUsageDescription = "允许 Agent Lab 在确认后查询和管理你的联系人。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "允许 Agent Lab 将已确认的图片保存到相册。";
+				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "允许 Agent Lab 查询和管理你的提醒事项。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

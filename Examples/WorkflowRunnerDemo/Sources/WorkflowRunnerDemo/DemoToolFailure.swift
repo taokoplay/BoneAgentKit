@@ -19,6 +19,11 @@ struct DemoToolFailure: Codable, Equatable, Sendable {
         case resourceReadBytes = "resource.readBytes"
         case resourceReadPDFLayout = "resource.readPDFLayout"
         case resourceOCR = "resource.ocr"
+        case calendar = "calendar.manage"
+        case reminder = "reminder.manage"
+        case notification = "notification.manage"
+        case photo = "photo.manage"
+        case contact = "contact.manage"
         case webFetch = "web.fetch"
         case webSearch = "web.search"
         case askUser = "user.ask"
@@ -38,6 +43,11 @@ struct DemoToolFailure: Codable, Equatable, Sendable {
             case .resourceReadBytes: "原始字节读取"
             case .resourceReadPDFLayout: "PDF 布局还原"
             case .resourceOCR: "PDF OCR"
+            case .calendar: "日历事件"
+            case .reminder: "提醒事项"
+            case .notification: "本地通知"
+            case .photo: "相册图片"
+            case .contact: "联系人"
             case .webFetch: "网页正文读取"
             case .webSearch: "自动搜索"
             case .askUser: "询问用户"
@@ -163,6 +173,15 @@ struct DemoToolFailure: Codable, Equatable, Sendable {
             }
         } else if error is DemoResourcePageError {
             reason = .invalidArguments
+        } else if error is BoneAppleToolError {
+            switch error as! BoneAppleToolError {
+            case .invalidArguments: reason = .invalidArguments
+            case .permissionDenied: reason = .notAuthorized
+            case .unavailable, .unsupported: reason = .configuration
+            case .notFound, .conflict: reason = .invalidResponse
+            case .cancelled: return nil
+            case .operationFailed: reason = .outcomeUnconfirmed
+            }
         } else if error is BoneAskUserError {
             reason = .interactionUnavailable
         } else if error is DecodingError || error is BoneAgentToolError {

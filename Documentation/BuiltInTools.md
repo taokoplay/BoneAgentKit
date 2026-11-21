@@ -19,7 +19,7 @@ let tools: [BoneAnyAgentTool] = [
 let registry = try BoneAgentToolRegistry(tools: tools)
 ```
 
-`BoneBuiltInToolGroup` 提供六类工具的元数据；`BoneBuiltInToolPreset.basic / resources / research` 提供建议的选择集合。它们不实例化客户端、不注册工具、不授予权限；宿主仍需检查依赖是否齐备。
+`BoneBuiltInToolGroup` 提供内置工具组元数据；`BoneBuiltInToolPreset.basic / resources / research` 提供基础、资料和研究场景的建议选择集合。它们不实例化客户端、不注册工具、不授予权限；宿主仍需检查依赖是否齐备。
 
 | 类别 | 稳定 ID / wire name | 输入与行为 |
 | --- | --- | --- |
@@ -31,6 +31,35 @@ let registry = try BoneAgentToolRegistry(tools: tools)
 | 网页读取 | `web.fetch` / `web_fetch` | `url`、可选 maximumTextBytes；静态 HTML / 文本 |
 | 联网搜索 | `web.search` / `web_search` | `query`、可选 count、page；注入搜索服务 |
 | 询问用户 | `user.ask` / `user_ask` | `question`、kind、options；等待 Host 的真实回答 |
+
+## Apple 系统工具
+
+Apple 系统工具的稳定契约位于 `BoneAgentTools`，EventKit、Contacts、Photos、UserNotifications 等系统框架只由 iOS Host 注入。SDK 不直接请求权限，也不创建系统对象。工具调用需要宿主提供当前权限、资源范围和确认策略。
+
+| 工具 | 当前形态 | 公开 API | 实用边界 |
+| --- | --- | --- | --- |
+| `calendar.manage` | 已实现 | EventKit | 搜索、获取、创建、修改和删除事件。读取和写入使用系统日历权限，写操作需要确认。 |
+| `reminder.manage` | 已实现 | EventKit | 搜索、创建、修改、完成和删除提醒事项。位置提醒等系统能力仍由系统界面负责。 |
+| `notification.manage` | 已实现 | UserNotifications | 安排、列出和取消本 App 自己登记的本地通知。不能读取其他 App 的通知历史。 |
+| `photo.manage` | 已实现 | PhotoKit | 保存 Host 已登记的图片，可创建指定标题的相簿。首期采用添加权限，不扫描完整相册。 |
+| `contact.manage` | 已实现 | Contacts | 按姓名、组织、电话或邮箱搜索，获取、创建、修改和删除联系人。结果字段和数量有界，写操作需要确认。 |
+| `resource.*` 文件工具 | 已实现 | FileManager、UIDocumentPicker 及解析器 | 负责用户明确选择的文件导入、快照、分页读取、Office、PDF、OCR、压缩包和二进制窗口。它是文件资源能力，不等同于任意访问 iPhone 文件系统。 |
+
+### Apple 工具的授权规则
+
+- 查询操作可以在当前会话权限内执行，不重复弹出写入确认。
+- 创建、修改、完成、删除、安排通知和保存图片都要展示绑定当前参数的确认预览。
+- Apple 工具只返回有界字段。联系人不返回备注、地址和头像，通知只返回本 App 自己登记的逻辑 ID。
+- 权限拒绝、资源不存在、参数错误和系统操作失败映射为固定错误类别，不把系统原始错误文本交给模型。
+- 相册工具只接受 Host 已登记的图片 ID。图片正文不进入工具参数，也不由 SDK 自行读取相册。
+
+### 后续能力排序
+
+下一阶段优先级是 `location.current`、`location.reverseGeocode` 和 `share.present`。定位适合做成用户发起的短时查询，分享适合做成用户选择目标 App 的前台流程。两者都应由 Host 提供 UI 和权限状态，SDK 只定义有界输入、结果与取消语义。
+
+相机、邮件草稿和短信草稿也可以做成前台一次性工具，执行结果只能表示用户完成或取消了系统编辑界面。它们不应被设计成静默拍摄、静默发送或送达确认工具。
+
+Apple Notes、通知中心历史、Mail 收件箱、Messages 历史和任意系统 App 的自动化没有适合通用 SDK 的公开 CRUD 边界。Notes 若要支持，应先实现 BoneAgentKit 自有的笔记资源，而不是读取 Apple Notes 私有数据库或依赖 UI 自动化。HealthKit 需要独立的健康数据权限、能力开关和合规模型，暂不纳入通用工具集。
 
 ## 计算与时间
 
@@ -152,7 +181,7 @@ Host 拥有呈现、身份、等待超时和取消处理。工具在等待前后
 
 ## Agent Lab 示例与验证
 
-[Agent Lab](../Examples/WorkflowRunnerDemo/iOS/README.md) 在“实验室”统一选择六类工具和三个预设，在“设置”集中管理模型、助手说明与联网信息；配置齐全后仍可编辑。缺少依赖的勾选保留并显示待配置，运行前补齐。普通任务和真实模型测试使用同一套配置；计算测试核对实际工具输出，模型自行写出数字不算通过。每个任务首次联网确认一次，每次执行仍生成绑定参数的一次性授权；问答面板等待最多 90 秒，取消或中断后不自动重发。
+[Agent Lab](../Examples/WorkflowRunnerDemo/iOS/README.md) 在“实验室”统一选择工具组和三个预设，在“设置”集中管理模型、助手说明与联网信息；配置齐全后仍可编辑。缺少依赖的勾选保留并显示待配置，运行前补齐。普通任务和真实模型测试使用同一套配置；计算测试核对实际工具输出，模型自行写出数字不算通过。每个任务首次联网确认一次，每次执行仍生成绑定参数的一次性授权；问答面板等待最多 90 秒，取消或中断后不自动重发。
 
 Agent Lab 的“搜索设置”集中管理网页手动搜索、百度网页问答、Brave API 和 DeepSeek 独立 Search API。`web.search` 使用正式工具契约，Host 按明确配置选择通道及所需凭据，失败不自动切换服务。百度网页问答是 Demo 的可选 keyless 通道：经任务确认，在后台临时未登录的 WebKit 渲染器中读取有限公开结果，不弹出网页；以 `BoneWebSearchOutput` 结构化返回标题、来源、摘要和读取时间供当前模型回答。登录、验证、查询变化、超时和取消均停止。手动浏览选取仍独立保留，由用户主动打开。WebKit 及这些 Host 适配留在 Demo，不纳入 SDK core 或新增公开工具产品 API。
 

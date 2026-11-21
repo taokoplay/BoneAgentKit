@@ -12,6 +12,7 @@
 | [模型元数据与思考参数](ModelMetadataAndReasoning.md) | models.dev 来源边界、Host profile、思考参数映射与私有续接 |
 | [MinimalWorkflowHost](../Examples/MinimalWorkflowHost/README.md) | 编译运行独立 Host Fixture |
 | [ResourceReadingDemo](../Examples/ResourceReadingDemo/README.md) | 一条命令演示预览、压缩、回读和验收；另附六场景自动核验脚本 |
+| [WorkflowRunnerDemo](../Examples/WorkflowRunnerDemo/README.md) | 默认/自定义流程、规划权限、Prompt 组装与回执丢失的可运行原型 |
 
 ## 核心概念
 
@@ -19,7 +20,7 @@
 | --- | --- |
 | [架构与模块边界](Architecture.md) | Agent Harness、模块职责和依赖方向 |
 | [Tool Calling](ToolCalling.md) | 统一事实模型、Provider wire、调度与授权 |
-| [可选内置工具](BuiltInTools.md) | BoneAgentTools 六类工具、按需注册、资源检索、网页/搜索与用户询问的 Host 授权接入 |
+| [可选内置工具](BuiltInTools.md) | BoneAgentTools 内置工具、Apple 系统能力、资源检索、网页/搜索与用户询问的 Host 授权接入 |
 | [Workflow 与恢复](WorkflowAndRecovery.md) | 状态机、CAS、lease、Effect 和恢复语义 |
 | [跨 Run 会话连续性](ConversationContinuity.md) | 私有 Conversation Session、导出/恢复、revision 和失败锁定 |
 | [Agent 实时事件流](AgentStreaming.md) | 显式实时 delta、Tool 生命周期、终态与 Llama 能力边界 |
@@ -59,6 +60,8 @@
 
 - [现代化基线](ModernizationBaseline.md)
 - [Provider 迁移契约](LegacyProviderMigration.md)
+- [Agent Workflow Runner 设计（草案）](Plans/2026-11-12-bone-agent-workflow-runner-design.md)：默认流程、Run 模式、能力范围与受限恢复。
+- [Agent Prompt 组装器设计（草案）](Plans/2026-11-12-bone-agent-prompt-compositor-design.md)：分节、基础替换、追加、运行数据与容量校验。
 - [实施计划目录](Plans/)
 
 ## 文档约定

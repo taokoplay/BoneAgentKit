@@ -434,7 +434,8 @@ struct ChatCatalogTests: Sendable {
             "usesStreaming", "managesContext", "summarizesContext", "contextWindowTokens",
             "preservesConversation", "enablesTextResources", "visionPolicy",
             "visionTokenBase", "visionTokensPerMegapixel", "visionBindingID",
-            "enablesDateTime", "enablesAskUser", "enablesWebFetch", "enablesWebSearch", "webAllowedHosts",
+            "enablesDateTime", "enablesCalendar", "enablesReminders", "enablesNotifications", "enablesPhotos", "enablesContacts",
+            "enablesAskUser", "enablesWebFetch", "enablesWebSearch", "webAllowedHosts",
         ])
         #expect(!String(decoding: encoded, as: UTF8.self).contains(ChatCatalogFixtures.key))
         #expect(try JSONDecoder().decode(DemoLiveChatSettings.self, from: encoded) == valid)

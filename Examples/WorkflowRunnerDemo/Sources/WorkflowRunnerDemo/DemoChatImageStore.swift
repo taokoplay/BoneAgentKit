@@ -44,49 +44,20 @@ actor DemoChatImageStore {
     init() {}
 
     init(privateState: Data) throws {
-        try Task.checkCancellation()
-        guard privateState.count <= Self.maximumPrivateStateBytes else {
-            throw DemoVisionError.invalidPrivateState
-        }
-        let state: PrivateState
-        do { state = try JSONDecoder().decode(PrivateState.self, from: privateState) }
-        catch { throw DemoVisionError.invalidPrivateState }
-        guard state.formatVersion == 1, state.images.count <= Self.maximumImages else {
-            throw DemoVisionError.invalidPrivateState
-        }
-        var restored: [DemoPreparedChatImage] = []
-        var identifiers = Set<String>()
-        var versions = Set<String>()
-        var totalBytes = 0
-        for image in state.images {
-            try Task.checkCancellation()
-            let reference = image.reference
-            guard Self.isRandomUUID(reference.id), Self.isRandomUUID(reference.version),
-                  reference.id != reference.version,
-                  identifiers.insert(reference.id).inserted,
-                  versions.insert(reference.version).inserted,
-                  image.bytes.count == reference.metadata.byteCount,
-                  image.bytes.count <= Self.maximumPreparedBytes,
-                  image.bytes.count <= Self.maximumTotalBytes - totalBytes else {
-                throw DemoVisionError.invalidPrivateState
-            }
-            do {
-                try Self.validatePreparedMetadata(reference.metadata)
-                // Actual SDK decoder, not metadata from the archive. Recompute the
-                // exact SDK hash/reference as well as inspecting encoded dimensions.
-                let metadata = try Self.inspect(image.bytes)
-                let prepared = try BoneInferencePreparedImage(data: image.bytes, metadata: metadata)
-                guard try prepared.reference(id: reference.id, version: reference.version) == reference else {
-                    throw DemoVisionError.invalidPrivateState
-                }
-            } catch is CancellationError { throw CancellationError() }
-            catch DemoVisionError.imageIOUnavailable { throw DemoVisionError.imageIOUnavailable }
-            catch { throw DemoVisionError.invalidPrivateState }
-            restored.append(.init(reference: reference, previewData: image.bytes))
-            totalBytes += image.bytes.count
-        }
-        try Task.checkCancellation()
-        active = restored
+        active = try Self.decodePrivateState(privateState)
+    }
+
+    /// 将已验证的私有图片状态恢复到当前 actor，保持外部 Host 捕获的存储身份稳定。
+    /// - Parameter privateState: 由 `exportPrivateState()` 生成的受限状态数据。
+    func restore(privateState: Data) throws {
+        active = try Self.decodePrivateState(privateState)
+        generation = UUID()
+    }
+
+    /// 清空当前会话的图片内容，同时使旧的图片引用失效。
+    func reset() {
+        active.removeAll(keepingCapacity: false)
+        generation = UUID()
     }
 
     @discardableResult
@@ -123,6 +94,15 @@ actor DemoChatImageStore {
     }
 
     func entries() -> [DemoPreparedChatImage] { active }
+
+    /// 读取已登记图片的规范化字节，供相册 Host 按不透明 imageID 保存。
+    /// - Parameter id: 当前 Host 已登记的图片身份。
+    /// - Returns: 经过图片预处理的 PNG、JPEG 或 WebP 字节。
+    func data(for id: String) throws -> Data {
+        try Task.checkCancellation()
+        guard let image = active.first(where: { $0.id == id }) else { throw DemoVisionError.unavailableImage }
+        return image.previewData
+    }
 
     func inputs(for ids: [String]) throws -> [BoneInferenceImageInput] {
         try Task.checkCancellation()
@@ -205,6 +185,53 @@ actor DemoChatImageStore {
         #else
         throw DemoVisionError.imageIOUnavailable
         #endif
+    }
+
+    /// 解码并重新校验图片私有状态，避免归档中的元数据替代 SDK 实际解析结果。
+    /// - Parameter privateState: 待恢复的图片状态。
+    /// - Returns: 通过大小、引用、图像格式和内容摘要校验的图片列表。
+    private static func decodePrivateState(_ privateState: Data) throws -> [DemoPreparedChatImage] {
+        try Task.checkCancellation()
+        guard privateState.count <= Self.maximumPrivateStateBytes else {
+            throw DemoVisionError.invalidPrivateState
+        }
+        let state: PrivateState
+        do { state = try JSONDecoder().decode(PrivateState.self, from: privateState) }
+        catch { throw DemoVisionError.invalidPrivateState }
+        guard state.formatVersion == 1, state.images.count <= Self.maximumImages else {
+            throw DemoVisionError.invalidPrivateState
+        }
+        var restored: [DemoPreparedChatImage] = []
+        var identifiers = Set<String>()
+        var versions = Set<String>()
+        var totalBytes = 0
+        for image in state.images {
+            try Task.checkCancellation()
+            let reference = image.reference
+            guard Self.isRandomUUID(reference.id), Self.isRandomUUID(reference.version),
+                  reference.id != reference.version,
+                  identifiers.insert(reference.id).inserted,
+                  versions.insert(reference.version).inserted,
+                  image.bytes.count == reference.metadata.byteCount,
+                  image.bytes.count <= Self.maximumPreparedBytes,
+                  image.bytes.count <= Self.maximumTotalBytes - totalBytes else {
+                throw DemoVisionError.invalidPrivateState
+            }
+            do {
+                try Self.validatePreparedMetadata(reference.metadata)
+                let metadata = try Self.inspect(image.bytes)
+                let prepared = try BoneInferencePreparedImage(data: image.bytes, metadata: metadata)
+                guard try prepared.reference(id: reference.id, version: reference.version) == reference else {
+                    throw DemoVisionError.invalidPrivateState
+                }
+            } catch is CancellationError { throw CancellationError() }
+            catch DemoVisionError.imageIOUnavailable { throw DemoVisionError.imageIOUnavailable }
+            catch { throw DemoVisionError.invalidPrivateState }
+            restored.append(.init(reference: reference, previewData: image.bytes))
+            totalBytes += image.bytes.count
+        }
+        try Task.checkCancellation()
+        return restored
     }
 
     private static func isRandomUUID(_ text: String) -> Bool {

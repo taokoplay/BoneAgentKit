@@ -8,6 +8,11 @@ struct DemoLabToolPlan: Codable, Equatable, Sendable {
         var groups: Set<BoneBuiltInToolGroup> = []
         if settings.enablesCalculator { groups.insert(.calculator) }
         if settings.enablesDateTime { groups.insert(.dateTime) }
+        if settings.enablesCalendar { groups.insert(.calendar) }
+        if settings.enablesReminders { groups.insert(.reminders) }
+        if settings.enablesNotifications { groups.insert(.notifications) }
+        if settings.enablesPhotos { groups.insert(.photos) }
+        if settings.enablesContacts { groups.insert(.contacts) }
         if settings.enablesTextResources { groups.insert(.resources) }
         if settings.enablesWebFetch { groups.insert(.webFetch) }
         if settings.enablesWebSearch { groups.insert(.webSearch) }
@@ -24,6 +29,11 @@ struct DemoLabToolPlan: Codable, Equatable, Sendable {
         }
         settings.enablesCalculator = groups.contains(.calculator)
         settings.enablesDateTime = groups.contains(.dateTime)
+        settings.enablesCalendar = groups.contains(.calendar)
+        settings.enablesReminders = groups.contains(.reminders)
+        settings.enablesNotifications = groups.contains(.notifications)
+        settings.enablesPhotos = groups.contains(.photos)
+        settings.enablesContacts = groups.contains(.contacts)
         settings.enablesTextResources = groups.contains(.resources)
         settings.enablesWebFetch = groups.contains(.webFetch)
         settings.enablesWebSearch = groups.contains(.webSearch)
@@ -89,6 +99,26 @@ struct DemoToolUsage: Identifiable, Sendable {
             return .init(group: group, symbol: "clock", purpose: "查询设备时间、转换时区、计算日期与时间差。",
                 preparation: "当前时间由设备提供；可在任务中明确时区。", example: "请使用日期时间工具查询现在的时间，并转换为 Asia/Shanghai 时区。",
                 steps: ["在任务中描述日期、时区或时间差。", "模型将需求转换为日期工具参数。", "工具返回实际时间，模型整理为回复。"])
+        case .calendar:
+            return .init(group: group, symbol: "calendar", purpose: "查询和管理授权的日历事件。",
+                preparation: "首次使用时系统会请求日历权限；创建、修改和删除会再次确认。", example: "请查找明天上午的日历安排，并把下午三点的会议改到四点。",
+                steps: ["先查询目标日期的事件。", "修改或删除前核对事件和时间。", "确认后由 App 写入系统日历。"])
+        case .reminders:
+            return .init(group: group, symbol: "checklist", purpose: "查询、创建和完成提醒事项。",
+                preparation: "首次使用时系统会请求提醒事项权限；创建、完成和删除会再次确认。", example: "请查找今天未完成的提醒，并创建一条明天上午九点提醒我提交报告。",
+                steps: ["模型先读取有限范围的提醒事项。", "写入前展示标题、时间和列表。", "确认后由 App 写入提醒事项。"])
+        case .notifications:
+            return .init(group: group, symbol: "bell", purpose: "创建和管理本 App 自己安排的本地通知。",
+                preparation: "首次安排通知时系统会请求通知权限；取消和安排会再次确认。", example: "请在明天上午九点安排一条通知，提醒我提交报告。",
+                steps: ["模型生成通知时间和内容。", "App 展示一次性确认。", "通知只由本 App 创建和管理。"])
+        case .photos:
+            return .init(group: group, symbol: "photo", purpose: "把用户已选择或 App 已生成的图片保存到相册。",
+                preparation: "选择图片使用系统 PhotosPicker；保存图片时请求添加权限并需要确认。", example: "请把当前对话中生成的图片保存到相册。",
+                steps: ["用户从相册选择图片或先生成图片。", "模型只能引用已登记的图片 ID。", "确认后 App 保存到系统相册。"])
+        case .contacts:
+            return .init(group: group, symbol: "person.crop.circle", purpose: "查询和管理授权的联系人。",
+                preparation: "首次使用时系统会请求联系人权限；创建、修改和删除会再次确认。", example: "请查找联系人张三的电话，并在确认后把他的公司更新为新公司。",
+                steps: ["模型按姓名、电话或邮箱查找有限结果。", "写入前展示联系人标识和变更字段。", "确认后由 App 写入系统通讯录。"])
         case .resources:
             return .init(group: group, symbol: "doc.text.magnifyingglass", purpose: "在已导入文本中列出、检索并分页读取原文。",
                 preparation: "先导入 UTF-8 文本，或从文本分页专项加入材料。", example: "请使用资料工具列出已导入材料，检索关键内容并说明依据。",

@@ -56,3 +56,12 @@
 - 2026-11-21，统一文件资源引用已进入消息、任务草稿和会话归档，旧归档缺少新字段时保持兼容。正文不进入会话存档，存档只保存有界引用状态；资源快照删除原始文件后仍可恢复，篡改快照会 fail-closed。
 - 2026-11-21，新增 Demo 文件资源 Host 回归测试，覆盖 GBK 文本、跨实例恢复、删除来源文件后的二进制分页和精确资源版本授权。WorkflowRunnerDemo SwiftPM 全量测试 225 项通过，iOS Simulator `BoneAgentLab` 构建通过。SwiftPM 测试需在受限沙箱外运行，因为本机 `sandbox-exec` 会在 manifest 阶段返回 `sandbox_apply: Operation not permitted`。
 - 2026-11-21，Demo 接入仍沿用 SDK 的能力边界。首期 Office 只覆盖 DOCX/XLSX/PPTX OOXML，旧式 `.doc/.xls/.ppt` 完整排版解析、ZIP 加密解密和旧式 Office 密码解密未实现；持久派生视图缓存、统一持久搜索、资源 GC/quota/usage API 也未随 Demo 接入。
+
+## Apple 系统工具能力边界
+
+- 2026-11-21，BoneAgentTools 与 WorkflowRunnerDemo 已接入五类 Apple 工具：`calendar.manage`、`reminder.manage`、`notification.manage`、`photo.manage`、`contact.manage`。跨平台 SDK 只定义 DTO、Schema、ToolDefinition 和 Host handler，EventKit、Contacts、Photos、UserNotifications 只位于 iOS Host。
+- 2026-11-21，Apple 查询操作不重复弹出写入确认，创建、修改、完成、删除、安排通知和保存图片必须经过 DemoToolEffectStore 的绑定授权与 effect pipeline。联系人写操作已纳入与其他 Apple 工具相同的审批分支，避免误走联网授权路径。
+- 2026-11-21，联系人工具首期支持按姓名、组织、电话号码或邮箱搜索，以及获取、创建、修改和删除。返回值只包含姓名、组织、电话和邮箱，查询结果最多 50 条，联系方式最多 8 项。Host 使用公开 Contacts API，不读取头像、备注、地址或系统私有数据库。
+- 2026-11-21，相册工具返回实际创建的 `PHAsset` 标识。输入只允许 Host 已登记的图片 ID，正文不进入工具参数；当前使用添加权限，不扫描完整相册。
+- 2026-11-21，Apple Notes、系统通知中心历史、Mail 收件箱、Messages 历史和任意系统 App 自动化不纳入通用 CRUD 工具。原因是缺少稳定的公开数据 API，私有数据库或 UI 自动化会带来系统版本、隐私和审核风险。定位、分享、相机、邮件草稿和短信草稿适合作为用户主动触发的前台能力，HealthKit 需要独立专项。
+- 2026-11-21，本轮修复后 WorkflowRunnerDemo SwiftPM 全量测试达到 232 项通过，Apple 工具定向测试 8 项通过，iOS Simulator `BoneAgentLab` 构建通过。构建使用临时 ModuleCache 和 DerivedData，日志中只保留 CoreSimulator 与 AppIntents 环境提示。

@@ -43,6 +43,11 @@ enum LiveToolsUITestFixture {
             case .calculator: marker = "tool-test:calculate"
             case .dateTime: marker = "tool-test:time"
             case .resources: marker = "tool-test:resources"
+            case .calendar: marker = "tool-test:calendar"
+            case .reminders: marker = "tool-test:reminders"
+            case .notifications: marker = "tool-test:notifications"
+            case .photos: marker = "tool-test:photos"
+            case .contacts: marker = "tool-test:contacts"
             case .webFetch: marker = "tool-test:fetch"
             case .webSearch: marker = "tool-test:search"
             case .askUser: marker = "tool-test:single"
@@ -69,6 +74,16 @@ enum LiveToolsUITestFixture {
             name = "time_query"; input = ["action": "now"]
         case "tool-test:resources":
             name = "resource_list"; input = ["offset": 0, "limit": 20]
+        case "tool-test:calendar":
+            name = "calendar_manage"; input = ["action": "search", "limit": 10]
+        case "tool-test:reminders":
+            name = "reminder_manage"; input = ["action": "search", "limit": 10]
+        case "tool-test:notifications":
+            name = "notification_manage"; input = ["action": "list"]
+        case "tool-test:photos":
+            name = "photo_manage"; input = ["action": "save", "imageID": "ui-test-image"]
+        case "tool-test:contacts":
+            name = "contact_manage"; input = ["action": "search", "query": "张三", "limit": 10]
         default: return nil
         }
         func json(_ object: [String: Any]) throws -> String {

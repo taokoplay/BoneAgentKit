@@ -97,6 +97,7 @@ actor DemoLiveChatSession {
         searchAPIKey: String = "",
         webTransport: (any BoneWebHTTPTransport)? = nil,
         browserSearch: DemoBrowserSearchHandler? = nil,
+        appleTools: DemoAppleToolHandlers = .unavailable,
         restoredResourceReferences: [BoneToolTextResourceReference] = [],
         restoredFileResourceReferences: [BoneFileResourceReference] = []
     ) async throws -> DemoLiveChatSession {
@@ -127,7 +128,7 @@ actor DemoLiveChatSession {
             }
             let progress = DemoLiveChatProgress()
             let tools = try DemoBuiltInToolAssembly.make(settings: settings, resources: resourceStore,
-                fileResources: fileResources, handlers: toolInteractions, searchAPIKey: searchAPIKey, webTransport: webTransport, browserSearch: browserSearch, resourceAccess: resourceAccess, fileResourceAccess: fileResourceAccess,
+                fileResources: fileResources, handlers: toolInteractions, searchAPIKey: searchAPIKey, webTransport: webTransport, browserSearch: browserSearch, resourceAccess: resourceAccess, fileResourceAccess: fileResourceAccess, appleTools: appleTools,
                 calculationObserver: { value in await progress.recordCalculation(value) },
                 failureObserver: { value in await progress.recordToolFailure(value) })
             let effects = DemoToolEffectStore()

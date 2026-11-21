@@ -148,7 +148,15 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
     var visionTokensPerMegapixel = 0
     var visionBindingID = ""
     var enablesDateTime = false
+    var enablesCalendar = false
+    var enablesReminders = false
+    var enablesNotifications = false
+    var enablesPhotos = false
+    var enablesContacts = false
     var enablesAskUser = false
+
+    /// 当前设置是否启用了任一 Apple 系统能力。
+    var enablesAppleTools: Bool { enablesCalendar || enablesReminders || enablesNotifications || enablesPhotos || enablesContacts }
     var enablesWebFetch = false
     var enablesWebSearch = false
     var webAllowedHosts = ""
@@ -171,7 +179,8 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         case usesStreaming, managesContext, summarizesContext, contextWindowTokens, preservesConversation, enablesTextResources
         case contextToolHistoryCompaction, contextSummaryOutputTokens
         case visionPolicy, visionTokenBase, visionTokensPerMegapixel, visionBindingID
-        case enablesDateTime, enablesAskUser, enablesWebFetch, enablesWebSearch, webAllowedHosts
+        case enablesDateTime, enablesCalendar, enablesReminders, enablesNotifications, enablesPhotos, enablesContacts
+        case enablesAskUser, enablesWebFetch, enablesWebSearch, webAllowedHosts
         case searchConfiguration
     }
 
@@ -198,6 +207,11 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         visionTokensPerMegapixel = try c.decodeIfPresent(Int.self, forKey: .visionTokensPerMegapixel) ?? 0
         visionBindingID = try c.decodeIfPresent(String.self, forKey: .visionBindingID) ?? ""
         enablesDateTime = try c.decodeIfPresent(Bool.self, forKey: .enablesDateTime) ?? false
+        enablesCalendar = try c.decodeIfPresent(Bool.self, forKey: .enablesCalendar) ?? false
+        enablesReminders = try c.decodeIfPresent(Bool.self, forKey: .enablesReminders) ?? false
+        enablesNotifications = try c.decodeIfPresent(Bool.self, forKey: .enablesNotifications) ?? false
+        enablesPhotos = try c.decodeIfPresent(Bool.self, forKey: .enablesPhotos) ?? false
+        enablesContacts = try c.decodeIfPresent(Bool.self, forKey: .enablesContacts) ?? false
         enablesAskUser = try c.decodeIfPresent(Bool.self, forKey: .enablesAskUser) ?? false
         enablesWebFetch = try c.decodeIfPresent(Bool.self, forKey: .enablesWebFetch) ?? false
         enablesWebSearch = try c.decodeIfPresent(Bool.self, forKey: .enablesWebSearch) ?? false

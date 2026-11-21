@@ -42,6 +42,11 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Agent Lab
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: '允许 Agent Lab 查询和管理你的日历事件。'
+        INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription: '允许 Agent Lab 创建和修改你的日历事件。'
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: '允许 Agent Lab 查询和管理你的提醒事项。'
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '允许 Agent Lab 将已确认的图片保存到相册。'
+        INFOPLIST_KEY_NSContactsUsageDescription: '允许 Agent Lab 在确认后查询和管理你的联系人。'
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: '1'

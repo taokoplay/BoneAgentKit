@@ -56,7 +56,8 @@ final class LiveChatModel {
     }
 
     private var session: DemoLiveChatSession?
-    private var imageStore = DemoChatImageStore()
+    private let imageStore: DemoChatImageStore
+    private let appleToolHost: DemoAppleSystemToolHost
     private var resourceStore = DemoTextResourceStore()
     private var fileResourceStore: DemoFileResourceStore
     private var task: Task<Void, Never>?
@@ -71,6 +72,11 @@ final class LiveChatModel {
     init(isUITesting: Bool = false) {
         self.isUITesting = isUITesting
         browserSearch = LiveBrowserSearchModel(isUITesting: isUITesting)
+        let imageStore = DemoChatImageStore()
+        self.imageStore = imageStore
+        appleToolHost = DemoAppleSystemToolHost(imageDataProvider: { id in
+            try await imageStore.data(for: id)
+        })
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         fileResourceStore = DemoFileResourceStore(directory: root.appendingPathComponent(
             isUITesting ? "AgentLabFilesUITests" : "AgentLabFiles", isDirectory: true
@@ -117,10 +123,11 @@ final class LiveChatModel {
                 message.resourceIDs.allSatisfy { id in resourceEntries.contains { $0.id == id } } &&
                 message.fileResourceIDs.allSatisfy { id in restoredFileEntries.contains { $0.id == id } }
             }) else { throw DemoConversationStorageError.invalidArchive }
-            imageStore = restoredImages
+            let restoredImageState = try await restoredImages.exportPrivateState()
+            try await imageStore.restore(privateState: restoredImageState)
             resourceStore = restoredResources
             fileResourceStore = restoredFiles
-            images = imageEntries
+            images = await imageStore.entries()
             resources = resourceEntries
             fileResources = restoredFileEntries
             messages = saved.messages
@@ -390,7 +397,7 @@ final class LiveChatModel {
                 resources = await resourceStore.entries()
                 fileResources = await fileResourceStore.entries()
             } else {
-                imageStore = DemoChatImageStore(); resourceStore = DemoTextResourceStore()
+                await imageStore.reset(); resourceStore = DemoTextResourceStore()
                 fileResourceStore = DemoFileResourceStore(directory: fileResourceDirectory())
                 images = []; resources = []; fileResources = []
                 pendingImageIDs = []; pendingResourceIDs = []; pendingFileResourceIDs = []
@@ -541,6 +548,7 @@ final class LiveChatModel {
             toolInteractions: interactions.handlers, searchAPIKey: searchAPIKey,
             webTransport: isUITesting ? LiveToolsUITestWebTransport() : nil,
             browserSearch: browserSearch.handler,
+            appleTools: appleToolHost.handlers,
             restoredResourceReferences: resources.filter { restoredResourceIDs.contains($0.id) }.map { $0.preview.reference },
             restoredFileResourceReferences: fileResources.filter { restoredFileResourceIDs.contains($0.id) }.map(\.reference))
     }

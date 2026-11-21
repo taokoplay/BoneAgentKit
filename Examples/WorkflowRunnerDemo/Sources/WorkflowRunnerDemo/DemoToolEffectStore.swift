@@ -91,14 +91,17 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
         let impact = try definition.requiredImpact()
         try DemoBuiltInToolAssembly.validateLocalInput(call, definition: definition)
         guard !impact.isLocalReadOnly else { return nil }
-        guard ["user.ask", "web.fetch", "web.search"].contains(definition.id),
-              records.count < 128, let schemaVersion = definition.schemaVersion else {
+        guard records.count < 128, let schemaVersion = definition.schemaVersion else {
+            throw BoneAuthorizationError.denied
+        }
+        let requiresApproval = try DemoBuiltInToolAssembly.requiresExplicitApproval(call, definition: definition)
+        guard requiresApproval || definition.impact?.dataAccess == .userPrivate else {
             throw BoneAuthorizationError.denied
         }
         let canonical = try BoneCanonicalToolCall(toolID: definition.id, toolVersion: definition.version,
                                                   schemaVersion: schemaVersion, arguments: call.arguments)
         // Asking is itself the selected user interaction. It never approves another tool.
-        if definition.id != "user.ask" {
+        if requiresApproval && definition.id != "user.ask" && definition.id != "calendar.manage" && definition.id != "reminder.manage" && definition.id != "notification.manage" && definition.id != "photo.manage" && definition.id != "contact.manage" {
             // Validate the exact typed input and Host policy before presenting consent.
             let value: String
             var webHost: String?
@@ -127,6 +130,12 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
                 target: value, webHost: webHost, fallbackTitle: definition.title,
                 searchProvider: searchProvider, handlers: handlers)
         }
+        if requiresApproval && ["calendar.manage", "reminder.manage", "notification.manage", "photo.manage", "contact.manage"].contains(definition.id) {
+            guard try await handlers.authorize(.init(id: UUID(), title: definition.title,
+                detail: try appleAuthorizationDetail(call, definition: definition))) else {
+                throw BoneAuthorizationError.denied
+            }
+        }
         try Task.checkCancellation()
         guard activeRunID == runID, consentEpoch == epoch else { throw CancellationError() }
         guard records.count < 128 else { throw BoneAuthorizationError.denied }
@@ -143,6 +152,70 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
             expiresAtUptime: now + 15, nonce: context.authorizationNonce)
         records[context.effectID] = .init(grant: grant)
         return context
+    }
+
+    /// 生成 Apple 写操作的最小确认预览，避免把图片正文、密码或完整私有资源写入日志。
+    /// - Parameters:
+    ///   - call: 模型提交的原始工具调用。
+    ///   - definition: 已注册的 Apple 工具定义。
+    /// - Returns: 展示给用户的有界确认文案。
+    private func appleAuthorizationDetail(_ call: BoneInferenceToolCall, definition: BoneAgentToolDefinition) throws -> String {
+        let decoder = JSONDecoder()
+        switch definition.id {
+        case "calendar.manage":
+            let input = try decoder.decode(BoneCalendarRequest.self, from: call.arguments)
+            switch input.action {
+            case .create:
+                return "将创建日历事件「\(input.title ?? "")」，时间为 \(input.startDate ?? "") 至 \(input.endDate ?? "")。确认后写入系统日历。"
+            case .update:
+                return "将修改日历事件 \(input.identifier ?? "")。确认后写入系统日历。"
+            case .delete:
+                return "将删除日历事件 \(input.identifier ?? "")。确认后从系统日历移除。"
+            case .search, .get:
+                return "当前操作不会写入系统日历。"
+            }
+        case "reminder.manage":
+            let input = try decoder.decode(BoneReminderRequest.self, from: call.arguments)
+            switch input.action {
+            case .create:
+                return "将创建提醒「\(input.title ?? "")」，到期时间为 \(input.dueDate ?? "未设置")。确认后写入提醒事项。"
+            case .update:
+                return "将修改提醒 \(input.identifier ?? "")。确认后写入提醒事项。"
+            case .complete:
+                return "将完成提醒 \(input.identifier ?? "")。确认后写入提醒事项。"
+            case .delete:
+                return "将删除提醒 \(input.identifier ?? "")。确认后从提醒事项移除。"
+            case .search:
+                return "当前操作不会写入提醒事项。"
+            }
+        case "notification.manage":
+            let input = try decoder.decode(BoneNotificationRequest.self, from: call.arguments)
+            switch input.action {
+            case .schedule:
+                return "将安排本 App 的本地通知「\(input.title ?? "")」，时间为 \(input.fireDate ?? "")。确认后提交系统通知。"
+            case .cancel:
+                return "将取消本 App 安排的本地通知 \(input.identifier ?? "")。"
+            case .list:
+                return "当前操作不会修改本地通知。"
+            }
+        case "photo.manage":
+            let input = try decoder.decode(BonePhotoRequest.self, from: call.arguments)
+            return "将把已登记图片 \(input.imageID) 保存到系统相册\(input.albumTitle.map { "「\($0)」" } ?? "")。确认后写入相册。"
+        case "contact.manage":
+            let input = try decoder.decode(BoneContactRequest.self, from: call.arguments)
+            switch input.action {
+            case .create:
+                return "将创建联系人「\(input.familyName ?? "")\(input.givenName ?? "")」，确认后写入系统通讯录。"
+            case .update:
+                return "将修改联系人 \(input.identifier ?? "") 的已提供字段，确认后写入系统通讯录。"
+            case .delete:
+                return "将删除联系人 \(input.identifier ?? "")，确认后从系统通讯录移除。"
+            case .search, .get:
+                return "当前操作不会写入系统通讯录。"
+            }
+        default:
+            return "请核对本次系统操作的内容和目标。确认后才会写入系统数据。"
+        }
     }
 
     func consumeAuthorizationAndPersistIntent(_ value: BoneAuthorizationValidation, intent: BoneEffectIntent) throws {
