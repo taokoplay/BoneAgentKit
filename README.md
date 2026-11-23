@@ -209,6 +209,7 @@ Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、�
 - [可选内置工具 · BoneAgentTools](Documentation/BuiltInTools.md)
 - [Workflow 与恢复](Documentation/WorkflowAndRecovery.md)
 - [跨 Run 会话连续性](Documentation/ConversationContinuity.md)
+- [业务提示词 Profile](Documentation/PromptProfiles.md)
 - [上下文压缩](Documentation/ContextCompaction.md)
 - [Agent 实时事件流](Documentation/AgentStreaming.md)
 - [本地模型基础设施](Documentation/LocalModels.md)

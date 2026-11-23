@@ -107,10 +107,14 @@ final class LiveChatSettingsStore {
         if changed { configurationRevision += 1 }
     }
 
-    /// Shared instructions are preferences; editing them never reads or rewrites credentials.
-    func saveAssistantInstructions(_ text: String) throws {
+    /// 保存自由文本说明和业务角色预设，不读取或重写模型凭据。
+    /// - Parameters:
+    ///   - text: 用户自定义的助手说明。
+    ///   - promptPreset: 可选的业务角色预设，默认保持旧版自定义模式。
+    func saveAssistantInstructions(_ text: String, promptPreset: DemoPromptPreset = .custom) throws {
         var proposed = settings
         proposed.systemPrompt = text
+        proposed.promptPreset = promptPreset
         try persist(proposed.validated())
     }
 

@@ -429,7 +429,7 @@ struct ChatCatalogTests: Sendable {
         let encoded = try JSONEncoder().encode(valid)
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(Set(object.keys) == [
-            "provider", "baseURL", "modelID", "usesFullEndpointURL", "systemPrompt",
+            "provider", "baseURL", "modelID", "usesFullEndpointURL", "promptPreset", "systemPrompt",
             "enablesCalculator", "maximumOutputTokens",
             "usesStreaming", "managesContext", "summarizesContext", "contextWindowTokens",
             "preservesConversation", "enablesTextResources", "visionPolicy",

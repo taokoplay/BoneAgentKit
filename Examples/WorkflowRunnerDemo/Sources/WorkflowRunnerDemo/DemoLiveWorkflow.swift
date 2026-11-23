@@ -63,6 +63,9 @@ actor DemoLiveWorkflow {
             messages.append(.init(role: .system, content: settings.systemPrompt))
         }
         messages.append(.init(role: .user, content: prompt))
+        if let profile = settings.promptProfile {
+            messages = try profile.compose(messages: messages)
+        }
         let executor = try DemoLiveWorkflowExecutor.make(
             engine: engine, modelID: settings.modelID, maximumOutputTokens: settings.maximumOutputTokens,
             tools: tools, messages: messages, input: input,

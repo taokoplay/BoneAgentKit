@@ -74,12 +74,14 @@ public actor BoneAgent {
         modelID: String, bindingID: String, systemMessages: [BoneInferenceMessage] = [],
         generationOptions: BoneInferenceGenerationOptions = .init(),
         outputConstraint: BoneInferenceOutputConstraint? = nil,
-        reasoningDisclosure: BoneInferenceReasoningDisclosure = .hidden
+        reasoningDisclosure: BoneInferenceReasoningDisclosure = .hidden,
+        promptProfile: BonePromptProfile? = nil
     ) throws -> BoneAgentConversation {
         guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
+        let compiledSystemMessages = try Self.composePromptMessages(profile: promptProfile, messages: systemMessages)
         let state = BoneAgentConversationState(schemaVersion: 1, id: UUID(), bindingID: bindingID, modelID: modelID,
             tools: toolRegistry.definitions, generationOptions: generationOptions, outputConstraint: outputConstraint,
-            reasoningDisclosure: reasoningDisclosure, revision: 0, messages: systemMessages, summary: nil,
+            reasoningDisclosure: reasoningDisclosure, revision: 0, messages: compiledSystemMessages, summary: nil,
             contextRevision: 0, providerContinuation: nil)
         _ = try state.encoded()
         return BoneAgentConversation(agent: self, state: state)
@@ -186,12 +188,28 @@ public actor BoneAgent {
     public func run(
         modelID: String,
         messages: [BoneInferenceMessage],
-        snapshotContext: BoneAgentModelSnapshotContext? = nil
+        snapshotContext: BoneAgentModelSnapshotContext? = nil,
+        promptProfile: BonePromptProfile? = nil
     ) async throws -> BoneAgentRunResult {
-        try await run(
-            request: BoneInferenceRequest(modelID: modelID, messages: messages),
+        let compiledMessages = try Self.composePromptMessages(profile: promptProfile, messages: messages)
+        return try await run(
+            request: BoneInferenceRequest(modelID: modelID, messages: compiledMessages),
             snapshotContext: snapshotContext
         )
+    }
+
+    /// 将显式业务 Profile 与已有前置 system 消息合并为一条供应商无关的 system 消息。
+    /// - Parameters:
+    ///   - profile: 可选的业务场景提示词配置。
+    ///   - messages: 调用方已经组装的消息序列。
+    /// - Returns: Profile 位于最前方、已有 system 约束紧随其后的消息序列。
+    /// - Throws: Profile 校验失败时抛出配置错误。
+    private static func composePromptMessages(
+        profile: BonePromptProfile?,
+        messages: [BoneInferenceMessage]
+    ) throws -> [BoneInferenceMessage] {
+        guard let profile else { return messages }
+        return try profile.compose(messages: messages)
     }
 
     /// 使用调用方的文本生成参数运行传统自治 Agent；保持现有模型终态输出契约。

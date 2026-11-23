@@ -84,3 +84,10 @@
 - 2026-11-23，工具文档修正 `resource.readOffice` 的调用说明：SDK 输入只有完整 `reference`，没有额外的结构选择或预算字段，结构解析预算由 Host 和底层读取器控制。`resource.detectFormat`、`resource.inspect`、PDF 布局、OCR、ZIP/GZIP、二进制和非 UTF-8 编码的边界均已写入同一份文档。
 - 2026-11-23，文档补充了 WorkflowRunnerDemo 的完整装配条件和 `DemoAppleToolHandlers` 注入关系，并保留 `resource.readText` 的 SDK Schema 1 与 Demo 聊天 Schema 2 差异。下游必须读取实际 `BoneAgentToolDefinition.version` 和 `schemaVersion`，不能只按工具 ID 推断输入格式。
 - 2026-11-23，针对本轮文档一致性检查执行了 `git diff --check`、`Scripts/check-public-documentation.sh` 和稳定工具 ID 自动比对，24 个稳定 ID 均已出现在公开文档中。Nowledge Mem 检索仍因本机 `127.0.0.1:14242` 服务不可连接而失败。
+
+## 业务提示词 Profile
+
+- 2026-11-23，SDK 新增纯值类型 `BonePromptProfile`、`BonePromptSection` 和兼容别名，用于一次性 `BoneAgent.run` 与 `BoneAgentConversation` 的可信业务角色、规则和输出风格配置。Profile 在会话创建或 Run 开始时编译为单条前置 system 消息，现有前置 system 消息会合并到同一条消息，Provider 层和 `BoneInferenceRequest` Schema 保持不变。
+- 2026-11-23，会话保存的是编译后的 system 消息，恢复时沿用已保存内容，不根据当前 Profile 重新生成历史前缀。Profile 与 Host system 内容均受 UTF-8 字节预算约束，校验失败不会创建会话或发起请求。
+- 2026-11-23，WorkflowRunnerDemo 新增 `custom`、`personal-assistant`、`software-developer` 三种角色预设，自定义说明仍会与 Profile 和工具约束合并。预设类型放在 `DemoLiveChatSettings.swift`，确保 SwiftPM 与显式文件清单的 iOS Xcode 目标共用同一实现。
+- 2026-11-23，提示词 Profile 定向 SDK 测试 5 项通过，WorkflowRunnerDemo 聊天、Workflow、结构化输出定向测试 42 项通过，WorkflowRunnerDemo 全量测试 241 项通过，`BoneAgentLab` iOS Simulator Debug 构建通过。SwiftPM 测试需要临时 ModuleCache，沙箱内直接运行会因 `sandbox-exec` 初始化失败；SDK 全量测试另有一条既有工具组数量断言失败，Nowledge Mem 服务仍不可连接。

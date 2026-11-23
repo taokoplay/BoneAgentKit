@@ -45,6 +45,23 @@ struct LiveWorkflowTests {
         }
     }
 
+    @Test
+    func promptPresetIsFrozenIntoWorkflowModelRequests() async throws {
+        var settings = Self.settings()
+        settings.promptPreset = .softwareDeveloper
+        settings.systemPrompt = "工作区约束：不要破坏公共 API。"
+        let engine = BoneScriptedInferenceEngine(script: [.finish(.init(text: "完成"))])
+        let host = try DemoLiveWorkflow.make(settings: settings, engine: engine)
+
+        _ = try await host.start(prompt: "检查接口", mode: .planning)
+
+        let request = try #require(await engine.receivedRequests().first)
+        #expect(request.messages.map(\.role) == [.system, .user])
+        let system = try #require(request.messages.first?.content)
+        #expect(system.contains("你是软件开发助手。"))
+        #expect(system.contains("工作区约束：不要破坏公共 API。"))
+    }
+
     @Test(arguments: [DemoRunMode.planning, .executing])
     func frozenCalculatorScopeAndOutputOptionsReachEveryModelRequest(mode: DemoRunMode) async throws {
         var settings = Self.settings()

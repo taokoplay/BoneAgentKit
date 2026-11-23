@@ -131,6 +131,8 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
     var baseURL = DemoChatProvider.deepSeek.defaultBaseURL
     var modelID = DemoChatProvider.deepSeek.defaultModelID
     var usesFullEndpointURL = false
+    /// 业务角色预设；默认自定义以保持旧版本行为。
+    var promptPreset: DemoPromptPreset = .custom
     var systemPrompt = "你是一个简洁、可靠的中文助手。工具可用时，根据问题决定是否调用，并根据真实工具结果回答。"
     var enablesCalculator = false
     var maximumOutputTokens = 1024
@@ -178,7 +180,7 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case provider, baseURL, modelID, usesFullEndpointURL, systemPrompt, enablesCalculator, maximumOutputTokens
+        case provider, baseURL, modelID, usesFullEndpointURL, promptPreset, systemPrompt, enablesCalculator, maximumOutputTokens
         case usesStreaming, managesContext, summarizesContext, contextWindowTokens, preservesConversation, enablesTextResources
         case contextToolHistoryCompaction, contextSummaryOutputTokens
         case visionPolicy, visionTokenBase, visionTokensPerMegapixel, visionBindingID
@@ -194,6 +196,7 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? provider.defaultBaseURL
         modelID = try c.decodeIfPresent(String.self, forKey: .modelID) ?? provider.defaultModelID
         usesFullEndpointURL = try c.decodeIfPresent(Bool.self, forKey: .usesFullEndpointURL) ?? false
+        promptPreset = try c.decodeIfPresent(DemoPromptPreset.self, forKey: .promptPreset) ?? .custom
         systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? systemPrompt
         enablesCalculator = try c.decodeIfPresent(Bool.self, forKey: .enablesCalculator) ?? false
         maximumOutputTokens = try c.decodeIfPresent(Int.self, forKey: .maximumOutputTokens) ?? maximumOutputTokens
@@ -224,6 +227,10 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         webAllowedHosts = try c.decodeIfPresent(String.self, forKey: .webAllowedHosts) ?? ""
         searchConfiguration = try c.decodeIfPresent(DemoSearchConfiguration.self, forKey: .searchConfiguration)
     }
+
+    /// 当前设置对应的 SDK 业务提示词 Profile。
+    /// - Returns: 自定义模式返回 nil，其余模式返回固定版本的可信 Profile。
+    var promptProfile: BonePromptProfile? { promptPreset.promptProfile() }
 
     var visionBindingFingerprint: String {
         let parts = [provider.kind.rawValue, usesFullEndpointURL ? "endpoint" : "base",
@@ -403,5 +410,62 @@ struct DemoLiveChatSettings: Codable, Equatable, Sendable {
         components?.host = host
         let address = components?.string ?? baseURL
         return "\(provider.kind.rawValue)|\(usesFullEndpointURL ? "endpoint" : "base")|\(address)"
+    }
+}
+
+
+/// Demo 可选的业务角色提示词预设；`.custom` 保持旧版自由文本行为。
+enum DemoPromptPreset: String, Codable, CaseIterable, Identifiable, Sendable {
+    case custom
+    case personalAssistant = "personal-assistant"
+    case softwareDeveloper = "software-developer"
+
+    var id: String { rawValue }
+
+    /// 预设在设置页面显示的名称。
+    var title: String {
+        switch self {
+        case .custom: return "自定义助手"
+        case .personalAssistant: return "个人 AI 助理"
+        case .softwareDeveloper: return "软件开发助手"
+        }
+    }
+
+    /// 预设在设置页面显示的用途说明。
+    var summary: String {
+        switch self {
+        case .custom: return "仅使用下方的自定义助手说明。"
+        case .personalAssistant: return "适合日常问答、计划整理和信息辅助。"
+        case .softwareDeveloper: return "适合代码分析、实现建议和调试排查。"
+        }
+    }
+
+    /// 将预设转换为 SDK 的纯值提示词 Profile。
+    /// - Returns: 自定义模式返回 nil，固定角色返回可复用的 Profile。
+    func promptProfile() -> BonePromptProfile? {
+        switch self {
+        case .custom:
+            return nil
+        case .personalAssistant:
+            return BonePromptProfile(
+                id: rawValue,
+                version: 1,
+                sections: [
+                    .init(id: "identity", content: "你是个人 AI 助理。理解用户目标，优先给出可以直接执行的帮助。", order: 10),
+                    .init(id: "behavior", content: "对不确定的信息明确说明限制。涉及外部事实时依据真实工具结果，不编造结果。", order: 20),
+                    .init(id: "style", content: "使用简洁、清晰的中文回答。复杂任务先给结论，再列出必要步骤。", order: 30)
+                ]
+            )
+        case .softwareDeveloper:
+            return BonePromptProfile(
+                id: rawValue,
+                version: 1,
+                sections: [
+                    .init(id: "identity", content: "你是软件开发助手。帮助用户理解、设计、实现和验证软件。", order: 10),
+                    .init(id: "engineering", content: "优先保持现有调用方兼容，先分析业务链路和失败边界，再给出可验证的实现。不要凭空假设未观察到的代码、接口或运行结果。", order: 20),
+                    .init(id: "style", content: "回答使用清晰的技术中文。代码建议应说明原因、对用户的影响、性能和资源开销，并给出必要的验证方式。", order: 30)
+                ]
+            )
+        }
     }
 }

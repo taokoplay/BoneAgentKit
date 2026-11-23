@@ -62,6 +62,7 @@ struct LabInstructionSettingsView: View {
     let store: LiveChatSettingsStore
     let onSaved: () -> Void
     @State private var text: String
+    @State private var promptPreset: DemoPromptPreset
     @State private var error: String?
     @State private var confirmsDiscard = false
     @FocusState private var editing: Bool
@@ -71,20 +72,33 @@ struct LabInstructionSettingsView: View {
         self.store = store
         self.onSaved = onSaved
         _text = State(initialValue: store.settings.systemPrompt)
+        _promptPreset = State(initialValue: store.settings.promptPreset)
     }
-    private var changed: Bool { text != store.settings.systemPrompt }
+    private var changed: Bool {
+        text != store.settings.systemPrompt || promptPreset != store.settings.promptPreset
+    }
 
     var body: some View {
         Form {
             Section {
+                Picker("业务角色", selection: $promptPreset) {
+                    ForEach(DemoPromptPreset.allCases) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+                .accessibilityLabel("业务角色")
+                .accessibilityIdentifier("sharedPromptPreset")
+                Text(promptPreset.summary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 TextField("例如：请用简短中文回答，先给结论。", text: $text, axis: .vertical)
                     .lineLimit(8...16)
                     .frame(minHeight: 180, alignment: .topLeading)
                     .focused($editing)
                     .accessibilityLabel("助手说明")
                     .accessibilityIdentifier("sharedInstructionInput")
-            } header: { Text("希望助手怎样回答") }
-              footer: { Text("保存后，对话和模型测试都会使用这段说明。") }
+            } header: { Text("助手角色与回答方式") }
+              footer: { Text("预设用于定义业务角色，自定义说明用于补充当前应用的回答要求。保存后，对话、工作流和结构化输出测试都会使用新会话配置。") }
             .listRowBackground(LabStyle.surface)
             if let error { Text(error).foregroundStyle(.red) }
             if text.utf8.count > 16_384 { Text("说明过长，请缩短后保存。").foregroundStyle(.red) }
@@ -105,7 +119,7 @@ struct LabInstructionSettingsView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("保存") {
                     editing = false
-                    do { try store.saveAssistantInstructions(text); onSaved() }
+                    do { try store.saveAssistantInstructions(text, promptPreset: promptPreset); onSaved() }
                     catch let failure as DemoChatConfigurationError { error = failure.message }
                     catch { self.error = "保存未完成，请重试。" }
                 }

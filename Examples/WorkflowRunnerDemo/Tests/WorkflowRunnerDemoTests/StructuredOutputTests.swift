@@ -30,6 +30,23 @@ struct StructuredOutputTests: Sendable {
     }
 
     @Test
+    func promptPresetIsIncludedInStructuredOutputRequests() async throws {
+        let engine = StructuredTestEngine([.response(StructuredFixtures.validResponse)])
+        var settings = StructuredFixtures.settings()
+        settings.promptPreset = .softwareDeveloper
+        settings.systemPrompt = "输出必须保持兼容。"
+
+        _ = try await DemoStructuredOutputService().run(source: "待整理原文", settings: settings, engine: engine)
+
+        let request = try #require(await engine.requests.first)
+        #expect(request.messages.map(\.role) == [.system, .user])
+        let system = try #require(request.messages.first?.content)
+        #expect(system.contains("你是软件开发助手。"))
+        #expect(system.contains("输出必须保持兼容。"))
+        #expect(system.contains("将用户提供的原文整理为 summary 和 keyPoints。"))
+    }
+
+    @Test
     func correctionIsDisabledByDefaultAndRejectionIsNotSuccess() async throws {
         let engine = StructuredTestEngine([.response(StructuredFixtures.structured("{}")), .response(StructuredFixtures.validResponse)])
         let result = try await DemoStructuredOutputService().run(source: "原文", settings: StructuredFixtures.settings(), engine: engine)

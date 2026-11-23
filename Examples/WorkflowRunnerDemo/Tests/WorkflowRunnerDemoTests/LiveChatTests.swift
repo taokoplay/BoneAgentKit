@@ -55,6 +55,27 @@ struct LiveChatTests: Sendable {
     }
 
     @Test
+    func promptPresetCompilesWithCustomInstructionsIntoOneSystemMessage() async throws {
+        var settings = LiveChatFixtures.settings()
+        settings.promptPreset = .softwareDeveloper
+        settings.systemPrompt = "项目约束：优先保持兼容。"
+        let stub = LiveChatHTTPStub([.response(200, try LiveChatFixtures.text("已检查。"))])
+        let session = try await DemoLiveChatSession.make(
+            settings: settings, apiKey: LiveChatFixtures.key, transport: LiveChatFixtures.transport(stub)
+        )
+
+        _ = try await session.send("检查这个改动")
+
+        let requests = await stub.requests
+        try #require(requests.count == 1)
+        let messages = try LiveChatFixtures.messages(requests[0])
+        #expect(messages.compactMap { $0["role"] as? String } == ["system", "user"])
+        let system = try #require(messages.first?["content"] as? String)
+        #expect(system.contains("你是软件开发助手。"))
+        #expect(system.contains("项目约束：优先保持兼容。"))
+    }
+
+    @Test
     func calculatorRunsLocallyAndPreservesToolHistory() async throws {
         var settings = LiveChatFixtures.settings()
         settings.systemPrompt = "请依据真实工具结果回答。"
@@ -164,6 +185,26 @@ struct LiveChatTests: Sendable {
             }
         }
         #expect(await stub.requests.isEmpty)
+    }
+
+    @Test
+    func promptPresetIsCodableAndDefaultsToCustomForOldSettings() throws {
+        var settings = LiveChatFixtures.settings()
+        settings.promptPreset = .personalAssistant
+        let encoded = try JSONEncoder().encode(settings)
+        let restored = try JSONDecoder().decode(DemoLiveChatSettings.self, from: encoded)
+        #expect(restored.promptPreset == .personalAssistant)
+        #expect(restored.promptProfile?.id == "personal-assistant")
+
+        let old = try JSONSerialization.data(withJSONObject: [
+            "provider": "OpenAICompatible",
+            "baseURL": LiveChatFixtures.endpoint,
+            "modelID": "unit-test-model",
+            "systemPrompt": "旧说明"
+        ])
+        let decodedOld = try JSONDecoder().decode(DemoLiveChatSettings.self, from: old)
+        #expect(decodedOld.promptPreset == .custom)
+        #expect(decodedOld.promptProfile == nil)
     }
 
     @Test

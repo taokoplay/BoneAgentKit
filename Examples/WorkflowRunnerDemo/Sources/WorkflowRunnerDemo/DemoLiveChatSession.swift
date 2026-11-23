@@ -208,7 +208,8 @@ actor DemoLiveChatSession {
                     modelID: settings.modelID,
                     bindingID: bindingID ?? UUID().uuidString,
                     systemMessages: systemMessages,
-                    generationOptions: .init(maximumOutputTokens: settings.maximumOutputTokens)
+                    generationOptions: .init(maximumOutputTokens: settings.maximumOutputTokens),
+                    promptProfile: settings.promptProfile
                 )
             }
             return DemoLiveChatSession(conversation: conversation, progress: progress, textResources: resourceStore,
