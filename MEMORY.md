@@ -71,3 +71,16 @@
 - 2026-11-21，新增的 `location.lookup`、`share.present` 和 `compose.present` 已从 SDK 契约接入 WorkflowRunnerDemo。定位使用 Core Location/MapKit 的一次性前台查询，分享使用系统分享面板，邮件和信息使用系统草稿编辑器。
 - 2026-11-21，iOS Host 为定位、分享和邮件/信息编辑器增加请求身份、取消收敛和重复调用保护。取消会关闭当前系统 UI 并恢复当前工具调用，延迟到达的旧系统回调不会恢复后续请求。分享和草稿内容继续受 Host 已登记资源、系统能力检查和 Demo 授权确认约束。
 - 2026-11-21，公开文档已同步八类 Apple 工具及其边界。Apple Notes、通知中心历史、Mail/Messages 历史、静默发送、任意系统 App 自动化仍不纳入通用工具集，相机和 HealthKit 保留为后续专项。
+
+## 内置工具目录文档
+
+- 2026-11-21，`Documentation/BuiltInTools.md` 已整理当前 24 个稳定内置工具，逐项列出稳定 ID、wire name、版本/Schema、输入行为、权限和影响边界，并区分 SDK 契约与 WorkflowRunnerDemo 的实际装配条件。
+- 2026-11-21，文档明确 `resource.readText` 在 SDK 中使用 1.0.0 / Schema 1 的 `reference`、UTF-8 `offset`、`maximumBytes`，WorkflowRunnerDemo 聊天入口使用同一稳定 ID 的 2.1.0 / Schema 2 的 `resourceID`、`page`、`offset` 和 `nextRead`。
+
+## 内置工具完整使用文档
+
+- 2026-11-23，`Documentation/BuiltInTools.md` 已扩展为下游接入文档，覆盖 24 个稳定工具的输入、输出、调用示例、Host handler 注入、权限与确认、固定错误、分页续读、预算和性能影响。文档明确 `demo.*` 仅用于演示，不属于生产稳定工具。
+- 2026-11-23，工具文档明确了长内容续读规则：文本、Office 投影、归档条目和二进制使用返回的 `nextOffset`，PDF 文本使用 `pageIndex`，PDF 布局和 OCR 使用 `nextPage`，网页搜索使用 `nextPage`。搜索命中的 `matchOffset` 和 `snippetOffset` 可以直接作为同一资源版本的读取起点。
+- 2026-11-23，工具文档修正 `resource.readOffice` 的调用说明：SDK 输入只有完整 `reference`，没有额外的结构选择或预算字段，结构解析预算由 Host 和底层读取器控制。`resource.detectFormat`、`resource.inspect`、PDF 布局、OCR、ZIP/GZIP、二进制和非 UTF-8 编码的边界均已写入同一份文档。
+- 2026-11-23，文档补充了 WorkflowRunnerDemo 的完整装配条件和 `DemoAppleToolHandlers` 注入关系，并保留 `resource.readText` 的 SDK Schema 1 与 Demo 聊天 Schema 2 差异。下游必须读取实际 `BoneAgentToolDefinition.version` 和 `schemaVersion`，不能只按工具 ID 推断输入格式。
+- 2026-11-23，针对本轮文档一致性检查执行了 `git diff --check`、`Scripts/check-public-documentation.sh` 和稳定工具 ID 自动比对，24 个稳定 ID 均已出现在公开文档中。Nowledge Mem 检索仍因本机 `127.0.0.1:14242` 服务不可连接而失败。
