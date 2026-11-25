@@ -18,6 +18,10 @@ public actor BoneAgentConversation {
     public private(set) var phase: BoneAgentConversationPhase = .ready
     public var revision: UInt64 { state.revision }
     public var id: UUID { state.id }
+    /// 当前 Conversation 绑定的模型标识，不包含凭据或网络地址。
+    public var modelID: String { state.modelID }
+    /// 当前 Conversation 绑定的 Provider/本地运行时范围标识。
+    public var bindingID: String { state.bindingID }
     private var observedStatistics = BoneConversationStatisticsAccumulator()
     private let statisticsHistoryComplete: Bool
     /// Counts only Runs observed by this instance; restored prior usage/timing remains unknown.

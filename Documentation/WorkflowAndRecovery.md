@@ -362,3 +362,55 @@ Step Controller 在提交前统一检查公共状态迁移表。pending/ready/pa
 ## 设计中的默认流程与 Prompt 组装
 
 [Agent Workflow Runner 草案](Plans/2026-11-12-bone-agent-workflow-runner-design.md) 规划可选的默认流程、Run 模式与能力范围绑定；[Prompt 组装草案](Plans/2026-11-12-bone-agent-prompt-compositor-design.md) 规划分节、替换和追加语义。两份文档均为尚未实现的设计，不改变本页描述的现有持久化、授权或 Agent API 契约。
+
+## Agent Execution Session
+
+当前恢复状态分属不同层级，Host 应按层级选择处理动作。
+
+| 层级 | 状态 | Host 处理 |
+| --- | --- | --- |
+| Effect | `outcomeUnknown` | 按原 Effect identity 查询外部事实并完成对账 |
+| Step | `commitUncertain` | 重读原 checkpoint 与 revision，禁止旧 Controller 继续写入 |
+| Agent | `toolRecoveryRequired` | 停止后继模型和 Tool，等待 Effect 或提交边界调和 |
+| Session | `recoveryRequired` | 展示 Attention，完成 Host 调和后重新创建协调器 |
+| Session | `persistenceOutcomeUnknown` | 独立连接重读持久化事实，不自动重试 |
+
+`BoneAgentExecutionSession` 是长期 Agent 执行的控制面记录。它把 Run、Conversation、Workflow 版本、Agent 配置、Tool Catalog、Prompt Profile 和私有快照引用绑定在一起，并通过 `revision` 与 `leaseGeneration` 保护并发接管。它不保存消息正文、Tool 参数、Tool 结果、Provider continuation 或文件正文。
+
+长期执行通过 `BoneAgentExecutionSessionCoordinator` 启用。Host 需要提供以下组件。
+
+- `BoneAgentExecutionSessionStore` 负责 Session 的 open、load、CAS commit、lease 接管，以及 Session 与私有快照的联合提交。
+- `BoneWorkflowAgentExecutionSnapshotStore` 按完整快照引用读取和保存经过 Host 保护的 Conversation 私有状态。
+- `BoneAgentExecutionSessionBinding` 固定 Workflow revision、Agent 配置摘要、Tool Catalog 摘要和 Prompt Profile 摘要。
+- `BoneAgent` 继续负责模型请求、Tool Schema 校验和 Conversation continuation 恢复。
+
+典型流程是先创建空 Conversation 和 active Session，再调用 `start` 保存初始私有快照。每次继续执行时，协调器会读取 Session、验证配置摘要和快照引用，取得新 lease，调用 `restoreConversation`，成功完成一轮后生成新的私有快照，并通过同一 Host 提交边界保存新的 Session 引用。模型请求前的任一校验失败都会进入 `recoveryRequired`，不会发起模型调用。
+
+### Effect 归属与执行作用域
+
+长期 Session 发起高风险 Tool 时，协调器会在模型执行期间注入 `BoneWorkflowExecutionScope`。Tool Context 必须同时匹配 Session、Run、Step、Attempt 和当前 `leaseGeneration`，否则在 Effect Intent 持久化前以 `identityMismatch` 拒绝，外部 Tool 闭包不会被调用。这个检查只验证执行事实的归属，Host 仍需独立复验授权票据、资源 scope、资源 revision、撤销状态和数据库事务边界。
+
+`BoneEffectIntent` 会保存可选的 `sessionID`。Session 恢复通过 `BoneWorkflowEffectRecoveryScope` 同时校验 Session、Run、Step 和 Attempt，跨 Run 或跨 Session 的 Effect 不能通过当前 Session 恢复，也不能绕过 Receipt 提交边界。旧 lease 的 Effect 事实不能直接执行，必须经当前 lease 的原子接管或已确认 Receipt 提交入口处理。旧 Workflow 仍可使用没有 Session scope 的 Context，兼容路径的恢复调用应显式省略 Session 预期范围。
+
+Scope 校验只增加本地字段比较和持久化前的一次拒绝分支，不增加模型请求、Tool 执行或外部查询次数。
+
+```swift
+let started = try await coordinator.start(
+    session: session,
+    conversation: conversation,
+    stepID: stepID,
+    attemptID: attemptID
+)
+let result = try await coordinator.run(
+    sessionID: started.sessionID,
+    userMessage: "继续处理下一页"
+)
+```
+
+`pause`、`waitForUser`、`waitForAuthorization`、`resume` 和 `complete` 是显式控制入口。Host 应依据 Session 的 `state` 和 `attention` 展示 UI，不应解析异常文本推断操作。
+
+联合提交返回确定性能力缺失时，协调器会保留原错误。提交结果未知时，协调器返回 `persistenceOutcomeUnknown`，不自动重试，也不根据旧 Session 继续下一轮。Host 必须重新读取 Session、快照和相关副作用账本，完成对账后再创建新的协调器实例。
+
+`Session Store.commit` 的联合提交语义至少要覆盖 Session 和私有 Snapshot reference。若 Step checkpoint 由另一个 Store 管理，Host 必须用同一事务或可验证的提交后调和把 Session、Step checkpoint 和私有 Snapshot 绑定到同一个 revision 与 lease generation。单独提交 Session 不能证明长期恢复边界已经完整落盘。
+
+快照正文必须由 Host 加密并认证，Provider continuation 与 Tool 结果只能保存在私有快照或受控密文存储中。文件、PDF、Office、OCR、压缩包和二进制资源应保存已有资源引用、版本和游标，不把大正文复制进 Session JSON。`BoneInMemoryAgentExecutionSessionStore` 只用于 SDK 合同测试，不能证明数据库、跨进程或重启恢复能力。

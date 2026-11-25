@@ -56,3 +56,21 @@ Host 可在取得完整推理结果后显式调用 `BoneInferenceValidatedOutput
 ## 验证
 
 生产接入应按实际启用的能力覆盖正常完成、空结果、失败和取消；若使用缓存或部分成功策略，应验证对应行为；若启用可恢复 Workflow，还应覆盖进程恢复和持久化冲突。命令行 Contract 与 Simulator 不能替代目标平台上的真实业务验证。
+
+## 长期 Agent Session 接入
+
+需要恢复 Agent Conversation 时，Host 使用 `BoneAgentExecutionSessionCoordinator`，不要把 Conversation 私有 JSON 直接写入普通 Workflow checkpoint。接入方必须为 Session 固定 Workflow identity、Workflow revision、Agent configuration digest、Tool Catalog digest 和 Prompt Profile digest，并在恢复前重新计算和比较这些绑定。
+
+Host Store 至少需要保证以下行为。
+
+- `SessionStore.commit` 应覆盖 Session 和私有 Snapshot reference。Step checkpoint 由独立 Store 管理时，Host 必须通过同一事务或可验证调和完成三方绑定。
+- Session revision 和 lease generation 具备原子 CAS 与旧 worker 围栏。
+- Session、Step checkpoint 和 Agent private snapshot 使用同一事务，或提供可验证的联合提交与调和过程。
+- Session 执行高风险 Tool 时为 Context 提供与当前 Session、Run、Step、Attempt 和 lease generation 完全匹配的 `BoneWorkflowExecutionScope`。
+- Effect 恢复调用传入匹配的 `BoneWorkflowEffectRecoveryScope`。跨 Session、跨 Run、跨 Step、跨 Attempt 的事实必须 fail closed；旧 lease 的事实不能直接执行，必须经当前 lease 的原子接管或已确认 Receipt 提交入口处理。
+- 快照具备加密、完整性认证、scope 校验和过期清理。
+- 提交结果未知时可通过独立连接重读原记录，禁止客户端盲目重试模型或副作用。
+- 快照缺失、配置漂移、Provider continuation 无法恢复时，恢复入口进入 `recoveryRequired`。
+- 长文件正文继续使用资源引用和版本游标，Session 只保存引用和控制事实。
+
+`BoneInMemoryAgentExecutionSessionStore` 只适合 SDK 单元测试。生产接入必须额外验证进程退出、数据库事务、独立进程重启、快照篡改、旧 lease 写入、Effect Receipt 未确认和恢复后的清理策略。

@@ -46,6 +46,55 @@ struct LiveWorkflowTests {
     }
 
     @Test
+    func recoverableAgentSessionWaitsAndResumesWithoutDuplicateModelCall() async throws {
+        let engine = BoneScriptedInferenceEngine(script: [
+            .finish(.init(text: "第一轮")),
+            .finish(.init(text: "第二轮"))
+        ])
+        let host = try DemoLiveWorkflow.make(settings: Self.settings(), engine: engine)
+
+        let created = try await host.createRecoverableSession()
+        #expect(created.session.state == .active)
+        #expect(await engine.receivedRequests().isEmpty)
+
+        let waiting = try await host.waitForRecoverableSessionUser(requestID: "confirm-1")
+        #expect(waiting.session.state == .waitingForUser)
+        #expect(await engine.receivedRequests().isEmpty)
+
+        let first = try await host.resumeRecoverableSession(userMessage: "继续第一轮")
+        #expect(first.session.state == .active)
+        #expect(first.output == .text("第一轮"))
+        #expect(await engine.receivedRequests().count == 1)
+
+        let second = try await host.runRecoverableSession(userMessage: "继续第二轮")
+        #expect(second.session.state == .active)
+        #expect(second.output == .text("第二轮"))
+        #expect(await engine.receivedRequests().count == 2)
+        #expect(second.session.snapshotReference?.conversationRevision == 2)
+    }
+
+    @Test
+    func concurrentRecoverableSessionOperationsHaveOneOwner() async throws {
+        let engine = BoneScriptedInferenceEngine(script: [])
+        let host = try DemoLiveWorkflow.make(settings: Self.settings(), engine: engine)
+
+        let first = Task { () -> Result<DemoRecoverableAgentSessionInspection, Error> in
+            do { return .success(try await host.createRecoverableSession()) }
+            catch { return .failure(error) }
+        }
+        let second = Task { () -> Result<DemoRecoverableAgentSessionInspection, Error> in
+            do { return .success(try await host.createRecoverableSession()) }
+            catch { return .failure(error) }
+        }
+        let results = await [first.value, second.value]
+
+        #expect(results.filter { if case .success = $0 { return true }; return false }.count == 1)
+        #expect(results.contains { if case .failure(let error) = $0 {
+            return (error as? DemoLiveWorkflowFailure) == .busy
+        }; return false })
+    }
+
+    @Test
     func promptPresetIsFrozenIntoWorkflowModelRequests() async throws {
         var settings = Self.settings()
         settings.promptPreset = .softwareDeveloper

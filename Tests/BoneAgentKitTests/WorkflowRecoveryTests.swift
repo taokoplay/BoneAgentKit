@@ -36,8 +36,10 @@ private actor RecoveryStore: BoneWorkflowEffectStore {
         return intent
     }
     private func copy(_ old: BoneEffectIntent, phase: BoneEffectPhase, lease: UInt64) throws -> BoneEffectIntent {
-        try .init(id: old.id, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID, toolCallID: old.toolCallID,
-            recoveryStrategy: old.recoveryStrategy, idempotencyKey: old.idempotencyKey, argumentsDigest: old.argumentsDigest, phase: phase, leaseGeneration: lease)
+        try .init(id: old.id, sessionID: old.sessionID, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID, toolCallID: old.toolCallID,
+            recoveryStrategy: old.recoveryStrategy, idempotencyKey: old.idempotencyKey,
+            idempotencyKeyDigest: old.idempotencyKeyDigest, argumentsDigest: old.argumentsDigest,
+            phase: phase, leaseGeneration: lease)
     }
     func consumeAuthorizationAndPersistIntent(_ validation: BoneAuthorizationValidation, intent next: BoneEffectIntent) throws {
         try fence(next.leaseGeneration)

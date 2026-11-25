@@ -337,6 +337,44 @@ final class BoneAgentLabUITests: XCTestCase {
     }
 
     @MainActor
+    func testRecoverableSessionCreatesWaitsAndResumesWithoutDuplicateModelCall() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--live-chat-ui-test", "--built-in-tools-ui-test"]
+        app.launch()
+        app.tabBars.buttons["实验室"].tap()
+        let more = app.descendants(matching: .any).matching(identifier: "moreLabCapabilities").firstMatch
+        reveal(more, in: app)
+        more.tap()
+        reveal(app.buttons["liveWorkflowLab"], in: app)
+        app.buttons["liveWorkflowLab"].tap()
+
+        let create = app.buttons["recoverableSessionCreate"]
+        reveal(create, in: app)
+        create.tap()
+        let state = app.descendants(matching: .any).matching(identifier: "recoverableSessionState").firstMatch
+        XCTAssertTrue(state.waitForExistence(timeout: 10))
+        reveal(state, in: app)
+        XCTAssertEqual(state.label, "active")
+
+        let wait = app.buttons["recoverableSessionWaitForUser"]
+        reveal(wait, in: app)
+        wait.tap()
+        let waitingState = app.descendants(matching: .any).matching(identifier: "recoverableSessionState").firstMatch
+        let waitingPredicate = NSPredicate(format: "label == %@", "waitingForUser")
+        expectation(for: waitingPredicate, evaluatedWith: waitingState)
+        waitForExpectations(timeout: 10)
+
+        let send = app.buttons["recoverableSessionSend"]
+        reveal(send, in: app)
+        send.tap()
+        let output = app.staticTexts["recoverableSessionOutput"]
+        XCTAssertTrue(output.waitForExistence(timeout: 15))
+        reveal(output, in: app)
+        XCTAssertTrue(output.label.contains("可恢复 Session 第一轮"))
+        capture("recoverable-session-resumed")
+    }
+
+    @MainActor
     func testSDKCapabilityLabs() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--live-chat-ui-test"]

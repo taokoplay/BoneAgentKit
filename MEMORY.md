@@ -91,3 +91,21 @@
 - 2026-11-23，会话保存的是编译后的 system 消息，恢复时沿用已保存内容，不根据当前 Profile 重新生成历史前缀。Profile 与 Host system 内容均受 UTF-8 字节预算约束，校验失败不会创建会话或发起请求。
 - 2026-11-23，WorkflowRunnerDemo 新增 `custom`、`personal-assistant`、`software-developer` 三种角色预设，自定义说明仍会与 Profile 和工具约束合并。预设类型放在 `DemoLiveChatSettings.swift`，确保 SwiftPM 与显式文件清单的 iOS Xcode 目标共用同一实现。
 - 2026-11-23，提示词 Profile 定向 SDK 测试 5 项通过，WorkflowRunnerDemo 聊天、Workflow、结构化输出定向测试 42 项通过，WorkflowRunnerDemo 全量测试 241 项通过，`BoneAgentLab` iOS Simulator Debug 构建通过。SwiftPM 测试需要临时 ModuleCache，沙箱内直接运行会因 `sandbox-exec` 初始化失败；SDK 全量测试另有一条既有工具组数量断言失败，Nowledge Mem 服务仍不可连接。
+
+## Agent Execution Session 可恢复执行升级
+
+- 2026-11-24，BoneAgentKit 新增 `BoneAgentExecutionSession`、`BoneAgentExecutionSessionStore` 和 `BoneAgentExecutionSessionCoordinator`，把 `BoneAgentConversation` 私有快照、Session 控制面、lease generation、配置摘要和 Workflow identity 组合成可跨 Agent 实例恢复的长期执行入口。
+- 2026-11-24，协调器支持 start、run、pause、waitForUser、waitForAuthorization、waitForReview、waitForExternalEvent、resume、cancel、complete。模型调用前校验 conversationID、modelID、bindingID、workflow/configuration/tool catalog/prompt profile 摘要和快照引用。
+- 2026-11-24，Session 与私有快照必须通过 Host Store 的联合 CAS 提交。提交结果未知时返回 `persistenceOutcomeUnknown`，不自动重试或重放模型和副作用。快照缺失、配置漂移和 continuation 无效会在模型请求前进入 `recoveryRequired`。
+- 2026-11-24，普通 `BoneAgent.run` 不增加强制持久化开销。长期 Session 每轮增加私有快照编码和控制面 CAS。Demo 传统 WorkflowRunner 仍保留独立示例持久化模型，可恢复 Agent Session 已通过新增适配器并列接入，尚未替换传统 Runner。
+- 2026-11-24，`BoneEffectIntent` 新增可选 `sessionID`。长期 Session 的 Tool Context 由 `BoneWorkflowExecutionScope` 绑定 Session、Run、Step、Attempt 和 lease generation，Effect 恢复由 `BoneWorkflowEffectRecoveryScope` 校验归属，旧 Workflow 的无 Session scope 路径保持兼容。Scope 校验只发生在本地字段和持久化边界，不增加模型或外部 Tool 调用。
+- 2026-11-24，Demo 可恢复 Session 的创建、等待、恢复发送和直接发送操作增加 Actor 内部门禁，await 期间重复操作返回 busy。
+- 2026-11-25，`BoneEffectIntent` 使用显式 `decodeIfPresent` 兼容缺少 `sessionID` 的历史存档，Effect 从 `intentPersisted` 迁移到 `executionStarted` 时保留 Session、幂等键及摘要字段。`BoneWorkflowToolExecutionContext` 在构造阶段校验内嵌执行作用域，Pipeline 继续校验 TaskLocal 当前作用域。旧 lease 事实只能通过当前 lease 的原子接管或已确认 Receipt 提交入口恢复。
+- 2026-11-25，本轮 SDK Session、Effect Recovery、Workflow Recovery 定向测试 29 项通过，WorkflowRunnerDemo 全量测试 243 项通过，公开文档检查和 `git diff --check` 通过。普通沙箱执行 SwiftPM 仍会因 `sandbox_apply: Operation not permitted` 失败，验证使用受控提升权限完成。
+
+## Agent Execution Session 本轮 UI 与文档进展
+
+- 2026-11-24，WorkflowRunnerDemo 的 iOS `LiveWorkflowLabView` 新增独立“可恢复 Agent Session”区域，复用 `DemoLiveWorkflow` 的 Session API，支持创建、等待用户、恢复并发送输入、Inspect 状态和本轮输出展示。传统 Workflow Runner 继续使用独立状态和 accessibility identifier。
+- 2026-11-24，iOS Demo 的可恢复 Session 使用脚本模型覆盖 UI 测试路径，创建和等待用户阶段不发起模型请求，恢复后才消费脚本响应。UI 测试新增创建、等待、恢复和输出断言。
+- 2026-11-24，文档已补充 SDK 已实现、Demo 已接入、生产 Host 尚未完成数据库与跨进程验收的成熟度边界，并明确 Session、Step checkpoint 和 Snapshot 的联合提交责任。
+- 2026-11-24，新增 UI 编译验证尝试受当前机器 CoreSimulator 服务不可用、用户缓存目录权限和 SwiftPM ModuleCache 权限阻断，不能把本轮声明为新鲜 iOS 构建通过。Nowledge Mem 服务仍无法连接 `127.0.0.1:14242`。

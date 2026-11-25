@@ -254,9 +254,10 @@ actor DemoToolEffectStore: BoneWorkflowEffectStore {
         guard let old = record.intent, old.phase == .intentPersisted, !record.cancelled else {
             throw BoneWorkflowToolExecutionError.effectStoreRejected
         }
-        record.intent = try .init(id: old.id, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID,
-            toolCallID: old.toolCallID, recoveryStrategy: old.recoveryStrategy, idempotencyKey: nil,
-            argumentsDigest: old.argumentsDigest, phase: .executionStarted, leaseGeneration: leaseGeneration)
+        record.intent = try .init(id: old.id, sessionID: old.sessionID, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID,
+            toolCallID: old.toolCallID, recoveryStrategy: old.recoveryStrategy, idempotencyKey: old.idempotencyKey,
+            idempotencyKeyDigest: old.idempotencyKeyDigest, argumentsDigest: old.argumentsDigest,
+            phase: .executionStarted, leaseGeneration: leaseGeneration)
         records[effectID] = record
     }
     func recordReceipt(_ receipt: BoneEffectReceipt) throws {

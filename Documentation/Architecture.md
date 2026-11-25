@@ -128,3 +128,13 @@ Capability metadata 不替代 Provider 自身的模型目录、鉴权、额度�
 `Inference/Validation` 提供独立的 `BoneInferenceValidatedOutputProcessor<Input, Value, Feedback>`，在调用方取得完整响应后组合校验与显式有界修正。它不改变 Engine、Agent 或 Tool 的默认执行链，也不改写 Run 的成功语义。合格条件和修正执行器由调用方注入，修正次数默认 0；闭包错误和取消直接传播。
 
 处理器无共享状态、不持有数据库或模型；其回执仅统计单次调用。预算、授权、持久请求身份与恢复继续使用已有执行边界，不能把本地计数当作跨重启额度。详见 [输出校验与有界修正](OutputValidationAndCorrection.md)。
+
+## 长期 Agent 执行
+
+短期调用继续使用 `BoneAgent.run` 和 `BoneAgentConversation`。需要跨进程、暂停、授权等待或重启恢复时，Host 显式装配 `BoneAgentExecutionSessionCoordinator`。该协调器组合 Session 控制面、Conversation 私有快照、Workflow lease 和已有 Effect 恢复合同。
+
+当前 SDK 已提供可恢复 Session 的控制面、恢复前校验、已确认 Receipt 提交和未知副作用的恢复决策。WorkflowRunnerDemo 已提供进程内 Host 适配器和 iOS 实验入口，用于展示创建、等待用户、恢复、续跑和状态检查。跨进程、重启、数据库事务、快照加密以及真实外部副作用对账仍属于 Host 的生产验收范围。内存 Store 和测试故障注入不能证明这些能力已经具备生产耐久性。
+
+长期 Session 的控制面只保存可验证身份、版本摘要、状态、Attention、revision、lease generation 和快照引用。私有消息、Tool 结果、Provider continuation 由 Host-owned Snapshot Store 保护。Session Store 必须支持 Session 与快照的联合 CAS 提交，提交结果未知时由 Host 重读并调和。普通 `BoneAgent.run` 不增加强制持久化，因此现有短请求的性能路径保持不变。长期 Session 每轮会增加一次快照编码和一次控制面提交，成本随消息历史增长，Host 应结合 Context Compaction 和资源 opaque reference 控制快照大小。
+
+高风险 Tool 的 Session 路径还会绑定 `BoneWorkflowExecutionScope`。协调器注入的 scope 必须与 Tool Context 中的 Session、Run、Step、Attempt 和 lease generation 逐项一致，Effect Intent 与 Receipt 恢复也会校验对应归属。Scope 是并发与恢复围栏，授权、资源版本、撤销和业务事务仍由 Host 负责。旧 Workflow 可以继续使用没有 Session scope 的 Context，因此新增检查不会改变既有短期调用的输入合同。

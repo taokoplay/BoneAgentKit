@@ -902,7 +902,7 @@ public actor BoneAgent {
                     case .toolExecutionFailed: throw BoneAgentError.toolExecutionFailed
                     case .outcomeUnknown: throw BoneAgentError.toolOutcomeUnknown
                     case .recoveryRequired: throw BoneAgentError.toolRecoveryRequired
-                    case .invalidContext, .pipelineUnavailable, .authorizationRejected, .effectStoreRejected:
+                    case .invalidContext, .identityMismatch, .pipelineUnavailable, .authorizationRejected, .effectStoreRejected:
                         throw BoneToolBatchAbortError.controlPlaneFailure
                     }
                 } catch let error as BoneAgentToolError {

@@ -2,6 +2,7 @@ import Foundation
 
 public enum BoneWorkflowToolExecutionError: Error, Equatable, Sendable {
     case invalidContext
+    case identityMismatch
     case pipelineUnavailable
     case authorizationRejected
     case effectStoreRejected
@@ -50,6 +51,15 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
               let schemaVersion = definition.schemaVersion else {
             throw BoneWorkflowToolExecutionError.pipelineUnavailable
         }
+        if let currentScope = BoneWorkflowExecutionScopeContext.current {
+            guard context.executionScope == currentScope,
+                  context.runID == currentScope.runID,
+                  context.stepID == currentScope.stepID,
+                  context.attemptID == currentScope.attemptID,
+                  context.leaseGeneration == currentScope.leaseGeneration else {
+                throw BoneWorkflowToolExecutionError.identityMismatch
+            }
+        }
 
         let canonicalCall: BoneCanonicalToolCall
         let validation: BoneAuthorizationValidation
@@ -77,6 +87,7 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
             )
             intent = try BoneEffectIntent(
                 id: context.effectID,
+                sessionID: context.executionScope?.sessionID,
                 runID: context.runID,
                 stepID: context.stepID,
                 attemptID: context.attemptID,
@@ -147,10 +158,46 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
         }
     }
 
+    /// 提交已确认的历史 Receipt，不重新执行 Tool。
+    ///
+    /// 该入口只接受 Recovery Planner 判定为 `commitReceipt` 的事实。Host Store
+    /// 负责把 Receipt 与业务 Checkpoint 放在同一提交边界，提交结果未知时由调用方
+    /// 重新读取 Effect 事实，不得把错误当作已回滚。
+    /// - Parameters:
+    ///   - effectID: 待提交 Receipt 的 Effect 身份。
+    ///   - currentLeaseGeneration: 当前 Run 持有的 lease generation。
+    /// - Returns: 提交成功后返回 `completed`，其他 Planner 动作原样返回。
+    /// - Throws: Effect Store 不可用、事实缺失或提交失败时抛出 Tool 管线错误或 Store 错误。
+    public func commitRecoveredReceipt(
+        effectID: BoneEffectID,
+        currentLeaseGeneration: UInt64,
+        expectedScope: BoneWorkflowEffectRecoveryScope? = nil
+    ) async throws -> BoneWorkflowRecoveryAction {
+        guard let effectStore else { throw BoneWorkflowToolExecutionError.pipelineUnavailable }
+        guard let snapshot = try await effectStore.recoverySnapshot(
+            effectID: effectID,
+            currentLeaseGeneration: currentLeaseGeneration
+        ) else {
+            throw BoneWorkflowToolExecutionError.effectStoreRejected
+        }
+        if let expectedScope, !expectedScope.matches(snapshot.intent) {
+            throw BoneWorkflowToolExecutionError.identityMismatch
+        }
+        let action = recoveryPlanner.plan(snapshot)
+        guard case .commitReceipt = action else { return action }
+        try await effectStore.commitRecoveredReceipt(
+            effectID: effectID,
+            receiptLeaseGeneration: snapshot.intent.leaseGeneration,
+            currentLeaseGeneration: currentLeaseGeneration
+        )
+        return .completed
+    }
+
     /// 重启时只解释已持久化事实，不在无 Receipt 的不确定窗口盲目重执行。
     public func recoveryAction(
         effectID: BoneEffectID,
-        currentLeaseGeneration: UInt64
+        currentLeaseGeneration: UInt64,
+        expectedScope: BoneWorkflowEffectRecoveryScope? = nil
     ) async throws -> BoneWorkflowRecoveryAction {
         guard let effectStore else { throw BoneWorkflowToolExecutionError.pipelineUnavailable }
         do {
@@ -159,6 +206,9 @@ public struct BoneWorkflowToolExecutionPipeline: Sendable {
                 currentLeaseGeneration: currentLeaseGeneration
             ) else {
                 throw BoneWorkflowToolExecutionError.effectStoreRejected
+            }
+            if let expectedScope, !expectedScope.matches(snapshot.intent) {
+                throw BoneWorkflowToolExecutionError.identityMismatch
             }
             let action = recoveryPlanner.plan(snapshot)
             switch action {

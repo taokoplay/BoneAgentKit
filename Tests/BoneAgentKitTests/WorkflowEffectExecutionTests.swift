@@ -39,10 +39,11 @@ private actor EffectFixture: BoneWorkflowEffectStore {
     func persistCancellation(effectID: BoneEffectID, leaseGeneration: UInt64) { cancelled = true }
     func markExecutionStarted(effectID: BoneEffectID, leaseGeneration: UInt64) throws {
         guard let old = intents[effectID], old.id == effectID, old.phase == .intentPersisted else { throw EffectFault.injected }
-        intents[effectID] = try .init(id: old.id, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID,
+        intents[effectID] = try .init(id: old.id, sessionID: old.sessionID, runID: old.runID, stepID: old.stepID, attemptID: old.attemptID,
                            toolCallID: old.toolCallID, recoveryStrategy: old.recoveryStrategy,
-                           idempotencyKey: old.idempotencyKey, argumentsDigest: old.argumentsDigest,
-                           phase: .executionStarted, leaseGeneration: leaseGeneration)
+                           idempotencyKey: old.idempotencyKey, idempotencyKeyDigest: old.idempotencyKeyDigest,
+                           argumentsDigest: old.argumentsDigest, phase: .executionStarted,
+                           leaseGeneration: leaseGeneration)
         if mode == .lostStartedAck { throw EffectFault.injected }
     }
     func recordReceipt(_ receipt: BoneEffectReceipt) throws {
@@ -302,6 +303,171 @@ final class WorkflowEffectExecutionTests: XCTestCase {
         XCTAssertEqual(action, .recoveryRequired(.outcomeUnknown))
         let observed = await fixture.observations()
         XCTAssertEqual(observed.0, 1)
+    }
+
+    func testSessionExecutionScopeRejectsMismatchedContextFieldsBeforeIntent() async throws {
+        let fixture = EffectFixture(.succeed)
+        let pipeline = BoneWorkflowToolExecutionPipeline(effectStore: fixture)
+        let call = BoneInferenceToolCall(id: "scoped", toolID: EffectWriteTool.definition.id, arguments: Data("{}".utf8))
+        let scope = try BoneWorkflowExecutionScope(
+            sessionID: "session-1",
+            runID: .init("run-1"),
+            stepID: .init("step-1"),
+            attemptID: .init("attempt-1"),
+            leaseGeneration: 2
+        )
+        let context = try BoneWorkflowToolExecutionContext(
+            ticketID: .init("ticket"),
+            runID: scope.runID,
+            stepID: scope.stepID,
+            attemptID: scope.attemptID,
+            toolCallID: .init(call.id),
+            effectID: .init(call.id),
+            principal: "host",
+            resourceScope: "fixture",
+            resourceRevision: 1,
+            authorizationNonce: "nonce",
+            nowUptime: 1,
+            leaseGeneration: scope.leaseGeneration,
+            recoveryStrategy: .reconcilable,
+            idempotencyKey: nil,
+            executionScope: scope
+        )
+
+        let staleScope = try BoneWorkflowExecutionScope(
+            sessionID: "session-1",
+            runID: scope.runID,
+            stepID: scope.stepID,
+            attemptID: scope.attemptID,
+            leaseGeneration: 1
+        )
+        do {
+            _ = try await BoneWorkflowExecutionScopeContext.$current.withValue(staleScope) {
+                try await pipeline.execute(
+                    arguments: call.arguments,
+                    definition: EffectWriteTool.definition,
+                    context: context
+                ) {
+                    try await fixture.execute()
+                    return Data("{}".utf8)
+                }
+            }
+            XCTFail("a context with a stale lease must be rejected before Intent persistence")
+        } catch let error as BoneWorkflowToolExecutionError {
+            XCTAssertEqual(error, .identityMismatch)
+        }
+
+        let snapshot = await fixture.recoverySnapshot(effectID: context.effectID, currentLeaseGeneration: 1)
+        XCTAssertNil(snapshot)
+        let observations = await fixture.observations()
+        XCTAssertEqual(observations.0, 0)
+    }
+
+    func testContextRejectsMismatchedExecutionScopeWithoutTaskLocal() throws {
+        let scope = try BoneWorkflowExecutionScope(
+            sessionID: "session-context",
+            runID: .init("run-scope"),
+            stepID: .init("step-scope"),
+            attemptID: .init("attempt-scope"),
+            leaseGeneration: 2
+        )
+
+        XCTAssertThrowsError(
+            try BoneWorkflowToolExecutionContext(
+                ticketID: .init("ticket-context"),
+                runID: .init("run-context"),
+                stepID: scope.stepID,
+                attemptID: scope.attemptID,
+                toolCallID: .init("call-context"),
+                effectID: .init("effect-context"),
+                principal: "host",
+                resourceScope: "fixture",
+                resourceRevision: 1,
+                authorizationNonce: "nonce-context",
+                nowUptime: 1,
+                leaseGeneration: scope.leaseGeneration,
+                recoveryStrategy: .reconcilable,
+                idempotencyKey: nil,
+                executionScope: scope
+            )
+        ) { error in
+            XCTAssertEqual(error as? BoneWorkflowToolExecutionError, .identityMismatch)
+        }
+    }
+
+    func testExecutionStartedPhasePreservesSessionID() async throws {
+        let fixture = EffectFixture(.succeed)
+        let pipeline = BoneWorkflowToolExecutionPipeline(effectStore: fixture)
+        let call = BoneInferenceToolCall(id: "session-preserved", toolID: EffectWriteTool.definition.id, arguments: Data("{}".utf8))
+        let scope = try BoneWorkflowExecutionScope(
+            sessionID: "session-preserved",
+            runID: .init("run-preserved"),
+            stepID: .init("step-preserved"),
+            attemptID: .init("attempt-preserved"),
+            leaseGeneration: 1
+        )
+        let context = try BoneWorkflowToolExecutionContext(
+            ticketID: .init("ticket-preserved"),
+            runID: scope.runID,
+            stepID: scope.stepID,
+            attemptID: scope.attemptID,
+            toolCallID: .init(call.id),
+            effectID: .init(call.id),
+            principal: "host",
+            resourceScope: "fixture",
+            resourceRevision: 1,
+            authorizationNonce: "nonce-preserved",
+            nowUptime: 1,
+            leaseGeneration: 1,
+            recoveryStrategy: .reconcilable,
+            idempotencyKey: nil,
+            executionScope: scope
+        )
+
+        _ = try await BoneWorkflowExecutionScopeContext.$current.withValue(scope) {
+            try await pipeline.execute(
+                arguments: call.arguments,
+                definition: EffectWriteTool.definition,
+                context: context
+            ) {
+                try await fixture.execute()
+                return Data("{}".utf8)
+            }
+        }
+
+        let storedSnapshot = await fixture.recoverySnapshot(
+            effectID: context.effectID,
+            currentLeaseGeneration: 1
+        )
+        let snapshot = try XCTUnwrap(storedSnapshot)
+        XCTAssertEqual(snapshot.intent.sessionID, scope.sessionID)
+        XCTAssertEqual(snapshot.intent.phase, .executionStarted)
+    }
+
+    func testLegacyEffectIntentWithoutSessionIDRemainsDecodable() throws {
+        let current = try BoneEffectIntent(
+            id: .init("effect-legacy"),
+            sessionID: "session-current",
+            runID: .init("run-legacy"),
+            stepID: .init("step-legacy"),
+            attemptID: .init("attempt-legacy"),
+            toolCallID: .init("call-legacy"),
+            recoveryStrategy: .reconcilable,
+            idempotencyKey: nil,
+            argumentsDigest: String(repeating: "a", count: 64),
+            phase: .intentPersisted,
+            leaseGeneration: 1
+        )
+        let encoded = try JSONEncoder().encode(current)
+        var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacyObject.removeValue(forKey: "sessionID")
+        let legacyData = try JSONSerialization.data(withJSONObject: legacyObject)
+
+        let decoded = try JSONDecoder().decode(BoneEffectIntent.self, from: legacyData)
+
+        XCTAssertNil(decoded.sessionID)
+        XCTAssertEqual(decoded.runID, current.runID)
+        XCTAssertEqual(decoded.argumentsDigest, current.argumentsDigest)
     }
 
     func testOrdinaryReadFailureStillCollectsAndContinuesInference() async throws {
