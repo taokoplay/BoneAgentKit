@@ -32,13 +32,18 @@ public struct BoneInferenceEventStreamFramer: Sendable {
     }
 
     public mutating func append(_ chunk: Data) throws -> [BoneInferenceEventStreamEvent] {
+        var events: [BoneInferenceEventStreamEvent] = []
+        try append(chunk) { events.append($0) }
+        return events
+    }
+
+    /// 原生流逐帧交付，避免先为单个网络 chunk 构造完整事件数组。
+    mutating func append(_ chunk: Data, emit: (BoneInferenceEventStreamEvent) throws -> Void) throws {
         guard chunk.count <= maximumBytes - receivedBytes else {
             throw BoneInferenceTransportError.responseTooLarge
         }
         receivedBytes += chunk.count
-        var events: [BoneInferenceEventStreamEvent] = []
-        // CR ends a line immediately; swallow only its optional following LF,
-        // including when CR/LF arrive in different network chunks.
+        // CR 立即结束一行；下一块开头的可选 LF 也只吞一次。
         for byte in chunk {
             if skipNextLF {
                 skipNextLF = false
@@ -49,13 +54,12 @@ public struct BoneInferenceEventStreamFramer: Sendable {
                     throw BoneInferenceTransportError.invalidResponse
                 }
                 buffer.removeAll(keepingCapacity: true)
-                if let event = consume(line: line) { events.append(event) }
+                if let event = consume(line: line) { try emit(event) }
                 skipNextLF = byte == 0x0D
             } else {
                 buffer.append(byte)
             }
         }
-        return events
     }
 
     public mutating func finish() throws -> [BoneInferenceEventStreamEvent] {
@@ -113,6 +117,8 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     private var response: HTTPURLResponse?
     private var continuation: CheckedContinuation<BoneInferenceEventStreamResponse, Error>?
     private var eventContinuation: BoneInferenceRawEventStream.Continuation?
+    private var controlledProducer: BoneBoundedEventStream<BoneInferenceEventStreamEvent>.Producer?
+    private var hasStreamEvents = false
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var watchdog: DispatchWorkItem?
@@ -166,7 +172,7 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
     func eventStream() -> BoneInferenceRawEventStream {
         AsyncThrowingStream { continuation in
             lock.lock()
-            guard !completed, eventContinuation == nil, self.continuation == nil else {
+            guard !completed, eventContinuation == nil, self.continuation == nil, controlledProducer == nil else {
                 lock.unlock()
                 continuation.finish(throwing: BoneInferenceTransportError.cancelled)
                 return
@@ -192,6 +198,43 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             continuation.onTermination = { @Sendable [weak self] _ in self?.cancel() }
             task.resume()
         }
+    }
+
+    func controlledEventStream(buffering: BoneEventBufferLimits) -> BoneBoundedEventStream<BoneInferenceEventStreamEvent> {
+        let (stream, producer) = BoneBoundedEventStream<BoneInferenceEventStreamEvent>.makeStream(
+            limits: buffering, payloadSize: { BoneEventPayloadSize.raw($0) }
+        )
+        lock.lock()
+        guard !completed, eventContinuation == nil, self.continuation == nil, controlledProducer == nil else {
+            lock.unlock()
+            producer.finish(throwing: BoneInferenceTransportError.cancelled)
+            return stream
+        }
+        do { try scheduleDeadlineLocked() } catch {
+            completed = true
+            lock.unlock()
+            producer.finish(throwing: error)
+            return stream
+        }
+        controlledProducer = producer
+        let streamConfiguration = configuration.copy() as! URLSessionConfiguration
+        streamConfiguration.timeoutIntervalForRequest = .greatestFiniteMagnitude
+        streamConfiguration.timeoutIntervalForResource = .greatestFiniteMagnitude
+        let session = URLSession(configuration: streamConfiguration, delegate: self, delegateQueue: nil)
+        var streamRequest = request
+        streamRequest.timeoutInterval = .greatestFiniteMagnitude
+        let task = session.dataTask(with: streamRequest)
+        self.session = session
+        self.task = task
+        scheduleWatchdogLocked(error: .firstEventTimedOut, duration: options.firstEventTimeout)
+        lock.unlock()
+        producer.onTermination { @Sendable [weak self] termination in
+            if case .finished = termination { return }
+            // offer 在串行网络回调中执行；异步取消避免重入同一把 Bridge 锁。
+            DispatchQueue.global(qos: .utility).async { [weak self] in self?.cancel() }
+        }
+        task.resume()
+        return stream
     }
 
     func cancel() {
@@ -265,12 +308,20 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
             return
         }
         do {
-            let framed = try framer.append(data)
-            if !framed.isEmpty {
-                events.append(contentsOf: framed)
-                for event in framed { eventContinuation?.yield(event) }
-                scheduleWatchdogLocked(error: .idleTimedOut, duration: options.idleTimeout)
-            } else if !events.isEmpty, !data.isEmpty {
+            try framer.append(data) { event in
+                hasStreamEvents = true
+                if let controlledProducer {
+                    switch controlledProducer.offer(event) {
+                    case .accepted: break
+                    case .terminated: throw CancellationError()
+                    case .failed(let error): throw error
+                    }
+                } else {
+                    events.append(event)
+                    eventContinuation?.yield(event)
+                }
+            }
+            if hasStreamEvents, !data.isEmpty {
                 scheduleWatchdogLocked(error: .idleTimedOut, duration: options.idleTimeout)
             }
             lock.unlock()
@@ -365,6 +416,8 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         self.continuation = nil
         let eventContinuation = self.eventContinuation
         self.eventContinuation = nil
+        let controlledProducer = self.controlledProducer
+        self.controlledProducer = nil
         let task = self.task
         let session = self.session
         let response = self.response
@@ -379,8 +432,12 @@ final class BoneInferenceEventStreamSessionBridge: NSObject, URLSessionDataDeleg
         }
         continuation?.resume(with: result)
         switch result {
-        case .success: eventContinuation?.finish()
-        case let .failure(error): eventContinuation?.finish(throwing: error)
+        case .success:
+            eventContinuation?.finish()
+            controlledProducer?.finish()
+        case let .failure(error):
+            eventContinuation?.finish(throwing: error)
+            controlledProducer?.finish(throwing: error)
         }
     }
 

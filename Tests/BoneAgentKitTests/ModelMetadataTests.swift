@@ -37,7 +37,7 @@ final class ModelMetadataTests: XCTestCase {
     func testBundledMetadataHasExactChannelIdentityAndNoVerifiedProfile() throws {
         let catalog = try BoneInferenceProviderCatalog.bundled()
         let models = catalog.providers.flatMap(\.models)
-        XCTAssertEqual(models.filter { $0.metadata != nil }.count, 33)
+        XCTAssertEqual(models.filter { $0.metadata != nil }.count, 31)
         for model in models where model.metadata != nil {
             XCTAssertEqual(model.metadata?.declaration.id, model.id)
             XCTAssertEqual(model.metadata?.provenance.source, .modelsDev)

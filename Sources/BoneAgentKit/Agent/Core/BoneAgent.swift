@@ -168,7 +168,7 @@ public actor BoneAgent {
                         boundary: boundary,
                         snapshotContext: snapshotContext,
                         streamingOverride: true,
-                        streamEmitter: { event in continuation.yield(event) },
+                        streamEmitter: { event in _ = continuation.yield(event) },
                         streamOptions: options
                     ).boundary
                     continuation.yield(.completed(result))
@@ -183,6 +183,78 @@ public actor BoneAgent {
             continuation.onTermination = { @Sendable _ in cancellation.cancel() }
         }
         return stream
+    }
+
+    /// 带运行身份与本流序号的可选有界入口。要求 Engine 与其 Transport 明确支持流控。
+    /// 观察错误不证明外部副作用未执行，不得据此自动重试。旧 runEvents 保持原有契约。
+    public func runObservedEvents(
+        request initialRequest: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits = .init(),
+        boundary: BoneAgentRunBoundary = .untilModelFinish,
+        snapshotContext: BoneAgentModelSnapshotContext? = nil
+    ) throws -> BoneAgentObservedEventStream {
+        guard !isRunning else { throw BoneAgentError.runAlreadyInProgress }
+        guard initialRequest.responseFormat == .text else { throw BoneAgentError.inferenceFailed }
+        guard let controlled = inferenceEngine as? any BoneInferenceFlowControlledEventStreaming else {
+            throw BoneEventStreamError.flowControlUnavailable
+        }
+        try controlled.validateEventFlowControl()
+        if let deadline = try BoneInferenceEventStreams.deadlineUptime(options: options),
+           deadline <= ProcessInfo.processInfo.systemUptime {
+            throw BoneInferenceStreamDeadlineExceeded()
+        }
+        let prepared = BoneInferenceRequest(
+            modelID: initialRequest.modelID, messages: initialRequest.messages,
+            availableTools: toolRegistry.definitions, generationOptions: initialRequest.generationOptions,
+            responseFormat: .text, outputConstraint: initialRequest.outputConstraint,
+            reasoningDisclosure: initialRequest.reasoningDisclosure
+        )
+        do {
+            let resolved = try inferenceEngine.resolvedCapabilities(for: prepared, invocation: .streaming)
+            try BoneInferenceCapabilityValidator.validate(
+                request: prepared, capabilities: resolved.capabilities, invocation: resolved.invocation
+            )
+        } catch let BoneInferenceError.unsupportedCapability(capability) {
+            throw BoneAgentError.unsupportedCapability(capability)
+        } catch {
+            throw BoneAgentError.inferenceFailed
+        }
+        isRunning = true
+        let runID = UUID()
+        let completion = BoneAgentObservedCompletion()
+        let source = BoneInferenceEventStreams.bounded(
+            buffering: buffering, payloadSize: { BoneEventPayloadSize.agent($0) }
+        ) { [weak self] emit in
+            guard let self else { throw CancellationError() }
+            try await self.produceObservedRun(runID: runID, request: initialRequest, options: options,
+                buffering: buffering, boundary: boundary, snapshotContext: snapshotContext,
+                completion: completion, emit: emit)
+        }
+        return .init(runID: runID, source: source, completion: completion)
+    }
+
+    private func produceObservedRun(
+        runID: UUID,
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits,
+        boundary: BoneAgentRunBoundary,
+        snapshotContext: BoneAgentModelSnapshotContext?,
+        completion: BoneAgentObservedCompletion,
+        emit: @escaping BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>
+    ) async throws {
+        defer { isRunning = false }
+        let result = try await executeRunUntilBoundary(
+            request: request, boundary: boundary, snapshotContext: snapshotContext,
+            streamingOverride: true, streamEmitter: emit, streamOptions: options,
+            flowScope: .init(runID: runID, buffering: buffering)
+        ).boundary
+        // 执行成功已经线性化。这里的投递容量失败不得回写成执行失败，也不能再次执行工具。
+        let bytes = BoneEventPayloadSize.agent(.completed(result))
+        guard bytes >= 0 else { throw BoneEventStreamError.invalidPayloadSize }
+        guard bytes <= buffering.maximumEventPayloadBytes else { throw BoneEventStreamError.eventTooLarge }
+        completion.store(result)
     }
 
     public func run(
@@ -313,15 +385,36 @@ public actor BoneAgent {
         snapshotContext: BoneAgentModelSnapshotContext?,
         conversationSeed: BoneAgentConversationState? = nil,
         streamingOverride: Bool = false,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>? = nil,
         streamOptions: BoneInferenceEventStreamOptions? = nil,
-        tokenObserver: BoneAgentTokenSink? = nil
+        tokenObserver: BoneAgentTokenSink? = nil,
+        flowScope: BoneAgentEventFlowScope? = nil
+    ) async throws -> BoneAgentExecutionResult {
+        // 每个入口显式建立或清除作用域，防止工具中的嵌套 Agent 继承父 Run 的身份。
+        try await BoneEventFlowContext.$current.withValue(flowScope) {
+            try await self.executeScopedRunUntilBoundary(request: initialRequest, boundary: boundary,
+                snapshotContext: snapshotContext, conversationSeed: conversationSeed,
+                streamingOverride: streamingOverride, streamEmitter: streamEmitter,
+                streamOptions: streamOptions, tokenObserver: tokenObserver)
+        }
+    }
+
+    private func executeScopedRunUntilBoundary(
+        request initialRequest: BoneInferenceRequest,
+        boundary: BoneAgentRunBoundary,
+        snapshotContext: BoneAgentModelSnapshotContext?,
+        conversationSeed: BoneAgentConversationState?,
+        streamingOverride: Bool,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>?,
+        streamOptions: BoneInferenceEventStreamOptions?,
+        tokenObserver: BoneAgentTokenSink?
     ) async throws -> BoneAgentExecutionResult {
         let status = BoneAgentStatusReporter(sink: configuration.statusSink,
             tokenSink: .init { [configuration] value in
                 await tokenObserver?.receive(value)
                 await configuration.tokenSink.receive(value)
-            }, clock: monotonicClock, policy: configuration.observationPolicy)
+            }, clock: monotonicClock, policy: configuration.observationPolicy,
+            runID: BoneEventFlowContext.observationID ?? UUID())
         statusReporter = status
         await status.transition(.preparingInput)
         do {
@@ -346,7 +439,7 @@ public actor BoneAgent {
         snapshotContext: BoneAgentModelSnapshotContext?,
         conversationSeed: BoneAgentConversationState?,
         streamingOverride: Bool,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)?,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>?,
         streamOptions: BoneInferenceEventStreamOptions?,
         status: BoneAgentStatusReporter
     ) async throws -> BoneAgentExecutionResult {
@@ -398,7 +491,6 @@ public actor BoneAgent {
             throw BoneAgentError.inferenceFailed
         }
         await eventSink.receive(.runStarted)
-        streamEmitter?(.runStarted)
         configuration.logging.write(.info, "run.started", context: BoneAgentLogContext(["modelID": preparedInitialRequest.modelID, "messageCount": "\(preparedInitialRequest.messages.count)"]))
         let runStartedAt = monotonicClock()
         var runSnapshot = BoneAgentRunSnapshotBuilder(
@@ -408,6 +500,7 @@ public actor BoneAgent {
             startedAt: runStartedAt
         )
         do {
+            try await streamEmitter?(.runStarted)
             let runDeadline = configuration.runBudget.map { runStartedAt + $0.maximumWallClockSeconds }
             let budgetMeter = configuration.runBudget.map { BoneRunBudgetMeter(budget: $0, startedAtUptime: runStartedAt) }
             var messages = preparedInitialRequest.messages
@@ -552,6 +645,10 @@ public actor BoneAgent {
         } catch {
             await eventSink.receive(.runFinished(.failed(.inferenceFailed)))
             await deliverSnapshot(runSnapshot, terminalState: .failed(.inferenceFailed))
+            if BoneEventFlowContext.buffering != nil,
+               error is BoneEventStreamError || error is BoneInferenceStreamDeadlineExceeded {
+                throw error
+            }
             throw BoneAgentError.inferenceFailed
         }
     }
@@ -561,7 +658,7 @@ public actor BoneAgent {
         options: BoneInferenceEventStreamOptions,
         runDeadline: TimeInterval?,
         streamStep: Int,
-        streamEmitter: @Sendable (BoneAgentStreamEvent) -> Void,
+        streamEmitter: @escaping BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>,
         status: BoneAgentStatusReporter, inferenceID: UUID
     ) async throws -> BoneInferenceResponse {
         guard let streaming = inferenceEngine as? any BoneInferenceEventStreaming else {
@@ -578,36 +675,60 @@ public actor BoneAgent {
             totalTimeout: options.totalTimeout,
             deadlineUptime: effectiveDeadline
         )
+        let source: BoneInferenceEventSource<BoneInferenceStreamEvent>
+        if let buffering = BoneEventFlowContext.buffering {
+            guard let controlled = streaming as? any BoneInferenceFlowControlledEventStreaming else {
+                throw BoneEventStreamError.flowControlUnavailable
+            }
+            source = .bounded(controlled.inferenceEvents(request: request, options: effectiveOptions, buffering: buffering))
+        } else {
+            source = .legacy(streaming.inferenceEvents(request: request, options: effectiveOptions))
+        }
+        let deadline = BoneEventFlowContext.buffering == nil ? nil
+            : try BoneInferenceEventStreams.deadlineUptime(options: effectiveOptions)
+        return try await BoneInferenceEventStreams.withDeadline(deadline) {
+            try await self.consumeInferenceEvents(source, streamStep: streamStep,
+                streamEmitter: streamEmitter, status: status, inferenceID: inferenceID)
+        }
+    }
+
+    private func consumeInferenceEvents(
+        _ source: BoneInferenceEventSource<BoneInferenceStreamEvent>,
+        streamStep: Int,
+        streamEmitter: @escaping BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>,
+        status: BoneAgentStatusReporter,
+        inferenceID: UUID
+    ) async throws -> BoneInferenceResponse {
         var completed: BoneInferenceDetailedResult?
         var toolIDs: [String: String] = [:]
-        for try await event in streaming.inferenceEvents(request: request, options: effectiveOptions) {
+        for try await event in source {
             guard completed == nil else { throw BoneInferenceError.invalidResponse }
             switch event {
             case let .reasoningStarted(kind):
                 await status.streamActivity(.reasoning, id: inferenceID)
-                streamEmitter(.reasoningStarted(step: streamStep, kind: kind))
+                try await streamEmitter(.reasoningStarted(step: streamStep, kind: kind))
             case let .reasoningDelta(text):
                 await status.streamActivity(.reasoning, id: inferenceID)
-                streamEmitter(.reasoningDelta(step: streamStep, text: text))
+                try await streamEmitter(.reasoningDelta(step: streamStep, text: text))
             case .reasoningCompleted:
                 await status.streamReasoningCompleted(id: inferenceID)
-                streamEmitter(.reasoningCompleted(step: streamStep))
+                try await streamEmitter(.reasoningCompleted(step: streamStep))
             case let .textDelta(text):
                 await status.streamActivity(.generatingResponse, id: inferenceID)
-                streamEmitter(.textDelta(step: streamStep, text: text))
+                try await streamEmitter(.textDelta(step: streamStep, text: text))
             case let .toolCallStarted(id, toolID):
                 await status.streamActivity(.generatingToolCall, id: inferenceID)
                 toolIDs[id] = toolID
-                streamEmitter(.modelToolCallStarted(step: streamStep, callID: id, toolID: toolID))
+                try await streamEmitter(.modelToolCallStarted(step: streamStep, callID: id, toolID: toolID))
             case let .toolArgumentsDelta(id, _):
                 // Raw arguments are intentionally not exposed by the Agent stream.
                 _ = id
             case let .toolCallCompleted(id):
                 guard let toolID = toolIDs[id] else { throw BoneInferenceError.invalidResponse }
-                streamEmitter(.modelToolCallFinished(step: streamStep, callID: id, toolID: toolID))
+                try await streamEmitter(.modelToolCallFinished(step: streamStep, callID: id, toolID: toolID))
             case let .usage(usage):
                 await status.streamUsage(usage, id: inferenceID)
-                streamEmitter(.usage(step: streamStep, usage: usage))
+                try await streamEmitter(.usage(step: streamStep, usage: usage))
             case let .completed(result):
                 await status.streamActivity(.validatingResponse, id: inferenceID)
                 guard completed == nil else { throw BoneInferenceError.invalidResponse }
@@ -629,7 +750,7 @@ public actor BoneAgent {
         runDeadline: TimeInterval?,
         onResponseDelivered: (BoneInferenceResponse) -> Void,
         omitsPrivateRequest: Bool = false,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>? = nil,
         streamOptions: BoneInferenceEventStreamOptions? = nil,
         streamStep: Int = 0,
         status: BoneAgentStatusReporter
@@ -708,7 +829,9 @@ public actor BoneAgent {
                 await status.endInference(inferenceID)
             } catch {
                 await status.endInference(inferenceID)
-                let cancelled = Task.isCancelled || error is CancellationError || (error as? BoneInferenceTransportError) == .cancelled
+                let flowFailure = error is BoneEventStreamError || error is BoneInferenceStreamDeadlineExceeded
+                let cancelled = (!flowFailure && Task.isCancelled) || error is CancellationError
+                    || (error as? BoneInferenceTransportError) == .cancelled
                 await status.finishTokenRequest(inferenceID, state: cancelled ? .cancelled : .failed, usage: nil)
                 if cancelled { throw CancellationError() }
                 throw error
@@ -734,6 +857,10 @@ public actor BoneAgent {
                 try await progressSink.receive(.inferenceProtocolShapeFailed(shapeError.diagnostic))
             }
             try await progressSink.receive(.inferenceFailed(Self.inferenceFailureDiagnostic(for: error)))
+            if BoneEventFlowContext.buffering != nil,
+               error is BoneEventStreamError || error is BoneInferenceStreamDeadlineExceeded {
+                throw error
+            }
             throw BoneAgentError.inferenceFailed
         }
     }
@@ -769,7 +896,7 @@ public actor BoneAgent {
         messages: inout [BoneInferenceMessage],
         budgetMeter: BoneRunBudgetMeter?,
         step: Int = 0,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>? = nil,
         status: BoneAgentStatusReporter
     ) async throws {
         guard call.arguments.count <= BoneInferenceToolCall.maximumArgumentsByteCount else {
@@ -792,7 +919,7 @@ public actor BoneAgent {
         do {
             try Task.checkCancellation()
             try await budgetMeter?.checkWallClock(nowUptime: monotonicClock())
-            streamEmitter?(.toolExecutionStarted(step: step, callID: call.id, toolID: call.toolID))
+            try await streamEmitter?(.toolExecutionStarted(step: step, callID: call.id, toolID: call.toolID))
             output = try await status.withTool(call, step: step) {
                 try await self.executeThroughPipeline(call, definition: definition, budgetMeter: budgetMeter,
                                                       step: step, status: status)
@@ -809,7 +936,7 @@ public actor BoneAgent {
                 throw BoneAgentError.toolPayloadTooLarge
             }
             try await budgetMeter?.commitTool(resultBytes: output.count)
-            streamEmitter?(.toolResultReady(step: step, callID: call.id, toolID: call.toolID, isError: false))
+            try await streamEmitter?(.toolResultReady(step: step, callID: call.id, toolID: call.toolID, isError: false))
             try await progressSink.receive(.toolResultPrepared(step: messages.count + 1, ordinal: 0))
             await eventSink.receive(.toolCallFinished)
             configuration.logging.write(.info, "tool.finished", context: BoneAgentLogContext(["toolID": call.toolID, "callID": call.id, "resultBytes": "\(output.count)"]))
@@ -839,7 +966,7 @@ public actor BoneAgent {
         budgetMeter: BoneRunBudgetMeter?,
         onResultsReceived: (Int) -> Void,
         step: Int = 0,
-        streamEmitter: (@Sendable (BoneAgentStreamEvent) -> Void)? = nil,
+        streamEmitter: BoneInferenceEventStreams.Emit<BoneAgentStreamEvent>? = nil,
         status: BoneAgentStatusReporter
     ) async throws {
         messages.append(.assistant(turn))
@@ -869,7 +996,15 @@ public actor BoneAgent {
                 }
                 try await progressSink.receive(.toolExecutionPrepared(toolID: call.toolID))
                 try await budgetMeter?.reserveToolExecution(argumentsBytes: call.arguments.count, nowUptime: monotonicClock())
-                streamEmitter?(.toolExecutionStarted(step: step, callID: call.id, toolID: call.toolID))
+                do {
+                    try await streamEmitter?(.toolExecutionStarted(step: step, callID: call.id, toolID: call.toolID))
+                } catch is CancellationError {
+                    await budgetMeter?.releaseConcurrentTool()
+                    throw CancellationError()
+                } catch {
+                    await budgetMeter?.releaseConcurrentTool()
+                    throw BoneToolBatchAbortError.controlPlaneFailure
+                }
                 await eventSink.receive(.toolCallStarted)
                 let output: Data
                 do {
@@ -910,7 +1045,7 @@ public actor BoneAgent {
                     switch error.safeReason {
                     case .toolNotFound: throw BoneAgentError.toolNotFound
                     case .invalidArguments: throw BoneAgentError.toolExecutionFailed
-                    case .invalidContext: throw BoneToolBatchAbortError.controlPlaneFailure
+            case .invalidContext: throw BoneToolBatchAbortError.controlPlaneFailure
                     }
                 } catch {
                     await budgetMeter?.releaseConcurrentTool()
@@ -923,7 +1058,13 @@ public actor BoneAgent {
                     throw BoneAgentError.toolPayloadTooLarge
                 }
                 try await budgetMeter?.commitTool(resultBytes: output.count)
-                streamEmitter?(.toolResultReady(step: step, callID: call.id, toolID: call.toolID, isError: false))
+                do {
+                    try await streamEmitter?(.toolResultReady(step: step, callID: call.id, toolID: call.toolID, isError: false))
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw BoneAgentError.toolRecoveryRequired
+                }
                 await eventSink.receive(.toolCallFinished)
                 do { return try tool.resultContent(output) }
                 catch { throw BoneAgentError.toolRecoveryRequired }

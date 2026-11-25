@@ -27,7 +27,7 @@ struct BoneInferenceProviderModelListLoader: Sendable {
               let discoverer,
               let discovery = try Self.discoverySource(
                   entry: entry,
-                  baseURL: configuration.baseURL
+                  configuration: configuration
               )
         else {
             return try BoneInferenceProviderModelList(
@@ -89,12 +89,17 @@ struct BoneInferenceProviderModelListLoader: Sendable {
     /// 目录的 `modelDiscovery.endpoint` 只作为没有相对路径时的回退。
     private static func discoverySource(
         entry: BoneInferenceProviderCatalog.Entry,
-        baseURL: URL
+        configuration: BoneInferenceProviderConfiguration
     ) throws -> BoneInferenceProviderCatalog.Discovery? {
-        if let endpoint = try entry.resolvedEndpoint(
-            operation: "models",
-            overrideBaseURL: baseURL
-        ) {
+        let endpoint: URL?
+        if let compatible = BoneInferenceCompatibleDiscovery(entry: entry) {
+            endpoint = try compatible.endpoint(
+                baseURL: configuration.baseURL, requiresOperation: configuration.usesFullEndpointURL
+            )
+        } else {
+            endpoint = try entry.resolvedEndpoint(operation: "models", overrideBaseURL: configuration.baseURL)
+        }
+        if let endpoint {
             return .init(
                 endpoint: endpoint,
                 protocol: entry.discovery?.protocol

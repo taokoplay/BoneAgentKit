@@ -241,89 +241,103 @@ public struct BoneOpenAIInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) -> BoneInferenceNormalizedEventStream {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
-                    try BoneInferenceCapabilityValidator.validate(
-                        request: request,
-                        capabilities: resolved.capabilities,
-                        invocation: resolved.invocation
-                    )
-                    let prepared = try preparedRequest(request)
-                    let urlRequest = try await makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
-                    var events: [BoneInferenceEventStreamEvent] = []
-                    var mapper = BoneOpenAINormalizedEventMapper(
-                        disclosure: request.reasoningDisclosure,
-                        definitions: prepared.request.availableTools
-                    )
-                    let liveTiming = transport.providesLiveEventTiming
-                    var reportedFirstOutputToken = false
-                    try Task.checkCancellation()
-                    await BoneInferenceActivityReporting.report(.waitingForModel)
-                    try Task.checkCancellation()
-                    await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
-                    try Task.checkCancellation()
-                    for try await event in transport.eventStream(urlRequest, options: options) {
-                        events.append(event)
-                        let mappedEvents = try mapper.consume(event)
-                        if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
-                            reportedFirstOutputToken = true
-                            await BoneInferenceTelemetryReporting.report(.firstOutputToken)
-                        }
-                        for mapped in mappedEvents {
-                            if case .usage(let usage) = mapped {
-                                await BoneInferenceTelemetryReporting.report(.usage(usage))
-                            }
-                        }
-                        try Task.checkCancellation()
-                        for activity in mapper.activities {
-                            await BoneInferenceActivityReporting.report(activity)
-                            try Task.checkCancellation()
-                        }
-                        if request.outputConstraint == nil {
-                            for mapped in mappedEvents { continuation.yield(mapped) }
-                        }
-                    }
-                    await BoneInferenceTelemetryReporting.report(.responseFinished)
-                    mapper.finish()
-                    for activity in mapper.activities {
-                        await BoneInferenceActivityReporting.report(activity)
-                    }
-                    try Task.checkCancellation()
-                    let response: BoneInferenceResponse
-                    if let constraint = request.outputConstraint {
-                        let text = try BoneOpenAIResponseAggregator.streamingText(
-                            from: events,
-                            requiringSingleCompletedChoice: true
-                        )
-                        response = try BoneOpenAIOutputConstraintAdapter().response(
-                            from: Data(text.utf8),
-                            constraint: constraint
-                        )
-                    } else if let tool = prepared.tool {
-                        let parsed = try BoneOpenAIToolStreamAggregator.aggregate(events: events, definitions: [tool])
-                        response = try BoneStructuredOutputSupport.structuredResponse(from: parsed, schema: request.responseFormat.schema?.root)
-                    } else if request.responseFormat.isStructured {
-                        response = try BoneStructuredOutputSupport.structuredResponse(
-                            from: BoneOpenAIResponseAggregator.streamingText(from: events),
-                            schema: request.responseFormat.schema?.root
-                        )
-                    } else if !request.availableTools.isEmpty {
-                        response = try BoneOpenAIToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
-                    } else {
-                        response = .finish(.init(text: try BoneOpenAIResponseAggregator.streamingText(from: events)))
-                    }
-                    let result = BoneInferenceDetailedResult(
-                        response: try retainingThinking(response.retainingUsage(BoneProviderUsage.read(events, wire: .openAI)), request: request, events: events),
-                        reasoning: BoneInferenceReasoningSupport.openAI(events: events, disclosure: request.reasoningDisclosure)
-                    )
-                    continuation.yield(.completed(result))
-                    continuation.finish()
-                } catch { continuation.finish(throwing: error) }
-            }
-            continuation.onTermination = { @Sendable _ in task.cancel() }
+        BoneInferenceEventStreams.legacy { emit in
+            try await produceInferenceEvents(request: request, options: options, buffering: nil, emit: emit)
         }
+    }
+
+    public func validateEventFlowControl() throws {
+        try BoneInferenceEventStreams.validate(transport: transport)
+    }
+
+    public func inferenceEvents(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits
+    ) -> BoneBoundedEventStream<BoneInferenceStreamEvent> {
+        BoneInferenceEventStreams.bounded(buffering: buffering, options: options,
+                                         payloadSize: { BoneEventPayloadSize.normalized($0) }) { emit in
+            try validateEventFlowControl()
+            try await produceInferenceEvents(request: request, options: options, buffering: buffering, emit: emit)
+        }
+    }
+
+    private func produceInferenceEvents(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits?,
+        emit: @escaping BoneInferenceEventStreams.Emit<BoneInferenceStreamEvent>
+    ) async throws {
+        let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
+        try BoneInferenceCapabilityValidator.validate(
+            request: request, capabilities: resolved.capabilities, invocation: resolved.invocation
+        )
+        let prepared = try preparedRequest(request)
+        let urlRequest = try await makeRequest(prepared.request, streaming: true, forcedTool: prepared.tool)
+        var events: [BoneInferenceEventStreamEvent] = []
+        var mapper = BoneOpenAINormalizedEventMapper(
+            disclosure: request.reasoningDisclosure, definitions: prepared.request.availableTools
+        )
+        let liveTiming = transport.providesLiveEventTiming
+        var reportedFirstOutputToken = false
+        var payloadBudget = BoneInferenceFlowPayloadBudget(maximumBytes: options.maximumBytes)
+        try Task.checkCancellation()
+        await BoneInferenceActivityReporting.report(.waitingForModel)
+        try Task.checkCancellation()
+        await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
+        try Task.checkCancellation()
+        let source = try BoneInferenceEventStreams.source(
+            transport: transport, request: urlRequest, options: options, buffering: buffering
+        )
+        for try await event in source {
+            if buffering != nil { try payloadBudget.record(event) }
+            events.append(event)
+            let mappedEvents = try mapper.consume(event)
+            if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
+                reportedFirstOutputToken = true
+                await BoneInferenceTelemetryReporting.report(.firstOutputToken)
+            }
+            for mapped in mappedEvents {
+                if case .usage(let usage) = mapped {
+                    await BoneInferenceTelemetryReporting.report(.usage(usage))
+                }
+            }
+            try Task.checkCancellation()
+            for activity in mapper.activities {
+                await BoneInferenceActivityReporting.report(activity)
+                try Task.checkCancellation()
+            }
+            if request.outputConstraint == nil {
+                for mapped in mappedEvents { try await emit(mapped) }
+            }
+        }
+        await BoneInferenceTelemetryReporting.report(.responseFinished)
+        mapper.finish()
+        for activity in mapper.activities { await BoneInferenceActivityReporting.report(activity) }
+        try Task.checkCancellation()
+        let response: BoneInferenceResponse
+        if let constraint = request.outputConstraint {
+            let text = try BoneOpenAIResponseAggregator.streamingText(
+                from: events, requiringSingleCompletedChoice: true
+            )
+            response = try BoneOpenAIOutputConstraintAdapter().response(from: Data(text.utf8), constraint: constraint)
+        } else if let tool = prepared.tool {
+            let parsed = try BoneOpenAIToolStreamAggregator.aggregate(events: events, definitions: [tool])
+            response = try BoneStructuredOutputSupport.structuredResponse(from: parsed, schema: request.responseFormat.schema?.root)
+        } else if request.responseFormat.isStructured {
+            response = try BoneStructuredOutputSupport.structuredResponse(
+                from: BoneOpenAIResponseAggregator.streamingText(from: events), schema: request.responseFormat.schema?.root
+            )
+        } else if !request.availableTools.isEmpty {
+            response = try BoneOpenAIToolStreamAggregator.aggregate(events: events, definitions: request.availableTools)
+        } else {
+            response = .finish(.init(text: try BoneOpenAIResponseAggregator.streamingText(from: events)))
+        }
+        let result = BoneInferenceDetailedResult(
+            response: try retainingThinking(response.retainingUsage(BoneProviderUsage.read(events, wire: .openAI)), request: request, events: events),
+            reasoning: BoneInferenceReasoningSupport.openAI(events: events, disclosure: request.reasoningDisclosure)
+        )
+        try await emit(.completed(result))
     }
 
     public func inferDetailedUsingStream(

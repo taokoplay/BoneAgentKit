@@ -176,90 +176,103 @@ public struct BoneGeminiInferenceEngine: BoneInferenceEngine, BoneInferenceBuffe
         request: BoneInferenceRequest,
         options: BoneInferenceEventStreamOptions
     ) -> BoneInferenceNormalizedEventStream {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
-                    try BoneInferenceCapabilityValidator.validate(
-                        request: request,
-                        capabilities: resolved.capabilities,
-                        invocation: resolved.invocation
-                    )
-                    let urlRequest = try await makeRequest(request, streaming: true)
-                    var events: [BoneInferenceEventStreamEvent] = []
-                    let localCallNamespace = UUID().uuidString
-                    var mapper = BoneGeminiNormalizedEventMapper(
-                        disclosure: request.reasoningDisclosure,
-                        definitions: request.availableTools,
-                        localCallNamespace: localCallNamespace
-                    )
-                    let liveTiming = transport.providesLiveEventTiming
-                    var reportedFirstOutputToken = false
-                    try Task.checkCancellation()
-                    await BoneInferenceActivityReporting.report(.waitingForModel)
-                    try Task.checkCancellation()
-                    await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
-                    try Task.checkCancellation()
-                    for try await event in transport.eventStream(urlRequest, options: options) {
-                        events.append(event)
-                        let mappedEvents = try mapper.consume(event)
-                        if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
-                            reportedFirstOutputToken = true
-                            await BoneInferenceTelemetryReporting.report(.firstOutputToken)
-                        }
-                        for mapped in mappedEvents {
-                            if case .usage(let usage) = mapped {
-                                await BoneInferenceTelemetryReporting.report(.usage(usage))
-                            }
-                        }
-                        try Task.checkCancellation()
-                        for activity in mapper.activities {
-                            await BoneInferenceActivityReporting.report(activity)
-                            try Task.checkCancellation()
-                        }
-                        if request.outputConstraint == nil {
-                            for mapped in mappedEvents { continuation.yield(mapped) }
-                        }
-                    }
-                    await BoneInferenceTelemetryReporting.report(.responseFinished)
-                    mapper.finish()
-                    for activity in mapper.activities {
-                        await BoneInferenceActivityReporting.report(activity)
-                    }
-                    try Task.checkCancellation()
-                    let aggregated = try BoneGeminiToolStreamAggregator.aggregate(events: events, definitions: request.availableTools, localCallNamespace: localCallNamespace)
-                    let response: BoneInferenceResponse
-                    if let constraint = request.outputConstraint {
-                        guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
-                              reason == .stop, refusal == nil, let text = turn.text else {
-                            throw BoneInferenceTransportError.invalidResponse
-                        }
-                        response = try BoneGeminiOutputConstraintAdapter().response(
-                            from: Data(text.utf8),
-                            constraint: constraint
-                        )
-                    } else if request.responseFormat.isStructured {
-                        guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
-                              reason == .stop, refusal == nil, let text = turn.text else {
-                            throw BoneInferenceTransportError.invalidResponse
-                        }
-                        response = try BoneStructuredOutputSupport.structuredResponse(
-                            from: text,
-                            schema: request.responseFormat.schema?.root
-                        )
-                    } else {
-                        response = aggregated
-                    }
-                    let result = BoneInferenceDetailedResult(
-                        response: try BoneGeminiContinuation.accumulating(response.retainingUsage(BoneProviderUsage.read(events, wire: .gemini)), after: request),
-                        reasoning: BoneInferenceReasoningSupport.gemini(events: events, disclosure: request.reasoningDisclosure)
-                    )
-                    continuation.yield(.completed(result))
-                    continuation.finish()
-                } catch { continuation.finish(throwing: error) }
-            }
-            continuation.onTermination = { @Sendable _ in task.cancel() }
+        BoneInferenceEventStreams.legacy { emit in
+            try await produceInferenceEvents(request: request, options: options, buffering: nil, emit: emit)
         }
+    }
+
+    public func validateEventFlowControl() throws {
+        try BoneInferenceEventStreams.validate(transport: transport)
+    }
+
+    public func inferenceEvents(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits
+    ) -> BoneBoundedEventStream<BoneInferenceStreamEvent> {
+        BoneInferenceEventStreams.bounded(buffering: buffering, options: options,
+                                         payloadSize: { BoneEventPayloadSize.normalized($0) }) { emit in
+            try validateEventFlowControl()
+            try await produceInferenceEvents(request: request, options: options, buffering: buffering, emit: emit)
+        }
+    }
+
+    private func produceInferenceEvents(
+        request: BoneInferenceRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits?,
+        emit: @escaping BoneInferenceEventStreams.Emit<BoneInferenceStreamEvent>
+    ) async throws {
+        let resolved = try resolvedCapabilities(for: request, invocation: .streaming)
+        try BoneInferenceCapabilityValidator.validate(
+            request: request, capabilities: resolved.capabilities, invocation: resolved.invocation
+        )
+        let urlRequest = try await makeRequest(request, streaming: true)
+        var events: [BoneInferenceEventStreamEvent] = []
+        let localCallNamespace = UUID().uuidString
+        var mapper = BoneGeminiNormalizedEventMapper(
+            disclosure: request.reasoningDisclosure, definitions: request.availableTools,
+            localCallNamespace: localCallNamespace
+        )
+        let liveTiming = transport.providesLiveEventTiming
+        var reportedFirstOutputToken = false
+        var payloadBudget = BoneInferenceFlowPayloadBudget(maximumBytes: options.maximumBytes)
+        try Task.checkCancellation()
+        await BoneInferenceActivityReporting.report(.waitingForModel)
+        try Task.checkCancellation()
+        await BoneInferenceTelemetryReporting.report(.requestStarted(liveTiming: liveTiming))
+        try Task.checkCancellation()
+        let source = try BoneInferenceEventStreams.source(
+            transport: transport, request: urlRequest, options: options, buffering: buffering
+        )
+        for try await event in source {
+            if buffering != nil { try payloadBudget.record(event) }
+            events.append(event)
+            let mappedEvents = try mapper.consume(event)
+            if liveTiming, mapper.hasOutputToken, !reportedFirstOutputToken {
+                reportedFirstOutputToken = true
+                await BoneInferenceTelemetryReporting.report(.firstOutputToken)
+            }
+            for mapped in mappedEvents {
+                if case .usage(let usage) = mapped { await BoneInferenceTelemetryReporting.report(.usage(usage)) }
+            }
+            try Task.checkCancellation()
+            for activity in mapper.activities {
+                await BoneInferenceActivityReporting.report(activity)
+                try Task.checkCancellation()
+            }
+            if request.outputConstraint == nil {
+                for mapped in mappedEvents { try await emit(mapped) }
+            }
+        }
+        await BoneInferenceTelemetryReporting.report(.responseFinished)
+        mapper.finish()
+        for activity in mapper.activities { await BoneInferenceActivityReporting.report(activity) }
+        try Task.checkCancellation()
+        let aggregated = try BoneGeminiToolStreamAggregator.aggregate(
+            events: events, definitions: request.availableTools, localCallNamespace: localCallNamespace
+        )
+        let response: BoneInferenceResponse
+        if let constraint = request.outputConstraint {
+            guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
+                  reason == .stop, refusal == nil, let text = turn.text else {
+                throw BoneInferenceTransportError.invalidResponse
+            }
+            response = try BoneGeminiOutputConstraintAdapter().response(from: Data(text.utf8), constraint: constraint)
+        } else if request.responseFormat.isStructured {
+            guard case let .assistantTurn(turn, reason, _, refusal, _) = aggregated,
+                  reason == .stop, refusal == nil, let text = turn.text else {
+                throw BoneInferenceTransportError.invalidResponse
+            }
+            response = try BoneStructuredOutputSupport.structuredResponse(from: text, schema: request.responseFormat.schema?.root)
+        } else {
+            response = aggregated
+        }
+        let result = BoneInferenceDetailedResult(
+            response: try BoneGeminiContinuation.accumulating(response.retainingUsage(BoneProviderUsage.read(events, wire: .gemini)), after: request),
+            reasoning: BoneInferenceReasoningSupport.gemini(events: events, disclosure: request.reasoningDisclosure)
+        )
+        try await emit(.completed(result))
     }
 
     public func inferDetailedUsingStream(

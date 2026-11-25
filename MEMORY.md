@@ -109,3 +109,10 @@
 - 2026-11-24，iOS Demo 的可恢复 Session 使用脚本模型覆盖 UI 测试路径，创建和等待用户阶段不发起模型请求，恢复后才消费脚本响应。UI 测试新增创建、等待、恢复和输出断言。
 - 2026-11-24，文档已补充 SDK 已实现、Demo 已接入、生产 Host 尚未完成数据库与跨进程验收的成熟度边界，并明确 Session、Step checkpoint 和 Snapshot 的联合提交责任。
 - 2026-11-24，新增 UI 编译验证尝试受当前机器 CoreSimulator 服务不可用、用户缓存目录权限和 SwiftPM ModuleCache 权限阻断，不能把本轮声明为新鲜 iOS 构建通过。Nowledge Mem 服务仍无法连接 `127.0.0.1:14242`。
+
+## Provider、模型发现与流式背压提交
+
+- 2026-11-25，本轮新增 Provider-compatible 模型发现、OpenAI/Anthropic 兼容响应解析、endpoint fallback、`BoneAgent.runObservedEvents`、有界事件队列、背压、取消和完成结果独立收口。OpenAI、Anthropic、Gemini 已接入统一流控协议。
+- 2026-11-25，SwiftPM 构建通过，Provider/Streaming 定向测试 58 项通过。内置工具组数量断言已从 11 同步为 14，完整 SwiftPM 测试共 838 项通过、0 失败。
+- 2026-11-25，公开文档新增 `Documentation/SDKStatusAndRoadmap.md`，统一记录已实现、已测试、Demo 已接入、生产待验收和后续计划。JSONL 适合轻量日志或单进程 Store，SQLite 仍是生产事务 Store 的后续方向，大文件正文继续使用 Blob 引用。
+- 2026-11-25，`omx setup` 因写入用户目录配置遇到 `EPERM`，不影响项目内构建和测试。Nowledge Mem 查询命令在当前环境不可用，服务仍未提供可用的跨工具检索结果。

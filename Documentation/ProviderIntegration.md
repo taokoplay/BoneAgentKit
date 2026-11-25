@@ -1,5 +1,17 @@
 # 扩展 BoneAgentKit
 
+## 当前状态（2026-11-25）
+
+本轮 Provider 能力已经完成源码、离线回归和 Demo 模型目录接入。OpenAI-compatible 与 Anthropic-compatible 目录发现支持常见 `id`、`slug`、`display_name` 响应字段、路径 fallback、匿名模型列表读取和有限超时。发现结果只表示上游返回了模型目录，不表示模型具备 Tool Calling、视觉、Structured Output、Reasoning 或指定 Token 限制。
+
+当前验收分为三层：
+
+- SDK 定向测试覆盖目录解析、兼容网关、回退、错误映射和配置保留。
+- WorkflowRunnerDemo 使用 `BoneInferenceService` 查询模型列表，测试使用离线 Transport，不发真实请求。
+- 真实 Provider、真实凭据、代理网络、鉴权失败、限流、模型能力和线上延迟仍属于生产验收范围。
+
+兼容网关发现属于 SDK 自有实现，有限模型元数据仍来自 `models.dev` 快照。来源、许可和证据边界见 [第三方参考来源](ThirdPartySources.md)。完整状态和后续计划见 [SDK 状态与路线图](SDKStatusAndRoadmap.md)。
+
 ## 接入新的文本 Provider
 
 Provider 扩展直接实现 `BoneInferenceEngine`，并复用统一的配置、请求构造、Transport 和响应验证边界；不要为单个供应商建立平行 DTO、HTTP Client 或错误体系。
@@ -250,7 +262,9 @@ let cached = try BoneInferenceProviderModelList(entry: entry, discovered: descri
 
 - 列表端点优先按当前 `configuration.baseURL` 解析目录的 `apiPaths.models`，因此代理或自定义网关会跟随同一地址；`modelDiscovery.endpoint` 只在缺少相对路径时作为绝对回退。
 - 目录已为 Anthropic、OpenAI、DeepSeek、Kimi、Zhipu、Doubao、通义千问、MiMo、MiniMax、SiliconFlow 等渠道声明 `models` 路径。普通相对路径跟随当前 base 的路径前缀；`{origin}` 表示只取 base 的 scheme/host/port，用于模型列表固定在站点根路径、对话端点带前缀的渠道（如 DeepSeek、Kimi Anthropic、MiMo、MiniMax）。
-- 智谱 Coding Plan 与小米 Token Plan 现在也会先尝试上游列表；智谱 Coding Plan 使用 `{base}/v1/models`（默认 `https://open.bigmodel.cn/api/anthropic/v1/models`），失败后才回退内置模型。该端点是否真实可用需要真实凭据验证。
+- 智谱聊天模型以当前账号的发现结果为准，不预设或回退到固定 GLM 型号。普通智谱用 `{base}/models`（默认 `https://open.bigmodel.cn/api/paas/v4/models`），智谱 Coding Plan 用 `{base}/v1/models`（默认 `https://open.bigmodel.cn/api/anthropic/v1/models`）。使用对应渠道的 API Key，加载后由用户选模；普通智谱保留 CogView 图像条目，两条聊天配置及现有模型 ID 不变。
+- 小米 Token Plan 先尝试上游列表，失败后回退内置模型。
+- OpenAI 与 Anthropic 兼容格式需要用户配置基址，无默认模型。OpenAI 先试 `{base}/models`（Bearer），若不可用且路径未含末尾 `/v1`，再试同源 `{base}/v1/models`；Anthropic 使用 `{base}/v1/models?limit=1000`（`x-api-key` 和 `anthropic-version`），不会重复拼接 `/v1`。识别匹配协议的完整操作地址，未知完整地址不探测。兼容渠道可无 Key 查列表；探测共用 12 秒预算，聊天端点和凭据要求不变。
 - MiniMax 与通义千问 Anthropic 渠道的模型列表不在 `/anthropic` 前缀下：MiniMax 为 `{origin}/v1/models`（`Authorization: Bearer`），通义千问为 `{origin}/compatible-mode/v1/models`。不要按 Anthropic 版本路径机械推导，否则会命中 404 或错误的鉴权入口。
 - 火山方舟 Coding Plan 等仍没有可确认的列表端点，保持内置列表，不做无证据探测。
 - 上游成功时，内置顺序在前，远端新增按发现顺序追加；重复 ID 保留内置显示名与能力，只补 `.discovery` 来源。

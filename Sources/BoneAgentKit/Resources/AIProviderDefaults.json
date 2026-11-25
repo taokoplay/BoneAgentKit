@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": 10,
+  "catalogVersion": 12,
   "verifiedAt": "2026-10-23",
   "providers": [
     {
@@ -167,10 +167,11 @@
       "adapter": "anthropic",
       "authenticationMode": "anthropicDual",
       "documentationURL": "https://docs.anthropic.com/",
-      "modelCatalogMode": "manual",
+      "modelCatalogMode": "remote",
       "sortOrder": 20,
       "apiPaths": {
-        "chat": ""
+        "chat": "",
+        "models": "/v1/models"
       },
       "models": []
     },
@@ -837,140 +838,6 @@
       },
       "models": [
         {
-          "id": "glm-5.2",
-          "displayName": "GLM-5.2",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "openAI",
-          "deprecated": false,
-          "tokenLimits": {
-            "contextWindowTokens": 1000000,
-            "maximumOutputTokens": 131072,
-            "source": "official",
-            "verifiedAt": "2026-10-09",
-            "documentationURL": "https://docs.bigmodel.cn/api-reference/模型-api/对话补全"
-          },
-          "metadata": {
-            "provenance": {
-              "source": "modelsDev",
-              "providerID": "zhipuai",
-              "retrievedAt": "2026-10-09",
-              "sourceURL": "https://models.dev/api.json",
-              "sourceRevision": "c849cd11adf999db2203b20d3ab1fa8e58852e63"
-            },
-            "declaration": {
-              "id": "glm-5.2",
-              "name": "GLM-5.2",
-              "description": "Open flagship GLM for long-horizon coding agents and million-token context work",
-              "family": "glm",
-              "reasoning": true,
-              "reasoning_options": [
-                {
-                  "type": "effort",
-                  "values": [
-                    "high",
-                    "max"
-                  ]
-                }
-              ],
-              "interleaved": {
-                "field": "reasoning_content"
-              },
-              "tool_call": true,
-              "structured_output": true,
-              "temperature": true,
-              "attachment": false,
-              "modalities": {
-                "input": [
-                  "text"
-                ],
-                "output": [
-                  "text"
-                ]
-              },
-              "limit": {
-                "context": 1000000,
-                "output": 131072
-              },
-              "cost": {
-                "input": 1.4,
-                "output": 4.4,
-                "cache_read": 0.26,
-                "cache_write": 0
-              },
-              "release_date": "2026-06-13",
-              "last_updated": "2026-06-13",
-              "open_weights": false
-            }
-          }
-        },
-        {
-          "id": "glm-5.1",
-          "displayName": "GLM-5.1",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "openAI",
-          "deprecated": false,
-          "tokenLimits": {
-            "contextWindowTokens": 200000,
-            "maximumOutputTokens": 131072,
-            "source": "official",
-            "verifiedAt": "2026-10-09",
-            "documentationURL": "https://docs.bigmodel.cn/api-reference/模型-api/对话补全"
-          },
-          "metadata": {
-            "provenance": {
-              "source": "modelsDev",
-              "providerID": "zhipuai",
-              "retrievedAt": "2026-10-09",
-              "sourceURL": "https://models.dev/api.json",
-              "sourceRevision": "c849cd11adf999db2203b20d3ab1fa8e58852e63"
-            },
-            "declaration": {
-              "id": "glm-5.1",
-              "name": "GLM-5.1",
-              "description": "Strong GLM coding model for agentic engineering, terminals, and repository generation",
-              "family": "glm",
-              "reasoning": true,
-              "reasoning_options": [
-                {
-                  "type": "toggle"
-                }
-              ],
-              "interleaved": {
-                "field": "reasoning_content"
-              },
-              "tool_call": true,
-              "structured_output": true,
-              "temperature": true,
-              "attachment": false,
-              "modalities": {
-                "input": [
-                  "text"
-                ],
-                "output": [
-                  "text"
-                ]
-              },
-              "limit": {
-                "context": 200000,
-                "output": 131072
-              },
-              "cost": {
-                "input": 1.4,
-                "output": 4.4,
-                "cache_read": 0.26,
-                "cache_write": 0
-              },
-              "release_date": "2026-03-27",
-              "last_updated": "2026-03-27",
-              "open_weights": false
-            }
-          }
-        },
-        {
           "id": "cogview-4-250304",
           "displayName": "CogView 4",
           "capabilities": [
@@ -988,31 +855,13 @@
       "adapter": "anthropic",
       "authenticationMode": "bearerWithUserAgent",
       "defaultBaseURL": "https://open.bigmodel.cn/api/anthropic",
+      "modelCatalogMode": "remote",
       "sortOrder": 90,
       "apiPaths": {
         "chat": "/v1/messages",
         "models": "/v1/models"
       },
-      "models": [
-        {
-          "id": "glm-5.2",
-          "displayName": "GLM-5.2",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "anthropicMessages",
-          "deprecated": false
-        },
-        {
-          "id": "glm-5.1",
-          "displayName": "GLM-5.1",
-          "capabilities": [
-            "chat"
-          ],
-          "protocolVariant": "anthropicMessages",
-          "deprecated": false
-        }
-      ]
+      "models": []
     },
     {
       "ident": "VolcengineCodingPlan",
@@ -2782,10 +2631,11 @@
       "adapter": "customOpenAI",
       "authenticationMode": "bearer",
       "documentationURL": "https://platform.openai.com/docs/api-reference/",
-      "modelCatalogMode": "manual",
+      "modelCatalogMode": "remote",
       "sortOrder": 190,
       "apiPaths": {
-        "chat": ""
+        "chat": "",
+        "models": "/models"
       },
       "models": []
     }

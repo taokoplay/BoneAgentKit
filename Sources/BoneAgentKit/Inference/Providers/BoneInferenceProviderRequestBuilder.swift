@@ -13,7 +13,27 @@ public enum BoneInferenceProviderRequestBuilder {
         usesFullEndpointURL: Bool = false,
         fixedHeaders: [String: String] = [:]
     ) throws -> URLRequest {
-        guard !configuration.apiKey.isEmpty else {
+        try makeJSONRequest(
+            configuration: configuration,
+            operation: operation,
+            defaultPath: defaultPath,
+            method: method,
+            usesFullEndpointURL: usesFullEndpointURL,
+            fixedHeaders: fixedHeaders,
+            allowsAnonymous: false
+        )
+    }
+
+    static func makeJSONRequest(
+        configuration: BoneInferenceProviderConfiguration,
+        operation: String,
+        defaultPath: String,
+        method: String,
+        usesFullEndpointURL: Bool,
+        fixedHeaders: [String: String],
+        allowsAnonymous: Bool
+    ) throws -> URLRequest {
+        guard allowsAnonymous || !configuration.apiKey.isEmpty else {
             throw BoneInferenceTransportError.invalidCredential
         }
         let endpoint = configuration.endpointOverrides[operation] ?? defaultPath
@@ -34,7 +54,7 @@ public enum BoneInferenceProviderRequestBuilder {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try applyAuthentication(configuration, to: &request)
+        if !configuration.apiKey.isEmpty { try applyAuthentication(configuration, to: &request) }
         let validatedFixedHeaders = try BoneInferenceHeaderPolicy.validated(fixedHeaders)
         let fixedNames = Set(validatedFixedHeaders.keys.map { $0.lowercased() })
         let authenticationFixedNames: Set<String> = configuration.authenticationMode == .bearerWithUserAgent

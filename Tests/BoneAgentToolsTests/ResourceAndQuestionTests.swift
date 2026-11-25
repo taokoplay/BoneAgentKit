@@ -108,7 +108,7 @@ struct ResourceAndQuestionTests {
     }
 
     @Test func presetsAreMetadataAndNeverInstallTools() {
-        #expect(BoneBuiltInToolGroup.allCases.count == 11)
+        #expect(BoneBuiltInToolGroup.allCases.count == 14)
         #expect(BoneBuiltInToolPreset.basic.groups == [.calculator, .dateTime, .askUser])
         #expect(BoneBuiltInToolPreset.research.groups.count == 6)
         #expect(BoneBuiltInToolGroup.resources.toolIDs.contains("resource.readText"))

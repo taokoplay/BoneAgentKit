@@ -6,24 +6,57 @@ import FoundationNetworking
 /// 使用 BoneInference Transport 执行 Catalog 声明与自定义 Raw 模型发现。
 struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendable {
     private static let maximumTimeout: TimeInterval = 15
+    private static let compatibleTimeout: TimeInterval = 12
 
     private let configuration: BoneInferenceProviderConfiguration
     private let transport: any BoneInferenceHTTPTransport
+    private let compatible: BoneInferenceCompatibleDiscovery?
 
     init(
         configuration: BoneInferenceProviderConfiguration,
-        transport: any BoneInferenceHTTPTransport = BoneInferenceURLSessionTransport()
+        transport: any BoneInferenceHTTPTransport = BoneInferenceURLSessionTransport(),
+        compatible: BoneInferenceCompatibleDiscovery? = nil
     ) {
         self.configuration = configuration
         self.transport = transport
+        self.compatible = compatible
     }
 
     func discover(
         using discovery: BoneInferenceProviderCatalog.Discovery
     ) async throws -> [BoneInferenceModelDescriptor] {
+        guard let compatible else { return try await fetch(using: discovery) }
+        return try await withThrowingTaskGroup(of: [BoneInferenceModelDescriptor].self) { group in
+            group.addTask {
+                do {
+                    return try await fetch(using: discovery)
+                } catch {
+                    try Task.checkCancellation()
+                    guard error as? BoneInferenceTransportError != .cancelled,
+                          let endpoint = compatible.fallback(after: discovery.endpoint) else { throw error }
+                    return try await fetch(using: .init(
+                        endpoint: endpoint, protocol: discovery.protocol,
+                        authenticationMode: discovery.authenticationMode
+                    ))
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(Self.compatibleTimeout * 1_000_000_000))
+                throw BoneInferenceTransportError.network(.init(error: URLError(.timedOut) as NSError))
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw BoneInferenceTransportError.cancelled }
+            return result
+        }
+    }
+
+    private func fetch(
+        using discovery: BoneInferenceProviderCatalog.Discovery
+    ) async throws -> [BoneInferenceModelDescriptor] {
+        try Task.checkCancellation()
         // Agnes 的模型列表属于用户配置的站点，不将国际/网关凭据发送至内置国内地址。
         let endpoint: URL
-        if configuration.kind == .agnes {
+        if compatible == nil, configuration.kind == .agnes {
             guard !configuration.usesFullEndpointURL else {
                 throw BoneInferenceTransportError.invalidConfiguration
             }
@@ -39,10 +72,22 @@ struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendabl
                 ? ["anthropic-version": "2023-06-01"]
                 : [:]
         )
-        let response = try await transport.sendRetryableForModels(request)
-        let json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+        let response: BoneInferenceHTTPResponse
+        if compatible == nil {
+            response = try await transport.sendRetryableForModels(request)
+        } else {
+            response = try await transport.send(request)
+        }
+        try Task.checkCancellation()
+        let json: [String: Any]
+        if compatible != nil, (200...299).contains(response.statusCode),
+           let rows = try? JSONSerialization.jsonObject(with: response.data) as? [[String: Any]] {
+            json = ["data": rows]
+        } else {
+            json = try BoneInferenceProviderResponseValidator.validatedJSONObject(response)
+        }
         try Self.validateGatewayEnvelope(json)
-        let descriptors = ModelDiscoveryParser.parse(json, protocol: discovery.protocol)
+        let descriptors = ModelDiscoveryParser.parse(json, protocol: discovery.protocol, compatible: compatible != nil)
         guard !descriptors.isEmpty else {
             throw BoneInferenceTransportError.invalidResponse
         }
@@ -79,7 +124,7 @@ struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendabl
             kind: configuration.kind,
             apiKey: configuration.apiKey,
             baseURL: endpoint,
-            authenticationMode: authenticationMode,
+            authenticationMode: compatible == .anthropic ? .anthropicDual : authenticationMode,
             usesFullEndpointURL: true,
             userAgent: configuration.userAgent,
             customHeaders: configuration.customHeaders,
@@ -91,9 +136,12 @@ struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendabl
             defaultPath: endpoint.absoluteString,
             method: method,
             usesFullEndpointURL: true,
-            fixedHeaders: fixedHeaders
+            fixedHeaders: fixedHeaders,
+            allowsAnonymous: compatible != nil
         )
-        request.timeoutInterval = min(request.timeoutInterval, Self.maximumTimeout)
+        if compatible == .anthropic { request.setValue(nil, forHTTPHeaderField: "Authorization") }
+        let timeout = compatible == nil ? Self.maximumTimeout : Self.compatibleTimeout
+        request.timeoutInterval = min(request.timeoutInterval, timeout)
         return request
     }
 }
@@ -102,16 +150,21 @@ struct BoneInferenceModelDiscoveryClient: BoneInferenceModelDiscovering, Sendabl
 enum ModelDiscoveryParser {
     static func parse(
         _ json: [String: Any],
-        protocol protocolKind: BoneInferenceProviderCatalog.Discovery.ProtocolKind
+        protocol protocolKind: BoneInferenceProviderCatalog.Discovery.ProtocolKind,
+        compatible: Bool = false
     ) -> [BoneInferenceModelDescriptor] {
         let entries: [[String: Any]]
-        switch protocolKind {
-        case .openAI:
-            entries = modelArray(from: json)
-        case .anthropic, .miniMax:
-            entries = json["data"] as? [[String: Any]] ?? []
-        case .google:
-            entries = json["models"] as? [[String: Any]] ?? []
+        if compatible, let rows = (json["data"] as? [[String: Any]]) ?? (json["models"] as? [[String: Any]]) {
+            entries = rows
+        } else {
+            switch protocolKind {
+            case .openAI:
+                entries = modelArray(from: json)
+            case .anthropic, .miniMax:
+                entries = json["data"] as? [[String: Any]] ?? []
+            case .google:
+                entries = json["models"] as? [[String: Any]] ?? []
+            }
         }
 
         var seen = Set<String>()
@@ -132,13 +185,16 @@ enum ModelDiscoveryParser {
                 rawID = entry["id"] as? String
                 rawDisplayName = entry["name"] as? String
             }
-            guard var id = rawID?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !id.isEmpty else { return nil }
+            var id = rawID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if compatible && id.isEmpty {
+                id = (entry["slug"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
             if protocolKind == .google, id.hasPrefix("models/") {
                 id.removeFirst("models/".count)
             }
             guard !id.isEmpty, seen.insert(id).inserted else { return nil }
-            let displayName = rawDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = rawDisplayName ?? (compatible ? entry["display_name"] as? String : nil)
+            let displayName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
             return BoneInferenceModelDescriptor(
                 id: id,
                 displayName: displayName?.isEmpty == false ? displayName! : id

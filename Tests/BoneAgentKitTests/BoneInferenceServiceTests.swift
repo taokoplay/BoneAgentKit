@@ -62,7 +62,7 @@ final class BoneInferenceServiceTests: XCTestCase {
 
     func testGatewayErrorEnvelopeMapsToInvalidCredential() async throws {
         let transport = ServiceModelTransport(
-            body: #"{"code":401,"msg":"令牌已过期或验证不正确","success":false}"#
+            body: #"{"code":1001,"msg":"令牌已过期或验证不正确","success":false}"#
         )
         let service = BoneInferenceService(
             catalog: try .bundled(),
@@ -81,7 +81,7 @@ final class BoneInferenceServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(list.discoveryOutcome, .transportFailure(.invalidCredential))
-        XCTAssertEqual(list.models.map(\.id), ["glm-5.2", "glm-5.1"])
+        XCTAssertTrue(list.models.isEmpty)
     }
 
     func testUnknownProviderThrowsTypedFailure() async throws {

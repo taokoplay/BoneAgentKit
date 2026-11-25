@@ -112,7 +112,14 @@ final class ProviderModelListTests: XCTestCase {
     // MARK: - Upstream first, catalog fallback
 
     func testManualProviderReturnsEmptyListingWithoutRequest() async throws {
-        let compatible = try entry("OpenAICompatible")
+        let source = try entry("OpenAICompatible")
+        let compatible = BoneInferenceProviderCatalog.Entry(
+            ident: source.ident, title: source.title, iconID: source.iconID,
+            providerKind: source.providerKind, providerProtocol: source.providerProtocol,
+            authenticationMode: source.authenticationMode, defaultBaseURL: nil, inviteURL: nil,
+            documentationURL: nil, catalogMode: .manual, sortOrder: source.sortOrder,
+            apiPaths: source.apiPaths, discovery: nil, models: []
+        )
         let configuration = BoneInferenceProviderConfiguration(
             kind: .custom,
             apiKey: "fixture",
@@ -337,21 +344,21 @@ final class ProviderModelListTests: XCTestCase {
             baseURL: URL(string: "https://gateway.example.invalid/proxy/v4")!,
             endpointSecurityPolicy: .custom
         )
-        let discoverer = RecordingDiscoverer([.init(id: "glm-5.4", displayName: "GLM-5.4")])
-
-        let listing = try await load(zhipu, configuration, discoverer: discoverer)
-
-        let sent = await discoverer.lastDiscovery
-        XCTAssertEqual(
-            sent?.endpoint,
-            URL(string: "https://gateway.example.invalid/proxy/v4/models")
-        )
-        XCTAssertEqual(sent?.protocol, .openAI)
+        let transport = ModelListTransport(body: #"{"data":[{"id":"glm-5.3","name":"GLM-5.3"}]}"#)
+        let client = BoneInferenceModelDiscoveryClient(configuration: configuration, transport: transport)
+        let listing = try await load(zhipu, configuration, discoverer: client)
+        let urls = await transport.requestURLs
+        let headers = await transport.lastHeaders
+        XCTAssertEqual(urls, [URL(string: "https://gateway.example.invalid/proxy/v4/models")])
+        XCTAssertEqual(headers["Authorization"], "Bearer fixture")
+        XCTAssertNil(headers["anthropic-version"])
         XCTAssertEqual(listing.discoveryOutcome, .succeeded)
-        XCTAssertTrue(listing.models.contains { $0.id == "glm-5.4" })
+        XCTAssertEqual(listing.models.map(\.id), ["cogview-4-250304", "glm-5.3"])
+        XCTAssertEqual(listing.models.last?.displayName, "GLM-5.3")
+        XCTAssertEqual(listing.models.last?.origins, [.discovery])
     }
 
-    func testZhipuCodingPlanAttemptsUpstreamBeforeBuiltIn() async throws {
+    func testZhipuCodingPlanOnlyListsDiscoveredModels() async throws {
         let codingPlan = try entry("ZhipuCodingPlan")
         let configuration = BoneInferenceProviderConfiguration(
             kind: .zhipu,
@@ -359,7 +366,7 @@ final class ProviderModelListTests: XCTestCase {
             baseURL: URL(string: "https://open.bigmodel.cn/api/anthropic")!,
             userAgent: "BoneAgentKit-tests"
         )
-        let discoverer = RecordingDiscoverer([.init(id: "glm-5.4", displayName: "GLM-5.4")])
+        let discoverer = RecordingDiscoverer([.init(id: "glm-5.3", displayName: "GLM-5.3")])
 
         let listing = try await load(codingPlan, configuration, discoverer: discoverer)
 
@@ -371,10 +378,10 @@ final class ProviderModelListTests: XCTestCase {
         XCTAssertEqual(sent?.protocol, .anthropic)
         XCTAssertEqual(sent?.authenticationMode, .bearerWithUserAgent)
         XCTAssertEqual(listing.discoveryOutcome, .succeeded)
-        XCTAssertEqual(listing.models.map(\.id), ["glm-5.2", "glm-5.1", "glm-5.4"])
+        XCTAssertEqual(listing.models.map(\.id), ["glm-5.3"])
     }
 
-    func testZhipuCodingPlanFallsBackToBuiltInWhenUpstreamFails() async throws {
+    func testZhipuCodingPlanReturnsNoPresetModelsWhenUpstreamFails() async throws {
         let codingPlan = try entry("ZhipuCodingPlan")
         let configuration = BoneInferenceProviderConfiguration(
             kind: .zhipu,
@@ -390,7 +397,7 @@ final class ProviderModelListTests: XCTestCase {
         )
 
         XCTAssertEqual(listing.discoveryOutcome, .transportFailure(.invalidResponse))
-        XCTAssertEqual(listing.models.map(\.id), ["glm-5.2", "glm-5.1"])
+        XCTAssertTrue(listing.models.isEmpty)
     }
 
     func testNonTransportDiscovererErrorFallsBackAsGenericFailure() async throws {
@@ -418,7 +425,7 @@ final class ProviderModelListTests: XCTestCase {
             userAgent: "BoneAgentKit-tests"
         )
         let transport = ModelListTransport(
-            body: #"{"data":[{"id":"glm-5.4","display_name":"GLM-5.4"}]}"#
+            body: #"{"data":[{"id":"glm-5.3","display_name":"GLM-5.3"}]}"#
         )
         let client = BoneInferenceModelDiscoveryClient(
             configuration: configuration,
@@ -434,7 +441,8 @@ final class ProviderModelListTests: XCTestCase {
         XCTAssertEqual(headers["User-Agent"], "BoneAgentKit-tests")
         XCTAssertEqual(headers["Authorization"], "Bearer fixture")
         XCTAssertEqual(listing.discoveryOutcome, .succeeded)
-        XCTAssertTrue(listing.models.contains { $0.id == "glm-5.4" })
+        XCTAssertEqual(listing.models.map(\.id), ["glm-5.3"])
+        XCTAssertEqual(listing.models.first?.displayName, "GLM-5.3")
     }
 
     func testListingUsesDiscoveryClientAndFollowsConfiguredAgnesSite() async throws {

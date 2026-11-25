@@ -64,7 +64,8 @@ public final class BoneInferenceService: @unchecked Sendable {
             configuration: configuration,
             discoverer: BoneInferenceModelDiscoveryClient(
                 configuration: configuration,
-                transport: transport
+                transport: transport,
+                compatible: BoneInferenceCompatibleDiscovery(entry: entry)
             )
         ).load(for: entry)
     }

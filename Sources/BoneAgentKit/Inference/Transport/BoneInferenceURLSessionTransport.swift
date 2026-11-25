@@ -199,6 +199,24 @@ public struct BoneInferenceURLSessionTransport: BoneInferenceHTTPTransport {
 
     public func eventStream(
         _ request: URLRequest,
+        options: BoneInferenceEventStreamOptions,
+        buffering: BoneEventBufferLimits
+    ) -> BoneBoundedEventStream<BoneInferenceEventStreamEvent> {
+        guard streamLoaderIsURLSession, let configuration = urlSessionConfiguration else {
+            let (stream, producer) = BoneBoundedEventStream<BoneInferenceEventStreamEvent>.makeStream(
+                limits: buffering, payloadSize: { BoneEventPayloadSize.raw($0) }
+            )
+            producer.finish(throwing: BoneEventStreamError.flowControlUnavailable)
+            return stream
+        }
+        let bridge = BoneInferenceEventStreamSessionBridge(
+            configuration: configuration, request: request, options: options, failureCapture: failureCapture
+        )
+        return bridge.controlledEventStream(buffering: buffering)
+    }
+
+    public func eventStream(
+        _ request: URLRequest,
         options: BoneInferenceEventStreamOptions
     ) -> BoneInferenceRawEventStream {
         // 只有默认 URLSession loader 能保证到达即交付；注入 loader 使用协议默认兼容实现。

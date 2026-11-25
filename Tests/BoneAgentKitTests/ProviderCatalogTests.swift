@@ -7,7 +7,7 @@ final class ProviderCatalogTests: XCTestCase {
     func testBundledCatalogExposesSemanticIconIDsWithoutBundlingBrandAssets() throws {
         let catalog = try BoneInferenceProviderCatalog.bundled()
         XCTAssertEqual(catalog.schemaVersion, 1)
-        XCTAssertEqual(catalog.catalogVersion, 10)
+        XCTAssertEqual(catalog.catalogVersion, 12)
         XCTAssertEqual(catalog.providers.count, 21)
         XCTAssertEqual(catalog.provider(ident: "openai")?.providerKind, .openAI)
         XCTAssertEqual(catalog.provider(ident: "openai")?.iconID, "icon_ai_openAI")
@@ -22,8 +22,6 @@ final class ProviderCatalogTests: XCTestCase {
             ("DeepSeek", "deepseek-v4-flash", 1_048_576, nil, 393_216),
             ("Google", "gemini-2.5-flash", 1_048_576, 1_048_576, 65_536),
             ("KimiAnthropic", "kimi-k2.6", 262_144, nil, nil),
-            ("Zhipu", "glm-5.2", 1_000_000, nil, 131_072),
-            ("Zhipu", "glm-5.1", 200_000, nil, 131_072),
             ("Qwen", "qwen3-max", 262_144, 258_048, 65_536),
             ("Qwen", "qwen3.5-plus", 1_000_000, 991_808, 65_536),
             ("Qwen", "qwen3-coder-plus", 1_000_000, 997_952, 65_536),
@@ -47,14 +45,14 @@ final class ProviderCatalogTests: XCTestCase {
         )
     }
 
-    func testBundledZhipuDocumentationURLsSupportLegacyFoundation() throws {
-        let provider = try XCTUnwrap(BoneInferenceProviderCatalog.bundled().provider(ident: "Zhipu"))
-        for id in ["glm-5.2", "glm-5.1"] {
-            let url = try XCTUnwrap(provider.models.first { $0.id == id }?.tokenLimits?.documentationURL)
-            XCTAssertNotNil(CFURLCreateWithString(nil, url.absoluteString as CFString, nil), id)
-            XCTAssertEqual(url.host, "docs.bigmodel.cn", id)
-            XCTAssertEqual(url.path, "/api-reference/模型-api/对话补全", id)
-        }
+    func testBundledZhipuChannelsHaveNoPresetChatModels() throws {
+        let catalog = try BoneInferenceProviderCatalog.bundled()
+        let standard = try XCTUnwrap(catalog.provider(ident: "Zhipu"))
+        let codingPlan = try XCTUnwrap(catalog.provider(ident: "ZhipuCodingPlan"))
+        XCTAssertEqual(standard.models.map(\.id), ["cogview-4-250304"])
+        XCTAssertEqual(standard.models.first?.capabilities, [.image])
+        XCTAssertTrue(codingPlan.models.isEmpty)
+        XCTAssertEqual(codingPlan.catalogMode, .remote)
     }
 
     func testCatalogRejectsUnsupportedSchema() throws {
@@ -104,8 +102,12 @@ final class ProviderCatalogTests: XCTestCase {
             }
             """, providerDocumentationURLJSON: "\"\(input)\"")
             let provider = try XCTUnwrap(BoneInferenceProviderCatalog.decode(data: data).providers.first)
-            XCTAssertEqual(provider.documentationURL?.absoluteString, encoded, input)
-            XCTAssertEqual(provider.models.first?.tokenLimits?.documentationURL.absoluteString, encoded, input)
+            let providerURL = try XCTUnwrap(provider.documentationURL)
+            let modelURL = try XCTUnwrap(provider.models.first?.tokenLimits?.documentationURL)
+            for url in [providerURL, modelURL] {
+                XCTAssertEqual(url.absoluteString, encoded, input)
+                XCTAssertNotNil(CFURLCreateWithString(nil, url.absoluteString as CFString, nil), input)
+            }
         }
     }
 

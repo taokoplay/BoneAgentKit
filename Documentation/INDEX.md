@@ -13,6 +13,7 @@
 | [MinimalWorkflowHost](../Examples/MinimalWorkflowHost/README.md) | 编译运行独立 Host Fixture |
 | [ResourceReadingDemo](../Examples/ResourceReadingDemo/README.md) | 一条命令演示预览、压缩、回读和验收；另附六场景自动核验脚本 |
 | [WorkflowRunnerDemo](../Examples/WorkflowRunnerDemo/README.md) | 默认/自定义流程、规划权限、Prompt 组装与回执丢失的可运行原型 |
+| [SDK 状态与路线图](SDKStatusAndRoadmap.md) | 已实现能力、测试和 Demo 接入状态、生产验收缺口与后续计划 |
 
 ## 核心概念
 

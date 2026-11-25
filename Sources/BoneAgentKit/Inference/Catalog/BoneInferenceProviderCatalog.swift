@@ -287,6 +287,9 @@ public extension BoneInferenceProviderCatalog.Entry {
         guard let baseURL = overrideBaseURL ?? defaultBaseURL else {
             return nil
         }
+        if operation == "models", let compatible = BoneInferenceCompatibleDiscovery(entry: self) {
+            return try compatible.endpoint(baseURL: baseURL)
+        }
         var path = endpoint.replacingOccurrences(of: "{model}", with: modelID ?? "{model}")
         if path.contains("{origin}") {
             path = path.replacingOccurrences(of: "{origin}", with: try originString(of: baseURL))

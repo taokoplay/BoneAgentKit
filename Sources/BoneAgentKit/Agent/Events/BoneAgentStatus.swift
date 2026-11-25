@@ -59,7 +59,7 @@ public struct BoneAgentStatusSink: Sendable {
 /// One instance per accepted Run. Snapshot mutations are atomic; delivery is serialized
 /// across suspension points so a slow observer cannot reorder parallel tool updates.
 actor BoneAgentStatusReporter {
-    private let runID = UUID()
+    private let runID: UUID
     private let sink: BoneAgentStatusSink
     private let tokenSink: BoneAgentTokenSink
     private let clock: @Sendable () -> TimeInterval
@@ -75,7 +75,8 @@ actor BoneAgentStatusReporter {
 
     init(sink: BoneAgentStatusSink, tokenSink: BoneAgentTokenSink = .init(),
          clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         policy: BoneAgentObservationPolicy = .init()) {
+         policy: BoneAgentObservationPolicy = .init(), runID: UUID = UUID()) {
+        self.runID = runID
         self.sink = sink; self.tokenSink = tokenSink; self.clock = clock; self.policy = policy
         ledger = .init(policy: policy)
     }

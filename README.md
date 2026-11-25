@@ -204,6 +204,7 @@ Kit 负责执行控制面；App Host 负责业务 Intent、数据来源、UI、�
 
 ### 核心概念
 
+- [SDK 状态与路线图](Documentation/SDKStatusAndRoadmap.md)
 - [架构与模块边界](Documentation/Architecture.md)
 - [Tool Calling](Documentation/ToolCalling.md)
 - [可选内置工具 · BoneAgentTools](Documentation/BuiltInTools.md)
