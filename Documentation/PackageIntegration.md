@@ -13,7 +13,15 @@ BoneAgentKit 通过独立 Git 仓库中的 Swift Package 分发。调用方应�
 
 基础调用方只需依赖 `BoneAgentKit`；本地模型基础设施和 Adapter 是独立 Product，不会因基础依赖自动启用。
 
-Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.2.0-alpha.30`。
+Git Tag 是 SwiftPM 依赖解析的版本事实源。`BoneAgentKitVersion.current` 是供日志、诊断和兼容检查使用的运行时镜像，不会替代或自动创建 Tag；每次发布必须同步更新源码常量、README、CHANGELOG 与 Tag。当前预发布版本为 `0.3.0-alpha.1`。
+
+## 从 0.2.0-alpha.31 迁移到 0.3.0-alpha.1
+
+将 SwiftPM 精确版本更新为 `0.3.0-alpha.1` 并重新解析依赖。本版新增兼容网关模型发现、统一模型列表入口的匿名回退，以及可选的有界 Agent 观察流。默认 `BoneAgent.run`、既有事件入口、工具调用和持久化格式保持兼容。
+
+- `BoneInferenceService.modelList(forProvider:configuration:)` 现在覆盖 OpenAI-compatible 和 Anthropic-compatible 模型目录，支持当前基址下的模型路径解析、匿名列表和失败回退。模型能力与 Token 限制仍需由目录或 Host 证据提供。
+- `BoneAgent.runObservedEvents` 提供带 `runID` 和本流 `sequence` 的观察信封。使用有界流控 Engine 时，队列、单事件载荷和取消均有明确预算。自定义 Engine 需要实现对应的流控协议才能获得端到端背压。
+- 真实 Provider、生产 Host、跨进程持久化、最低 Swift 5.9 工具链、iOS 真机和 RSS 性能仍需接入方单独验收。
 
 从 `0.2.0-alpha.5` 升级时，使用方的 `BoneLlamaRuntime` 实现必须适配新的真实 Token 容量契约：增加 `tokenize(prompt:)`，并将旧 `generate(prompt:options:)` 改为 `generate(prompt:executionPlan:options:)`。Runtime 必须按 `executionPlan.prefillRanges` 对完整 Prompt 的 Token IDs 分批 prefill；完整迁移要求见 [LocalModels.md](LocalModels.md#从-alpha5-迁移到-alpha6)。只使用云 Provider 或未链接 `BoneAgentLlama` 的调用方不受该协议变更影响。
 

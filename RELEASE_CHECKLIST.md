@@ -182,3 +182,14 @@ Host 接入步骤、旧数据与回滚策略见 [Workflow Host 迁移与发布�
 - 独立 `MinimalWorkflowHost` fixture 的 Debug/Release 恢复与授权检查均通过；OpenAI、Anthropic、Gemini 三个 Provider 的无网络 dry-run、公开文档检查与 `git diff --check` 均通过。原始日志保留在本地临时验证目录，不纳入 Git。
 - 最低 Swift 5.9 工具链、真实 Provider、生产 Host Debug/Release、生产持久层、iOS 真机长期驻留及资源权利验收仍未关闭。本 tag 是预发布，不声明生产准入；不因本地检查通过而授予 Provider 商标/图片的再分发权利，遵循 `NOTICE.md` 既有范围。
 - `.pi/`、`.proma/`、`bone-media/` 与验证日志/构建缓存不纳入发布提交。
+
+## 0.3.0-alpha.1 模型发现与有界观察流版签发范围（2026-11-25）
+
+本轮版本为 `0.3.0-alpha.1`，准备在 `main` 当前候选提交上创建 annotated tag，并同步推送远端 `main` 与该 tag。不创建 GitHub Release 页面，不改写既有 tag。最终版本提交 SHA 由本地 tag 解引用和推送后的远端 tag 解引用共同核验。
+
+- 纳入 Provider-compatible 模型发现、OpenAI/Anthropic 兼容目录解析、模型路径 fallback、匿名列表读取和目录失败回退。
+- 纳入 `BoneAgent.runObservedEvents`、有界事件队列、FIFO 背压、取消唤醒、完成结果独立收口，以及 OpenAI、Anthropic、Gemini 的统一流控接入。
+- WorkflowRunnerDemo 已接入模型列表、`--bounded-stream` 离线契约验证、资源工具装配和可恢复 Agent Session。iOS Demo 已保留文件预览、PDF 布局、OCR、Office、二进制和模型目录入口。
+- 已有 SDK 全量测试 838 项通过，WorkflowRunnerDemo 全量测试 243 项通过，Provider/Streaming 定向测试 58 项通过，公开文档检查与 `git diff --check` 通过。当前发布前会重新执行可运行检查。
+- 真实 Provider、生产 Host 持久层、跨进程和重启恢复、最低 Swift 5.9、iOS 真机、长响应并发 RSS、旧式 Office 和密码解密仍未关闭。本 tag 是预发布，不声明生产准入。
+- `.pi/`、`.proma/`、`bone-media/`、`.omx/`、`.bone-project-wiki/`、嵌套 Xcode 工程和其他未跟踪工作区产物不纳入发布提交。

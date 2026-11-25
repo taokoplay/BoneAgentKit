@@ -1,6 +1,6 @@
 # BoneAgentKit 公开 API 基线
 
-本基线对应已发布的 `0.2.0-alpha.30`，涵盖本版及此前已实现的公开契约。带版本号的条目标明迁移背景；后续改动见 [变更记录](CHANGELOG.md) 的未发布部分。
+本基线对应预发布的 `0.3.0-alpha.1`，涵盖本版及此前已实现的公开契约。带版本号的条目标明迁移背景；后续改动见 [变更记录](CHANGELOG.md) 的未发布部分。
 
 ## 稳定范围
 
@@ -43,12 +43,12 @@
 - `BoneLlamaStopMatcher`、`BoneLlamaTerminationValidator`、`BoneLlamaNativeTemplateCapabilities`
 - `BoneLlamaRuntimeProbeAdapter`、`BoneLlamaToolEnvelopeCoding`、`BoneLlamaConstrainedJSONToolEnvelopeCodec`、`BoneLlamaInferenceEngine`
 
-## 未发布：可选长文件读取
+## 0.3.0-alpha.1：可选长文件读取
 
 - `BoneAgentTools.BoneDiskTextResource` 公开 `descriptor`、`init(importing:name:maximumBytes:)`、`read(_:)`、`search(_:maximumScanBytes:)`；`BoneDiskTextResourceError` 提供不含路径的导入错误。作用域和模型外传授权由 Host 管理。
 - 复用现有 UTF-8 字节偏移、工具引用与返回类型，没有给 `BoneAgentKit` 的 `resource.readText` 增加新参数或持久化义务。见[接入说明](Documentation/BuiltInTools.md#读取长文件)。
 
-## 未发布：有界观察流与运行关联
+## 0.3.0-alpha.1：有界观察流与运行关联
 
 - 新增 `BoneAgent.runObservedEvents`、`BoneAgentObservedEvent`、`BoneAgentObservedEventStream`。信封包含与状态和 Token 一致的观测 Run ID、本流交付序号和原事件；不自动 Codable，不等同于 Workflow 持久身份。嵌套普通 Run 显式清除继承的观察作用域。
 - 新增 `BoneEventBufferLimits`、`BoneEventBufferSnapshot`、`BoneEventStreamError`、`BoneBoundedEventStream<Element>`：单消费者、事件数/逻辑载荷/单事件限制、可取消 FIFO 发送、原生回调显式 offer 失败与容量统计。

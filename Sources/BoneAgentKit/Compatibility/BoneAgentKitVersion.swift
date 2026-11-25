@@ -4,10 +4,10 @@
 /// README、CHANGELOG 与 Tag 保持一致。
 public enum BoneAgentKitVersion: Sendable {
     public static let major = 0
-    public static let minor = 2
+    public static let minor = 3
     public static let patch = 0
-    public static let prerelease = "alpha.30"
+    public static let prerelease = "alpha.1"
 
     /// 符合 Semantic Versioning 2.0.0 的完整版本字符串。
-    public static let current = "0.2.0-alpha.30"
+    public static let current = "0.3.0-alpha.1"
 }
