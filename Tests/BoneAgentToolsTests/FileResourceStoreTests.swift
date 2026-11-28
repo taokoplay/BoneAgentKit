@@ -165,6 +165,35 @@ final class FileResourceStoreTests: XCTestCase {
         return data
     }
 
+    /// 真实临时文件在成功和解码失败后均应清理；可在非 ASCII TMPDIR 下运行验证路径编码。
+    func testStagingFilesAreCleanedAfterUnicodeImportAndDecodingFailure() async throws {
+        // 只比较本用例新增的 staging 路径，不触碰其他测试或宿主文件。
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        // 导入与规范化共用同一个临时文件工厂，这两个前缀都必须被回收。
+        let before = Set(try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path))
+        try await withStore { _, store in
+            try await withSource(Data("中文路径🌊".utf8)) { url in
+                // 验证成功导入的内容与资源身份仍可从持久快照读取。
+                let metadata = try await store.importFile(source: url, name: "中文🌊.txt", encoding: .utf8)
+                let page = try await store.readText(reference: metadata.reference, maximumBytes: 128)
+                XCTAssertEqual(page.text, "中文路径🌊")
+            }
+            try await withSource(Data([0xFF])) { url in
+                do {
+                    _ = try await store.importFile(source: url, encoding: .utf8)
+                    XCTFail("非法 UTF-8 不应导入成功")
+                } catch let error as BoneFileResourceError {
+                    XCTAssertEqual(error, .invalidEncoding)
+                }
+            }
+        }
+        // staging 工厂创建的文件在两条路径结束后均不可残留。
+        let after = Set(try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path))
+        XCTAssertTrue(after.subtracting(before).filter {
+            $0.hasPrefix("bone-resource-") || $0.hasPrefix("bone-text-normalized-")
+        }.isEmpty)
+    }
+
     /// GB18030 导入后只保留 UTF-8 视图，分页结果不要求调用方理解原始编码。
     func testGB18030NormalizesToUTF8AndRestoresAcrossStoreInstances() async throws {
         try await withStore { root, store in

@@ -37,6 +37,12 @@ struct BoneObservationRing<Element> {
     let limit: Int
     private var storage: [Element] = []
     private var next = 0
+    /// 创建空的内部观察环，保留延迟分配和零预算语义。
+    /// - Parameter limit: 最多留存的明细数；非正值不留存。
+    init(limit: Int) {
+        self.limit = limit
+    }
+
     var count: Int { storage.count }
     mutating func append(_ value: Element) {
         guard limit > 0 else { return }

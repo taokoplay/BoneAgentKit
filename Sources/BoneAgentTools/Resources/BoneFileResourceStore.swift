@@ -624,7 +624,8 @@ public actor BoneFileResourceStore {
         var path = Array(directory.appendingPathComponent(prefix + "XXXXXX").path.utf8CString)
         let fd = mkstemp(&path)
         guard fd >= 0 else { throw BoneFileResourceError.unavailable }
-        let url = URL(fileURLWithPath: String(cString: path))
+        // 显式使用指针重载，按 mkstemp 保留的 NUL 终止符解码原 UTF-8 路径。
+        let url = URL(fileURLWithPath: path.withUnsafeBufferPointer { String(cString: $0.baseAddress!) })
         guard fcntl(fd, F_SETFD, FD_CLOEXEC) != -1 else {
             _ = close(fd)
             try? FileManager.default.removeItem(at: url)

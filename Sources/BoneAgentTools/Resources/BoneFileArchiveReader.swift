@@ -516,7 +516,8 @@ public enum BoneFileArchiveReader {
         let fd = mkstemp(&path)
         guard fd >= 0 else { throw BoneFileResourceError.unavailable }
         guard fcntl(fd, F_SETFD, FD_CLOEXEC) != -1 else { _ = close(fd); throw BoneFileResourceError.unavailable }
-        return (fd, URL(fileURLWithPath: String(cString: path)))
+        // 显式使用指针重载，按 mkstemp 保留的 NUL 终止符解码原 UTF-8 路径。
+        return (fd, URL(fileURLWithPath: path.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }))
     }
 
     private static func writeAll(fd: Int32, data: Data, offset: Int) throws {
